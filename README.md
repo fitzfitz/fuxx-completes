@@ -12,7 +12,9 @@ engine that doesn't rely on any shell's completion system.
 ### fuxx-autosuggestions
 
 Grey ghost text that completes the command you're typing from commands you ran before.
-**→** accepts all of it; **⌥→** accepts the next word.
+**→** or **⌃E** accepts all of it; **Esc f** accepts the next word. **End** and **⌥→** do the same
+only if you haven't bound them to something else: we bind them only when they're free, and never
+take a binding of yours. vi mode works too.
 
 ```
 ~/proj $ git push o█rigin feature/login
@@ -50,12 +52,20 @@ A menu while you type: commands, subcommands, flags, arguments, git branches, fi
 | | Ghost text | Menu |
 | --- | --- | --- |
 | **zsh** | Yes, as you type (first target) | Yes, as you type, below the line; Tab stays zsh's |
-| **bash 4+** | Key-driven only; plain readline can't show ghost text. ble.sh: open question | Key-driven |
-| **fish** | No: fish has its own, and ours stays off | On Tab, in fish's own pager |
+| **bash** | Plain readline (bash 4.0+): key-driven only, it can't show ghost text. ble.sh (bash 3.0+): open question | Key-driven |
+| **fish** | No: fish has its own, and ours stays off | On Tab, in fish's own pager, only for commands fish has no completions for |
 
-Works in any terminal: Ghostty, iTerm, Warp, Terminal.app and others. Not used inside AI agents
-such as Claude Code, which have their own suggestions. If you already use zsh-autosuggestions or
-zsh-autocomplete, the matching fuxx library stays off. It never takes ⌃R, ⌃T or Tab from you.
+Versions: zsh 5.3+, bash 4.0+ (or 3.0+ with ble.sh), fish 3.0+. macOS first, Linux later, no
+Windows.
+
+Works in most terminals: Ghostty, iTerm, Terminal.app and others. **Not in Warp:** Warp's own input
+editor replaces the shell's, so shell plugins like this can't run there, and both libraries stay
+off. Not used inside AI agents such as Claude Code, which have their own suggestions. If you
+already use zsh-autosuggestions or zsh-autocomplete, the matching fuxx library stays off. It never
+takes ⌃R, ⌃T or Tab from you.
+
+In bash, the accept and menu keys may wait up to 50 ms for an answer (and do nothing if it's
+late); typing itself never waits, in any shell.
 
 ## Architecture
 
@@ -74,8 +84,22 @@ zsh-autocomplete, the matching fuxx library stays off. It never takes ⌃R, ⌃T
              history · ranking · line parsing · specs · generators
 ```
 
-All the logic lives in the core. The shell plugins only draw and forward keys. The core never calls
-a shell and has no network code: your history and command lines never leave your machine.
+All the logic lives in the core. The shell plugins only draw and forward keys and facts. The core
+never calls a shell and has no network code: your history and command lines never leave your
+machine.
+
+## Your data
+
+- Your history file is read, never written, and never copied.
+- The one file we keep is small: `~/.local/share/fuxx-completes/` (or under `$XDG_DATA_HOME`).
+  Per command it holds only the folder, the exit code and the time, under a keyed hash instead of
+  the command's text. That's what lets suggestions use the folder you're in, across shells and
+  restarts.
+- Commands your shell was told not to keep (a leading space, `HISTIGNORE`, fish's private mode)
+  never get a record and are never suggested.
+- Nothing is ever sent anywhere. `fuxx-completes forget` wipes the file.
+
+(Planned, like everything here.)
 
 ## Repo layout
 
@@ -95,18 +119,28 @@ THIRD_PARTY_NOTICES.md     licenses of imported data
 
 [fuxx](https://github.com/fitzfitz/fuxx-cli), a GPU terminal app for running AI coding agents,
 links the crates directly, draws its own nicer menu, and gets one switch per library in
-Preferences. That work is planned in fuxx's own roadmap.
+Preferences. The shell plugin passes it the line you're typing over the terminal (an OSC sequence,
+only when the terminal asks for it with `FUXX_COMPLETES_HOST=1`), and any terminal app can do the
+same. fuxx's side is planned in fuxx's own roadmap.
 
 ## Credits and prior art
 
 - [zsh-autosuggestions](https://github.com/zsh-users/zsh-autosuggestions): the ghost-text approach
   our zsh plugin follows.
 - [zsh-autocomplete](https://github.com/marlonrichert/zsh-autocomplete): real-time completion in zsh.
-- [Fig / withfig/autocomplete](https://github.com/withfig/autocomplete) (now Amazon Q Developer CLI):
-  our command knowledge starts from its MIT-licensed specs. See
-  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-- [atuin](https://github.com/atuinsh/atuin), [carapace](https://carapace.sh)
-  and [fish](https://fishshell.com)'s built-in autosuggestions.
+- [Fig / withfig/autocomplete](https://github.com/withfig/autocomplete): our command knowledge
+  starts from its MIT-licensed specs. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). (Amazon
+  announced its acquisition of Fig in August 2023; Fig became CodeWhisperer for command line, then
+  Amazon Q Developer CLI in 2024, and the Fig app shut down on 1 September 2024. The Q Developer
+  CLI client was later open-sourced as
+  [aws/amazon-q-developer-cli](https://github.com/aws/amazon-q-developer-cli).)
+- [inshellisense](https://github.com/microsoft/inshellisense) (Microsoft): multi-shell,
+  as-you-type autocomplete on Fig's specs, MIT. The closest prior art. We differ with a Rust core,
+  thin plugins inside each shell's own line editor, ghost text from history, and a channel for
+  terminal apps to draw the UI. See [`docs/design.md`](docs/design.md) §10.
+- [carapace](https://carapace.sh): a multi-shell completion engine.
+- [atuin](https://github.com/atuinsh/atuin) and [fish](https://fishshell.com)'s built-in
+  autosuggestions.
 
 ## License
 

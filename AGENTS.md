@@ -31,15 +31,24 @@ When they disagree, the design wins; flag it.
 5. **Never rely on zsh.** The core knows nothing about any shell's runtime: it never calls, embeds
    or depends on zsh, bash or fish, and never uses a shell's completion system for knowledge.
    (Parsing a history file's format is fine; it's just a file.) Adapters stay thin: they draw,
-   forward keys and report commands. No ranking, parsing or command knowledge in shell code.
+   forward keys, report saved commands, and forward facts the shell already has (shell state, and
+   the buffer to a host terminal; design §5.5, §5.9). No ranking, parsing or command knowledge in
+   shell code.
 
 6. **Never block or slow the user's typing.** A keystroke never waits on the core. Requests are
    async, stale answers are dropped, a slow or dead core means no suggestion, never a slow prompt
    or an error at the prompt. Respect the latency budget in `docs/design.md` §3. Adapters print
-   nothing at shell startup.
+   nothing at shell startup. **One stated exception:** in bash, an explicit key press (accept,
+   open or filter the menu) may send a `sync` request and wait for the core, bounded at 50 ms; on
+   timeout it does nothing. Keys that only type never wait, and the bash menu blocks only while it
+   is open.
 
 7. **History and command lines never leave the machine.** No network code, no telemetry, no
-   uploads. History files are read, never written or copied. Logs carry no command lines by default.
+   uploads. History files are read, never written or copied. The one file we write is the small
+   context file (`docs/design.md` §5.7, the user's decision): per command a keyed hash, the folder,
+   the exit code and the time, never the command text; it honours the shell's "don't save this"
+   rules and `fuxx-completes forget` wipes it. Never suggest a command the shell's ignore rules
+   hid. Logs carry no command lines by default.
 
 8. **Imported spec data keeps its license notice.** Anything converted from Fig's
    withfig/autocomplete (MIT) keeps upstream's notice in `THIRD_PARTY_NOTICES.md`, copied exactly,
@@ -82,14 +91,16 @@ zsh-autocomplete), before relying on a behaviour.
 - **Scope is the plain shell prompt.** Not inside AI agents such as Claude Code. Not history sync,
   not ⌃R replacement, not AI suggestions, not Windows. See `docs/design.md` §2.
 - **Coexist, don't fight.** If zsh-autosuggestions, zsh-autocomplete, fzf, atuin, ble.sh or fish's
-  own autosuggestions already do a job, detect it and stay off (`docs/design.md` §9). Never break
-  zsh's Tab, ⌃R or prompt themes such as powerlevel10k.
+  own autosuggestions already do a job, detect it and stay off (`docs/design.md` §9). Stay off in
+  Warp (`TERM_PROGRAM=WarpTerminal`). Never break zsh's Tab, ⌃R or prompt themes such as
+  powerlevel10k. Never rebind a key the user already bound.
 - **Use hook helpers, don't overwrite.** In zsh, `add-zsh-hook` and `add-zle-hook-widget`; only add
   and remove our own `region_highlight` entries.
 - **Generators run programs directly** (argument lists, never `sh -c`), with a timeout, only from
   specs we ship or the user's own spec folder.
-- **Tests never touch the user's real shell rc files or history.** Use a temporary HOME (and
-  `ZDOTDIR`, `XDG_*` as needed) and generated history files, every time.
+- **Tests never touch the user's real shell rc files, history or context file.** Use a temporary
+  HOME (and `ZDOTDIR`, `XDG_DATA_HOME` and other `XDG_*` as needed) and generated history files,
+  every time.
 - **Be honest about shell limits.** bash and fish can't do everything zsh can. Say so in docs; don't
   paper over it.
 
