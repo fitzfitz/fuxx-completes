@@ -1,0 +1,9 @@
+[package]
+name = "fuxx-autocomplete"
+description = "A completion menu for the shell prompt: commands, subcommands, flags, arguments and live values"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

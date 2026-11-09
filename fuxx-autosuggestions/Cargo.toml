@@ -1,0 +1,9 @@
+[package]
+name = "fuxx-autosuggestions"
+description = "Ghost-text suggestions for the shell prompt, from your past commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

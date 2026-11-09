@@ -1,0 +1,9 @@
+[package]
+name = "fuxx-completes-core"
+description = "The shared engine for fuxx-autosuggestions and fuxx-autocomplete"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
