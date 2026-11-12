@@ -323,9 +323,18 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   - `fuxx-completes forget`: wipes the context file (§5.7).
   - `fuxx-completes doctor` (§7).
 - Transport detail for zsh: zsh allows only one `coproc` at a time and other plugins may use it,
-  so the adapter should open its own pipe pair instead (named pipes in a private temp folder, or
-  a Unix socket via `zmodload zsh/net/socket`). The builder picks one in M0. bash has the same
-  single-coproc concern; named pipes opened with `exec` are the likely choice there, settled in M2.
+  so the adapter opens its own pair of **named pipes in a private temp folder** (**AI's call,
+  M0**). The shell opens both pipes read-write first so no open blocks, starts the core on them
+  (without the spare descriptors), opens its own write end of `req` and read end of `resp`, and unlinks
+  the pipes when the core's `ready` arrives, because earlier races the core's own open by path
+  (**AI's call, M0**). A dead core gives EOF on the read end, and a write never
+  raises `EPIPE` because the shell keeps a reader on `req`. **One request is in flight at a time**;
+  a core that hasn't answered in 2 s is hung and is stopped, and so is one that answers `ready`
+  with another protocol or when the shell exits. A core that is already gone (EOF) is never
+  signalled, because its pid may belong to another process by now (**AI's call, M0**). A buffer over
+  **1000 characters**, or one holding `0x1F` or `0x1E`, sends no request (**AI's call, M0**). The
+  adapter finds the binary through `FUXX_COMPLETES_BIN`, then `PATH` (**AI's call, M0**).
+  bash has the same single-coproc concern; named pipes opened with `exec` are the likely choice there, settled in M2.
 - A shared per-user daemon on a Unix socket would save memory across many shells but adds
   lifecycle work (start, stop, stale sockets), and bash can't open a socket without an extra
   tool. Deferred until per-session processes prove too heavy.
@@ -381,6 +390,9 @@ They:
 - **forward the buffer and cursor to a host terminal** over the host channel of §5.5, when the
   host advertises `FUXX_COMPLETES_HOST=1`, and bind the "accept from host" key;
 - detect conflicting plugins and terminals that replace the line editor, and stay off (§9).
+
+In M0 the zsh adapter is one self-contained file, `adapters/zsh/fuxx-autosuggestions.plugin.zsh`,
+that finds everything through `PATH` or variables, never through its own location.
 
 They hold no ranking, parsing or command knowledge. Forwarding facts the shell already has (the
 buffer, saved commands, alias expansions, `PATH`) is not relying on the shell: the core still
