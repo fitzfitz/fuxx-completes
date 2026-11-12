@@ -184,15 +184,16 @@ arrive.
 ## 5. Architecture
 
 ```
-  zsh plugin     bash plugin     fish plugin     other apps          fuxx
-  (draws only)   (draws only)    (draws only)    (draw their own)    (draws a nicer menu)
+  zsh plugin     bash plugin     fish plugin     other apps          a host terminal
+  (draws only)   (draws only)    (draws only)    (draw their own)    (draws its own UI)
        \              |              /               |                  |
         \             |             /                |      host channel: OSC on the pty
          +---- fuxx-completes binary ----------------+      (buffer, cursor, facts from
                (local protocol, §5.5)                        the shell adapter, §5.5)
                       |                                                 |
         +-------------+-------------------------------------------------+
-        |                    Rust crates (linked directly by fuxx)
+        |        Rust crates (linked by the binary and by embedders; fuxx installs the
+        |        zsh plugin and the binary as a fuxx plugin instead, §8)
         v
   fuxx-autosuggestions        fuxx-autocomplete
         \                        /
@@ -418,10 +419,16 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
 The core suggests only commands the shell itself kept, after the shell's own filtering.
 
 - **zsh:** a `zshaddhistory` hook (added with `add-zsh-hook`, so others keep theirs) notes the
-  line; at `precmd` the adapter reports it only if zsh actually kept it, with the filter respected:
-  the line is in zsh's history list and isn't one zsh drops later (`HIST_IGNORE_SPACE` with a
-  leading space, `HIST_NO_STORE`, a `HISTORY_IGNORE` match). The working directory is the one
-  captured at `preexec`. The exact check is verified against zsh's docs in M0.
+  line; the adapter reports it only if zsh actually kept it, with the filter respected: the line is
+  in zsh's history list and isn't one zsh drops later (`HIST_IGNORE_SPACE` with a leading space,
+  `HIST_NO_STORE`, a `HISTORY_IGNORE` match, a line another `zshaddhistory` hook rejects, an alias
+  with a leading space). **Reported one prompt later (the user's decision, 2026-11-13):** zsh keeps
+  a line it won't save in its history list until the next command is entered, so the adapter holds
+  each command back and reports it at the next prompt where another command went into history,
+  once zsh has dropped such lines. The cost, accepted: the command just run isn't suggested until
+  another runs, and a session's last command is never reported (memory only). The working
+  directory is the one captured at `preexec`, the exit status and time those of the command
+  itself. The exact check is verified against zsh's docs in M0.
 - **bash:** a function added to `PROMPT_COMMAND` (appended, not replacing) runs `history 1` and
   reports the entry only if its history number is new since the last prompt. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working
@@ -576,8 +583,9 @@ no longer links the crates.
   version     = <release version>
   description = Suggestions from your history as you type.
   bin         = bin
-  zsh         = shell/fuxx-completes.plugin.zsh
+  zsh         = shell/fuxx-autosuggestions.plugin.zsh
   ```
+  The zsh file follows §5.6's one-file-per-library naming (the user's decision, 2026-11-13).
 - **What fuxx does:** puts `bin/` on `PATH` and sources the zsh adapter in its zsh terminals after
   the user's `.zshrc`, with `FUXX_PLUGIN_DIR` and `FUXX_PLUGIN_DATA` set while it is sourced. The
   adapter starts `serve` and draws ghost text as it does in any terminal. fuxx's On/Off switch
