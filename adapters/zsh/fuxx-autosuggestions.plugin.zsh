@@ -11,23 +11,35 @@
 #   FUXX_COMPLETES_BIN                      the core binary (default: `fuxx-completes` on PATH)
 #   FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE    default fg=8
 
-emulate -L zsh
-[[ -o interactive ]] || return 0
-autoload -Uz is-at-least add-zsh-hook add-zle-hook-widget 2>/dev/null
-is-at-least 5.3 2>/dev/null || return 0
-zmodload zsh/datetime zsh/parameter 2>/dev/null || return 0
-zmodload -F zsh/files b:zf_rm b:zf_rmdir b:zf_mkdir 2>/dev/null || return 0
-
-# State. '' until the first prompt, then `on` or `off`.
-typeset -g _FUXX_AS_STATE=''
-typeset -g _FUXX_AS_PID=''
-typeset -g _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD=''
-typeset -g _FUXX_AS_NEXT_ID=1 _FUXX_AS_INFLIGHT_ID='' _FUXX_AS_INFLIGHT_SINCE=0
-typeset -g _FUXX_AS_INFLIGHT_BUFFER='' _FUXX_AS_LAST_BUFFER=''
-typeset -g _FUXX_AS_DIR=''       # the temp folder holding the pipes, until the core is known to have them open
-typeset -g _FUXX_AS_HL=''        # the exact highlight string we added (used below zsh 5.9)
-typeset -g _FUXX_AS_MEMO=0       # 1 when region_highlight accepts `memo=` (zsh 5.9+)
-is-at-least 5.9 && _FUXX_AS_MEMO=1
+# Load-time logic lives in an anonymous function: `emulate -L zsh` at the top of a sourced file
+# would change the user's options for the whole shell. State is created only if it doesn't exist,
+# so sourcing the file again (`source ~/.zshrc`) never resets a running core's state.
+() {
+  emulate -L zsh
+  [[ -o interactive ]] || return 1
+  autoload -Uz is-at-least add-zsh-hook add-zle-hook-widget 2>/dev/null
+  is-at-least 5.3 2>/dev/null || return 1
+  zmodload zsh/datetime zsh/parameter zsh/zleparameter zsh/system 2>/dev/null || return 1
+  zmodload -F zsh/files b:zf_rm b:zf_rmdir b:zf_mkdir 2>/dev/null || return 1
+  (( $+_FUXX_AS_STATE )) && return 0
+  # State. '' until the first prompt, then `on` or `off`.
+  typeset -g _FUXX_AS_STATE=''
+  typeset -g _FUXX_AS_PID=''
+  typeset -g _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD=''
+  typeset -g _FUXX_AS_NEXT_ID=1 _FUXX_AS_INFLIGHT_ID='' _FUXX_AS_INFLIGHT_SINCE=0
+  typeset -g _FUXX_AS_INFLIGHT_BUFFER='' _FUXX_AS_LAST_BUFFER=''
+  typeset -g _FUXX_AS_DIR=''     # the temp folder holding the pipes, until the core has them open
+  typeset -g _FUXX_AS_HL=''      # the exact highlight string we added (used below zsh 5.9)
+  typeset -g _FUXX_AS_MEMO=0     # 1 when region_highlight accepts `memo=` (zsh 5.9+)
+  typeset -g _FUXX_AS_CLOEXEC=0  # 1 when `sysopen -o cloexec` works on this zsh
+  is-at-least 5.9 && _FUXX_AS_MEMO=1
+  local fd
+  if sysopen -r -o cloexec -u fd /dev/null 2>/dev/null; then
+    { exec {fd}<&- } 2>/dev/null
+    _FUXX_AS_CLOEXEC=1
+  fi
+  return 0
+} || return 0
 
 _fuxx_as_unlink_pipes() {
   emulate -L zsh
@@ -38,6 +50,23 @@ _fuxx_as_unlink_pipes() {
   return 0
 }
 
+# _fuxx_as_open <r|w|rw> <file>: opens a pipe, close-on-exec where zsh can (so the programs the
+# user runs never inherit it); the descriptor number comes back in $REPLY.
+_fuxx_as_open() {
+  emulate -L zsh
+  local mode=$1 file=$2 fd
+  if (( _FUXX_AS_CLOEXEC )); then
+    sysopen -$mode -o cloexec -u fd $file 2>/dev/null || return 1
+  else
+    case $mode in
+      rw) { exec {fd}<>$file } 2>/dev/null ;;
+      w)  { exec {fd}>$file } 2>/dev/null ;;
+      r)  { exec {fd}<$file } 2>/dev/null ;;
+    esac || return 1
+  fi
+  REPLY=$fd
+}
+
 # Starts the core on two named pipes. Open order (checked on macOS): the shell opens both pipes
 # read-write first, so no open blocks; the core is started on them; the shell then opens its
 # write end of `req` and read end of `resp`, and drops the helper descriptors. A dead core gives
@@ -46,7 +75,7 @@ _fuxx_as_unlink_pipes() {
 # in its own process, and unlinking earlier races that open (the core then fails to start).
 _fuxx_as_start() {
   emulate -L zsh
-  local bin=${FUXX_COMPLETES_BIN:-${commands[fuxx-completes]-}} dir rs=''
+  local bin=${FUXX_COMPLETES_BIN:-${commands[fuxx-completes]-}} dir rs='' ok=1
   if [[ -z $bin || ! -x $bin || -d $bin ]]; then
     _FUXX_AS_STATE=off
     return 0
@@ -59,22 +88,24 @@ _fuxx_as_start() {
     _FUXX_AS_STATE=off
     return 0
   fi
+  # Any failure below falls through to the cleanup after the block (never `return` from inside).
   {
-    exec {_FUXX_AS_KEEPFD}<>$dir/req {rs}<>$dir/resp || return 1
-    # The core must not inherit our spare descriptors, or it would hold its own pipe ends open.
-    "$bin" serve <$dir/req >$dir/resp 2>/dev/null {_FUXX_AS_KEEPFD}>&- {rs}>&- &!
-    _FUXX_AS_PID=$!
-    exec {_FUXX_AS_WFD}>$dir/req {_FUXX_AS_RFD}<$dir/resp || return 1
-    exec {rs}>&-
+    _fuxx_as_open rw $dir/req && _FUXX_AS_KEEPFD=$REPLY || ok=0
+    if (( ok )); then _fuxx_as_open rw $dir/resp && rs=$REPLY || ok=0; fi
+    if (( ok )); then
+      # The core must not inherit our spare descriptors, or it would hold its own pipe ends open.
+      "$bin" serve <$dir/req >$dir/resp 2>/dev/null {_FUXX_AS_KEEPFD}>&- {rs}>&- &!
+      _FUXX_AS_PID=$!
+      _fuxx_as_open w $dir/req && _FUXX_AS_WFD=$REPLY || ok=0
+    fi
+    if (( ok )); then _fuxx_as_open r $dir/resp && _FUXX_AS_RFD=$REPLY || ok=0; fi
+    [[ -n $rs ]] && { exec {rs}>&- }
   } 2>/dev/null
-  local rc=$?
-  if (( rc != 0 )) || [[ -z $_FUXX_AS_WFD || -z $_FUXX_AS_RFD ]]; then
-    [[ -n $rs ]] && { exec {rs}>&- } 2>/dev/null
+  # A plain function, not `-w`, so it also gets the error argument (`hup`, ...).
+  if (( ! ok )) || ! zle -F $_FUXX_AS_RFD _fuxx_as_on_response 2>/dev/null; then
     _fuxx_as_stop kill
     return 0
   fi
-  # A plain function, not `-w`, so it also gets the error argument (`hup`, ...).
-  zle -F $_FUXX_AS_RFD _fuxx_as_on_response 2>/dev/null || { _fuxx_as_stop kill; return 0 }
   _fuxx_as_send hello 1 zsh "$ZSH_VERSION" zsh "${HISTFILE:+${HISTFILE:a}}" autosuggestions
   _fuxx_as_wrap_widgets
   _FUXX_AS_STATE=on
@@ -164,10 +195,9 @@ _fuxx_as_on_response() {
   return 0
 }
 
-_fuxx_as_show() {
+# Adds our highlight entry for the current POSTDISPLAY (after the buffer's end).
+_fuxx_as_highlight() {
   emulate -L zsh
-  _fuxx_as_clear
-  POSTDISPLAY=$1
   [[ -n $POSTDISPLAY ]] || return 0
   local hl="$#BUFFER $(( $#BUFFER + $#POSTDISPLAY )) ${FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE:-fg=8}"
   (( _FUXX_AS_MEMO )) && hl+=" memo=fuxx-autosuggestions"
@@ -176,9 +206,8 @@ _fuxx_as_show() {
 }
 
 # Removes only our own highlight entry: by its `memo=` tag on 5.9+, by its exact string below.
-_fuxx_as_clear() {
+_fuxx_as_unhighlight() {
   emulate -L zsh
-  POSTDISPLAY=
   if (( _FUXX_AS_MEMO )); then
     region_highlight=( "${(@)region_highlight:#*memo=fuxx-autosuggestions}" )
   elif [[ -n $_FUXX_AS_HL ]]; then
@@ -188,7 +217,22 @@ _fuxx_as_clear() {
   return 0
 }
 
+_fuxx_as_show() {
+  emulate -L zsh
+  _fuxx_as_clear
+  POSTDISPLAY=$1
+  _fuxx_as_highlight
+}
+
+_fuxx_as_clear() {
+  emulate -L zsh
+  POSTDISPLAY=
+  _fuxx_as_unhighlight
+  return 0
+}
+
 _fuxx_as_widget_show() {
+  emulate -L zsh
   _fuxx_as_show "$1"
   zle -R
 }
@@ -207,29 +251,46 @@ _fuxx_as_widget_answer() {
 zle -N fuxx-as-answer _fuxx_as_widget_answer
 
 _fuxx_as_widget_clear() {
+  emulate -L zsh
   _fuxx_as_clear
   zle -R
 }
 zle -N fuxx-as-clear _fuxx_as_widget_clear
 
-# After the original widget ran: if the buffer changed, drop the old ghost text and ask again.
+# _fuxx_as_w_modify <original widget> [args]: runs the original; if the buffer changed, drops the
+# old ghost text and asks again. Our highlight entry is taken off first, because zsh shifts
+# region_highlight entries when text is inserted (below 5.9 we can only match our entry by its exact
+# string), and put back if the ghost text stays.
 _fuxx_as_w_modify() {
   emulate -L zsh
+  local orig=$1
+  shift
   local -i ret
-  zle fuxx-as-orig-$WIDGET -- "$@"
+  _fuxx_as_unhighlight
+  zle fuxx-as-orig-$orig -- "$@"
   ret=$?
   if [[ $BUFFER != "$_FUXX_AS_LAST_BUFFER" ]]; then
     _fuxx_as_clear
     _FUXX_AS_LAST_BUFFER=$BUFFER
     _fuxx_as_request
+  else
+    _fuxx_as_highlight
   fi
   return $ret
 }
 
-_fuxx_as_line_init() { _FUXX_AS_LAST_BUFFER='' }
-_fuxx_as_line_finish() { _fuxx_as_clear }   # ghost text never stays in the scrollback
+_fuxx_as_line_init() {
+  emulate -L zsh
+  _FUXX_AS_LAST_BUFFER=''
+}
+_fuxx_as_line_finish() {   # ghost text never stays in the scrollback
+  emulate -L zsh
+  _fuxx_as_clear
+}
 
 # Runs once, at the first precmd, so it sees every widget the user's rc and other plugins made.
+# Each widget gets its own small function that names the original, so a widget that another
+# widget calls with `zle name` finds its original without relying on $WIDGET.
 _fuxx_as_wrap_widgets() {
   emulate -L zsh
   local w
@@ -238,8 +299,10 @@ _fuxx_as_wrap_widgets() {
       .*|_*|fuxx-as-*|orig-*|zle-*|azhw:*) continue ;;
       beep|run-help|set-local-history|which-command|yank|yank-pop) continue ;;
     esac
+    [[ ${widgets[$w]-} == user:_fuxx_as_bound_* ]] && continue   # already ours
     zle -A $w fuxx-as-orig-$w 2>/dev/null || continue
-    zle -N $w _fuxx_as_w_modify 2>/dev/null
+    functions[_fuxx_as_bound_$w]="emulate -L zsh; _fuxx_as_w_modify ${(q)w} \"\$@\""
+    zle -N $w _fuxx_as_bound_$w 2>/dev/null
   done
   add-zle-hook-widget line-init _fuxx_as_line_init 2>/dev/null
   add-zle-hook-widget line-finish _fuxx_as_line_finish 2>/dev/null

@@ -325,8 +325,9 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
 - Transport detail for zsh: zsh allows only one `coproc` at a time and other plugins may use it,
   so the adapter opens its own pair of **named pipes in a private temp folder** (**AI's call,
   M0**). The shell opens both pipes read-write first so no open blocks, starts the core on them
-  (without the spare descriptors), opens its own write end of `req` and read end of `resp`, and unlinks
-  the pipes when the core's `ready` arrives, because earlier races the core's own open by path
+  (without the spare descriptors), opens its own write end of `req` and read end of `resp`
+  (close-on-exec through `sysopen -o cloexec` where the zsh has it, so programs the user runs never
+  inherit them), and unlinks the pipes when the core's `ready` arrives, because earlier races the core's own open by path
   (**AI's call, M0**). A dead core gives EOF on the read end, and a write never
   raises `EPIPE` because the shell keeps a reader on `req`. **One request is in flight at a time**;
   a core that hasn't answered in 2 s is hung and is stopped, and so is one that answers `ready`

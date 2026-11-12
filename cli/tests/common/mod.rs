@@ -77,6 +77,7 @@ impl ZshHarness {
              HISTFILE=$HOME/.zsh_history; HISTSIZE=1000; SAVEHIST=1000; PS1='{PROMPT}'; bindkey -e; KEYTIMEOUT=1\n\
              source '{plugin}'\n\
              _fuxx-test-dump() {{\n\
+               emulate -L zsh\n\
                print -rn -- \"$BUFFER\"$'\\x1f'\"$CURSOR\"$'\\x1f'\"$POSTDISPLAY\"$'\\x1f'\"${{(pj:\\x1e:)region_highlight}}\"$'\\x1f'\"${{_FUXX_AS_PID-}}\"$'\\x1f'END >| \"$HOME/dump\"\n\
              }}\n\
              zle -N _fuxx-test-dump\n\

@@ -278,8 +278,10 @@ fn hung_core_is_stopped_after_two_seconds() {
 
 #[test]
 fn adapter_survives_hostile_user_options() {
+    // Set before and after the plugin loads, so the options are live whenever our code runs.
     let mut z = ZshHarness::start(ZshOpts {
         rc_before: "setopt ksharrays shwordsplit nounset warncreateglobal".into(),
+        rc_after: "setopt ksharrays shwordsplit nounset warncreateglobal".into(),
         ..git_history()
     });
     z.send("git p");
@@ -331,4 +333,127 @@ fn separator_byte_in_buffer_sends_nothing() {
     z.send("\x15"); // ^U
     z.run("echo ok");
     assert!(z.screen_now().contains("\r\nok\r\n"));
+}
+
+#[test]
+fn sourcing_the_plugin_leaves_user_options_alone() {
+    let hostile = "setopt ksharrays shwordsplit nounset extendedglob autocd";
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: hostile.into(),
+        rc_after: hostile.into(),
+        ..git_history()
+    });
+    z.run(
+        "print -r -- ${options[ksharrays]}:${options[shwordsplit]}:${options[nounset]}:\
+${options[extendedglob]}:${options[autocd]}:${options[localoptions]} >| $HOME/opts",
+    );
+    let opts = std::fs::read_to_string(z.home().join("opts")).unwrap();
+    assert_eq!(opts.trim(), "on:on:on:on:on:off");
+}
+
+#[test]
+fn sourcing_again_keeps_one_working_core() {
+    let mut z = ZshHarness::start(git_history());
+    z.send("git p");
+    let before = z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x15");
+    z.wait_state(|s| s.buffer.is_empty());
+    z.run("source ~/.zshrc");
+    z.send("git p");
+    let after = z.wait_state(|s| s.postdisplay == "ush origin main");
+    assert_eq!(before.core_pid, after.core_pid);
+    assert!(alive(after.core_pid.unwrap()));
+    let screen = printable(&z.screen_now()).to_lowercase();
+    for bad in ["nested", "error", "not found", "failed"] {
+        assert!(!screen.contains(bad), "{bad:?} on screen: {screen:?}");
+    }
+}
+
+#[test]
+fn user_widget_calling_wrapped_widgets_works() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["git 2 foo", "git status", "git push origin main"],
+        rc_after: "my-two() { zle backward-delete-char; zle self-insert }\n\
+                   zle -N my-two\n\
+                   bindkey '^X2' my-two"
+            .into(),
+        ..Default::default()
+    });
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x182"); // ^X 2: delete "p", insert "2"
+    let s = z.wait_state(|s| s.buffer == "git 2" && s.postdisplay == " foo");
+    assert_eq!(s.region_highlight.len(), 1, "{s:?}");
+    let screen = z.screen_now().to_lowercase();
+    assert!(
+        !screen.contains("nested") && !screen.contains("error"),
+        "{screen:?}"
+    );
+}
+
+#[test]
+fn without_memo_our_highlight_entries_do_not_pile_up() {
+    // Forces the path zsh < 5.9 takes: our entry is found by its exact string only.
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "_FUXX_AS_MEMO=0".into(),
+        ..git_history()
+    });
+    z.send("git p");
+    let s = z.wait_state(|s| s.postdisplay == "ush origin main");
+    assert_eq!(s.region_highlight, vec!["5 20 fg=8".to_string()]);
+    z.send("u");
+    let s = z.wait_state(|s| s.buffer == "git pu" && s.postdisplay == "sh origin main");
+    assert_eq!(s.region_highlight, vec!["6 20 fg=8".to_string()]);
+    z.send("x");
+    let s = z.wait_state(|s| s.buffer == "git pux" && s.postdisplay.is_empty());
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+}
+
+#[test]
+fn programs_the_user_runs_do_not_inherit_adapter_fds() {
+    let mut z = ZshHarness::start(git_history());
+    z.run("print -r -- $_FUXX_AS_WFD $_FUXX_AS_RFD $_FUXX_AS_KEEPFD >| $HOME/ours; /bin/ls /dev/fd >| $HOME/fds");
+    let ours = std::fs::read_to_string(z.home().join("ours")).unwrap();
+    let fds: Vec<String> = std::fs::read_to_string(z.home().join("fds"))
+        .unwrap()
+        .split_whitespace()
+        .map(String::from)
+        .collect();
+    let ours: Vec<&str> = ours.split_whitespace().collect();
+    assert!(!ours.is_empty(), "no adapter fds recorded");
+    for n in ours {
+        assert!(!fds.iter().any(|f| f == n), "fd {n} inherited: {fds:?}");
+    }
+}
+
+#[test]
+fn a_failed_start_ends_off_stops_the_core_and_leaves_nothing() {
+    // Fail the open of our write end after the core was started: the cleanup must still run.
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(r#"echo $$ > "$HOME/core.pid"; exec cat > /dev/null"#),
+        rc_before: "mkdir -p $HOME/tmp; export TMPDIR=$HOME/tmp".into(),
+        rc_after: "functions -c _fuxx_as_open _t_open\n\
+                   _fuxx_as_open() { [[ $1 == w ]] && return 1; _t_open \"$@\" }"
+            .into(),
+        ..Default::default()
+    });
+    z.run("print -r -- $_FUXX_AS_STATE >| $HOME/st");
+    z.run("echo again");
+    let st = std::fs::read_to_string(z.home().join("st")).unwrap();
+    assert_eq!(st.trim(), "off");
+    let left: Vec<_> = std::fs::read_dir(z.home().join("tmp")).unwrap().collect();
+    assert!(left.is_empty(), "temp folders left: {left:?}");
+    // The core may have been stopped before its script wrote a pid; if it did, it must be gone.
+    if let Ok(text) = std::fs::read_to_string(z.home().join("core.pid")) {
+        let pid: u32 = text.trim().parse().unwrap();
+        assert!(
+            poll(Duration::from_secs(1), || !alive(pid)),
+            "core {pid} left running"
+        );
+    }
+    let screen = printable(&z.screen_now()).to_lowercase();
+    assert!(
+        !screen.contains("fuxx-completes") && !screen.contains("error"),
+        "{screen:?}"
+    );
 }
