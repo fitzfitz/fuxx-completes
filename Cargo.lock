@@ -9,6 +9,9 @@ version = "0.0.0"
 [[package]]
 name = "fuxx-autosuggestions"
 version = "0.0.0"
+dependencies = [
+ "fuxx-completes-core",
+]
 
 [[package]]
 name = "fuxx-completes-core"

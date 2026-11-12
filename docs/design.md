@@ -451,7 +451,9 @@ The core suggests only commands the shell itself kept, after the shell's own fil
   whole file off the typing path and swaps the index in when done. So deletions such as
   `history -d` (once written) are respected, and commands other shells saved appear.
 - **Session records** (from `ran`) fill the gap until the shell writes its file. They are reported
-  only after the filter above, so a command the ignore rules hid is never suggested.
+  only after the filter above, so a command the ignore rules hid is never suggested. They are ranked
+  above file entries until the file holds them; each entry the core reads from the file retires one
+  equal session record (AI's call, M0).
 
 ### 5.9 Shell state (AI's call)
 
