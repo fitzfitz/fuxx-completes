@@ -72,6 +72,11 @@ impl History {
     }
 
     #[cfg(test)]
+    pub(crate) fn file_entries(&self) -> &[String] {
+        &self.file
+    }
+
+    #[cfg(test)]
     fn session_len(&self) -> usize {
         self.session.len()
     }

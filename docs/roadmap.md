@@ -32,6 +32,7 @@ Newest first. Add an entry whenever a task is ready.
   `core/src/protocol.rs`; field-separated, JSON deferred; `design.md` §5.5 and §17 Q1 updated).
   zsh history parser (`core/src/zsh_history.rs`: metafied bytes, EXTENDED_HISTORY, multi-line).
   History index (`core/src/history.rs`) and `suggestion()` in `fuxx-autosuggestions`.
+  History file re-reading (`core/src/history_file.rs`: growth read inline, any other change a background full read).
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links
   these crates; it installs fuxx-completes as a plugin. `design.md` §2, §4, §8, §9 and §15 updated:

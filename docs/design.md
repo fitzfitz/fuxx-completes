@@ -450,6 +450,7 @@ The core suggests only commands the shell itself kept, after the shell's own fil
   modification time. If the file only grew, it reads the new part; otherwise it re-reads the
   whole file off the typing path and swaps the index in when done. So deletions such as
   `history -d` (once written) are respected, and commands other shells saved appear.
+  A growth is trusted only on the same device and inode; anything else is a full re-read (AI's call, M0).
 - **Session records** (from `ran`) fill the gap until the shell writes its file. They are reported
   only after the filter above, so a command the ignore rules hid is never suggested. They are ranked
   above file entries until the file holds them; each entry the core reads from the file retires one
