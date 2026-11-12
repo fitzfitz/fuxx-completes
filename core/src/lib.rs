@@ -1,7 +1,7 @@
 //! # fuxx-completes-core
 //!
-//! The shared engine behind `fuxx-autosuggestions` and `fuxx-autocomplete`. Nothing is
-//! implemented yet; this crate is a placeholder. See `docs/design.md`.
+//! The shared engine behind `fuxx-autosuggestions` and `fuxx-autocomplete`. See
+//! `docs/design.md`.
 //!
 //! What goes here:
 //!
@@ -17,3 +17,5 @@
 //!
 //! The core knows nothing about any shell's runtime: it never calls, embeds or depends on
 //! zsh, bash or fish. It never sends history or command lines off the machine.
+
+pub mod protocol;

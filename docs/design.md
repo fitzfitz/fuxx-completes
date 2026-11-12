@@ -276,20 +276,30 @@ is never suggested (§5.8).
 change), then by prefix match quality, then by how often the user picked them (counted in memory
 only; persisting them would need the user to widen §5.7 first).
 
-### 5.5 The adapter protocol (AI's call, a proposal to settle in the first plan)
+### 5.5 The adapter protocol (AI's call, settled in the M0 plan)
 
 The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx-completes`.
-
-Proposal:
 
 - One long-lived `fuxx-completes serve` child process per shell session, started by the adapter on
   the first prompt. It loads history once and keeps it warm. Starting a process on every keystroke
   would reload history each time and can't meet the budget.
-- Requests and responses are **line-delimited JSON** over the child's stdin and stdout, one object
-  per line. Every request has an `id`; every response echoes it.
-- Shell code shouldn't have to parse JSON. The binary may also offer a plain field-separated
-  encoding of the same messages for the shell adapters (for example fields split by a control
-  character, newlines escaped). Settle which in the first plan.
+- **Wire format 1 (AI's call, settled in the M0 plan).** One message per line, field-separated so
+  shell code never parses JSON. `US` = byte `0x1F` separates fields, `LF` ends the message. Inside a
+  field a newline is written as `RS` = `0x1E`; a field never otherwise contains `US` or `RS` (the
+  adapter doesn't send such a buffer; the core answers "no suggestion" rather than send such text).
+
+  | Direction | Message | Fields after the kind |
+  | --- | --- | --- |
+  | adapter → core | `hello` | protocol (`1`), shell (`zsh`), shell version, history format (`zsh`), history path (absolute, may be empty), libraries (comma list: `autosuggestions`) |
+  | adapter → core | `suggest` | id (u64), mode (`async`/`sync`), cursor (code points), cwd, buffer |
+  | adapter → core | `ran` | cwd (where it started), exit status (i32), time (Unix seconds), command |
+  | adapter → core | `bye` | none |
+  | core → adapter | `ready` | protocol (`1`) |
+  | core → adapter | `suggestion` | id, text after the buffer (empty = none) |
+
+  Unknown kinds are ignored. A `suggest` whose id parses but whose other fields don't still gets an
+  empty `suggestion` for that id, so the adapter's one-in-flight slot always clears. A JSON encoding
+  of the same messages is added when an embedder in another language needs one (deferred).
 - **Request modes (AI's call).** Every request has a `mode`: `async` (the default; the adapter
   doesn't wait, the answer is drawn when it arrives) or `sync` (the bash explicit keys of §3; the
   adapter waits at most 50 ms). A `sync` request is answered ahead of queued `async` work and never
@@ -324,7 +334,7 @@ Where the binary's code lives (a `cli/` crate, or a `[[bin]]` in an existing cra
 the M0 plan.
 
 Embedders: other Rust programs link the crates directly; programs in other languages run the
-binary and speak JSON. fuxx links the crates (§8).
+binary and speak wire format 1 (JSON deferred). fuxx runs the zsh adapter as a plugin (§8).
 
 #### The host channel: OSC on the pty (AI's call)
 
@@ -797,7 +807,8 @@ over the host channel is later, in both repos.
 
 ## 17. Open questions
 
-1. Line-delimited JSON for everyone, or a simpler encoding for shell adapters (§5.5)?
+1. ~~Line-delimited JSON for everyone, or a simpler encoding for shell adapters (§5.5)?~~ Answered
+   (M0 plan): field-separated for shells (wire format 1); JSON deferred until an embedder needs it.
 2. Can ble.sh take our suggestions through its own interfaces (§6)?
 3. JSON or TOML for specs, compiled in or loaded from disk (§5.2)?
 4. Should menu pick counts persist across sessions? The context file holds only folder, exit code

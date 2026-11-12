@@ -5,11 +5,11 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M0** (not started).
+**Current milestone: M0** (in progress).
 
 | | Milestone | Status |
 | --- | --- | --- |
-| M0 | Core + history + zsh adapter | ⬜ |
+| M0 | Core + history + zsh adapter | 🟨 |
 | M1 | Autosuggestions: context file and coexistence | ⬜ |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
@@ -27,6 +27,9 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-13** — M0 started. Wire format 1 (protocol types and line encoding in
+  `core/src/protocol.rs`; field-separated, JSON deferred; `design.md` §5.5 and §17 Q1 updated).
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links
   these crates; it installs fuxx-completes as a plugin. `design.md` §2, §4, §8, §9 and §15 updated:
