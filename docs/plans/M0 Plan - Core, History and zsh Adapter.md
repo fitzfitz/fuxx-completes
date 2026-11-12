@@ -491,8 +491,10 @@ on zsh 5.9 on 2026-11-13. Don't use `-i` without `</dev/null`.
     `_fuxx_as_request` (suggest for `$BUFFER`), `_fuxx_as_on_response <fd> [err]`,
     `_fuxx_as_show <text>`, `_fuxx_as_clear`, `_fuxx_as_wrap_widgets`, `_fuxx_as_w_modify`, and the
     widget `fuxx-as-show` (calls `_fuxx_as_show "$1"` then `zle -R`).
-  - Original widgets are kept as `fuxx-as-orig-<name>` (`zle -A <name> fuxx-as-orig-<name>`); a
-    wrapper finds its original through `$WIDGET`.
+  - Original widgets are kept as `fuxx-as-orig-<name>` (`zle -A <name> fuxx-as-orig-<name>`); each
+    wrapped widget gets a generated function `_fuxx_as_bound_<name>` that calls its wrapper with the
+    original's name as the first argument (**amended 2026-11-13 in Task 6's review**: `$WIDGET` is the
+    widget the key ran, so a widget called with `zle name` from another widget recursed).
 - Test harness (`cli/tests/common/mod.rs`), used by Tasks 6–9:
   ```rust
   pub struct ZshOpts { pub history: Vec<&'static str>, pub rc_before: String, pub rc_after: String,
@@ -622,9 +624,13 @@ on zsh 5.9 on 2026-11-13. Don't use `-i` without `</dev/null`.
     wrapper picked from the lists in Task 7 or `_fuxx_as_w_modify`. Use `add-zle-hook-widget
     line-init` (reset `_FUXX_AS_LAST_BUFFER=`) and `line-finish` (`_fuxx_as_clear`, so ghost text
     never stays in the scrollback).
-  - `_fuxx_as_w_modify`: run `zle fuxx-as-orig-$WIDGET -- "$@"`, keep its status; if `$BUFFER` ≠
+  - `_fuxx_as_w_modify <orig> [args]`: take our highlight off first (zsh shifts `region_highlight`
+    entries on insert, so below 5.9 the exact string would no longer match afterwards — amended in
+    Task 6's review), run `zle fuxx-as-orig-$orig -- "$@"`, keep its status; if `$BUFFER` ≠
     `_FUXX_AS_LAST_BUFFER`: `_fuxx_as_clear`, `_FUXX_AS_LAST_BUFFER=$BUFFER`, `_fuxx_as_request`;
-    return the status.
+    else put our highlight back; return the status. The shell-side pipe fds are opened
+    close-on-exec (`zsh/system` `sysopen -o cloexec`, plain `exec {fd}` only if unavailable), so the
+    user's commands don't inherit them (amended in Task 6's review).
 - [ ] **Step 7: Run** `cargo test -p fuxx-completes --test zsh_adapter` — Expected: PASS on `/bin/zsh` (5.9).
 - [ ] **Step 8: Docs.** §5.5 transport bullet: replace "The builder picks one in M0" with the named-pipe
   decision, the open order in one sentence, one request in flight with the 2 s hang rule, the 1000
@@ -643,7 +649,9 @@ on zsh 5.9 on 2026-11-13. Don't use `-i` without `</dev/null`.
 
 **Interfaces:**
 - Consumes: Task 6's state, `_fuxx_as_show`, `_fuxx_as_clear`, `_fuxx_as_wrap_widgets`.
-- Produces: `_fuxx_as_w_accept`, `_fuxx_as_w_partial`, `_fuxx_as_w_clear`, `_fuxx_as_bind_if_free <keymap> <seq> <widget>`, and the lists:
+- Produces: `_fuxx_as_w_accept`, `_fuxx_as_w_partial`, `_fuxx_as_w_clear` (each takes the original
+  widget's name as its first argument, like `_fuxx_as_w_modify`, through the generated
+  `_fuxx_as_bound_<name>` functions — see Task 6's amendment), `_fuxx_as_bind_if_free <keymap> <seq> <widget>`, and the lists:
   - accept: `forward-char end-of-line vi-forward-char vi-end-of-line vi-add-eol`
   - partial: `forward-word emacs-forward-word vi-forward-word vi-forward-word-end vi-forward-blank-word vi-forward-blank-word-end vi-find-next-char vi-find-next-char-skip`
   - clear: `history-search-forward history-search-backward history-beginning-search-forward
