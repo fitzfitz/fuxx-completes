@@ -1,0 +1,19 @@
+[package]
+name = "fuxx-completes"
+description = "The fuxx-completes binary: the core and its libraries behind one command"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "fuxx-completes"
+path = "src/main.rs"
+
+[dependencies]
+fuxx-completes-core = { path = "../core" }
+fuxx-autosuggestions = { path = "../fuxx-autosuggestions" }
+
+[dev-dependencies]
+expectrl = "0.9"
+tempfile = "3.27"

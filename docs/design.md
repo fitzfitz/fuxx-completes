@@ -330,8 +330,8 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   lifecycle work (start, stop, stale sockets), and bash can't open a socket without an extra
   tool. Deferred until per-session processes prove too heavy.
 
-Where the binary's code lives (a `cli/` crate, or a `[[bin]]` in an existing crate) is settled in
-the M0 plan.
+The binary lives in `cli/` (package and binary `fuxx-completes`), depending on the core and the
+libraries (**AI's call, settled in the M0 plan**).
 
 Embedders: other Rust programs link the crates directly; programs in other languages run the
 binary and speak wire format 1 (JSON deferred). fuxx runs the zsh adapter as a plugin (§8).
@@ -696,6 +696,7 @@ everything. Staying off is silent at the prompt and shown by `doctor`. A user ca
 ```
 Cargo.toml                 workspace
 core/                      fuxx-completes-core
+cli/                       the fuxx-completes binary (serve; later report, complete, forget, doctor)
 fuxx-autosuggestions/      the ghost-text library
 fuxx-autocomplete/         the menu library
 specs/                     command knowledge (our format; imported data marked)
