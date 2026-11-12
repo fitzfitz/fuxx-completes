@@ -7,6 +7,11 @@ Written 2026-11-09 from a brainstorm with the user, and revised the same day aft
 (facts corrected, gaps filled). Every decision below is the user's unless it is marked **AI's
 call**. An AI's call is a reasoned default, open to change by the user.
 
+**Changed 2026-11-13 (the user's decision, in fuxx):** fuxx no longer links these crates. fuxx
+gained plugins (fuxx's note "76 - Milestones 11y-11z - Plugins", approved 2026-11-13), and
+**fuxx installs fuxx-completes as a fuxx plugin** like anyone else's. §2 goal 6, §4, §8, §9 and
+§15 are updated for it.
+
 ---
 
 ## 1. Intent
@@ -47,7 +52,8 @@ The user wants one engine that:
 4. Our own command knowledge, seeded from Fig's MIT-licensed specs.
 5. The core is usable from other programs (as a Rust crate, through the local protocol, or as a
    host terminal over the host channel of §5.5).
-6. fuxx uses the core directly and can switch each library on or off.
+6. fuxx installs fuxx-completes as a **fuxx plugin** and can switch it on or off (§8; changed
+   2026-11-13, was "fuxx uses the core directly").
 
 ### Non-goals (not planned)
 
@@ -150,8 +156,10 @@ arrive.
   Fig's withfig/autocomplete specs (MIT), converted into our own format, with the original
   license notice kept. From then on the data is ours to maintain.
 - **Thin adapters, no smarts:** zsh, bash and fish plugins, other terminal apps, and fuxx.
-- **fuxx talks to the core directly,** can draw a nicer menu, and switches each library on or off
-  in its Preferences.
+- **fuxx installs fuxx-completes as a plugin** (changed 2026-11-13; was "fuxx talks to the core
+  directly, can draw a nicer menu, and switches each library on or off"). Inside fuxx the zsh
+  adapter draws, as in any terminal; fuxx's Settings → Plugins has one On/Off switch for the whole
+  plugin. fuxx drawing a nicer menu is later (§8).
 - **Users:** people on zsh, bash or fish in most terminals (Ghostty, iTerm, Terminal.app and
   others), apps that embed the core, and fuxx. (Warp was listed here at first; the builder check
   found Warp replaces the shell's line editor, so it is a stay-off case: §9.)
@@ -553,18 +561,38 @@ host mode is on, where the context file is and how big, and the core's last erro
 `fuxx-completes forget` wipes the context file (§5.7). No config DSL. Details belong in the M1
 plan.
 
-## 8. How fuxx uses it
+## 8. How fuxx uses it (changed 2026-11-13)
 
-- fuxx links `fuxx-autosuggestions` and `fuxx-autocomplete` as Rust crates; no protocol, no child
-  process.
-- Preferences gets one switch per library.
-- fuxx loads the shell adapters into its own terminals (the same way it already injects a small
-  zsh integration through `ZDOTDIR` for command blocks, without touching dotfiles), sets
-  `FUXX_COMPLETES_HOST=1`, reads the buffer and cursor from the host channel (§5.5), draws a nicer
-  menu itself, and writes the accept sequence back to the pty.
-- All of this is fuxx's work and becomes a milestone in fuxx's roadmap after its v0.5.0 release.
-  This repo keeps the crate APIs usable for an embedder and ships the adapter side of the host
-  channel (M2).
+fuxx installs fuxx-completes as a **fuxx plugin** (fuxx's milestones M11y–M11z, its note 76). It
+no longer links the crates.
+
+- **What this repo ships for it:** a `fuxx-plugin.conf` at the top of the repo, and on each release
+  the assets `fuxx-plugin-macos-arm64.zip` and `fuxx-plugin-macos-x86_64.zip`, each a folder with
+  that file, the `fuxx-completes` binary in `bin/` and the zsh adapter in `shell/`:
+  ```
+  format      = 1
+  id          = fuxx-completes
+  name        = fuxx-completes
+  version     = <release version>
+  description = Suggestions from your history as you type.
+  bin         = bin
+  zsh         = shell/fuxx-completes.plugin.zsh
+  ```
+- **What fuxx does:** puts `bin/` on `PATH` and sources the zsh adapter in its zsh terminals after
+  the user's `.zshrc`, with `FUXX_PLUGIN_DIR` and `FUXX_PLUGIN_DATA` set while it is sourced. The
+  adapter starts `serve` and draws ghost text as it does in any terminal. fuxx's On/Off switch
+  covers the whole plugin; finer settings stay the adapter's shell variables (§7).
+- **Data:** when `FUXX_PLUGIN_DATA` is set, the context file (§5.7) lives there instead of
+  `$XDG_DATA_HOME/fuxx-completes/`, so uninstalling the plugin from fuxx removes it. A copy installed
+  for other terminals keeps its own data. The adapter keeps its own copy of the variable (fuxx sets
+  it only while sourcing).
+- **Double-load guard (AI's call, 2026-11-13):** the adapter sets a marker when it loads; a second
+  copy in the same shell (fuxx's plugin plus a line in the user's `.zshrc`) sees it and stays off,
+  shown by `doctor`. One copy runs.
+- **Later, not now:** fuxx drawing a nicer menu itself through the host channel (§5.5,
+  `FUXX_COMPLETES_HOST=1`). It needs M2 and M6 here and a drawing API in fuxx's plugin format that
+  format 1 doesn't have. This repo still ships the adapter side of the host channel (M2) and keeps
+  the crate APIs usable for any embedder.
 
 ## 9. Coexisting with other plugins (AI's call)
 
@@ -581,6 +609,7 @@ the line.
 | ble.sh auto-complete | stay off unless the bash milestone finds a clean way in |
 | **Warp** (`TERM_PROGRAM=WarpTerminal`) | both libraries stay off in every shell. Warp's own input editor replaces ZLE (and readline), and Warp lists ZLE plugins such as zsh-autosuggestions as unsupported |
 | Any key sequence already bound by the user or a plugin | we leave it bound as it was (§6) |
+| **Another copy of fuxx-completes** already loaded in this shell (fuxx's plugin and the user's rc file both load it) | the second copy stays off (§8's double-load guard) |
 
 Detection runs at the first `precmd` (zsh) or first prompt, after the user's rc file has loaded
 everything. Staying off is silent at the prompt and shown by `doctor`. A user can force ours on
@@ -718,17 +747,17 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
 | | Milestone | Done when |
 | --- | --- | --- |
 | M0 | Core + history + zsh adapter | the binary serves suggestions from a zsh history file; the zsh plugin shows ghost text on zsh 5.3+ (`memo=` on 5.9+, exact-string fallback below); `forward-char`/`end-of-line` accept, `forward-word` accepts a word, vi-mode widgets wrapped; End and ⌥→ bound only if unbound; reports follow §5.8 and the history file is re-read on change; async; temp-HOME tests pass |
-| M1 | Autosuggestions: context file and coexistence | the context file of §5.7 (keyed records, pruning, `forget`); ranking uses cwd and exit status across shells and restarts, and the previous command in-session; conflicting plugins and Warp detected; `doctor`; latency benchmark meets §3 |
+| M1 | Autosuggestions: context file and coexistence | the context file of §5.7 (keyed records, pruning, `forget`); ranking uses cwd and exit status across shells and restarts, and the previous command in-session; conflicting plugins and Warp detected; `doctor`; latency benchmark meets §3; the context file under `FUXX_PLUGIN_DATA` when set, and the double-load guard (§8) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
-| M3 | Release fuxx-autosuggestions | Homebrew tap, zsh plugin manager install, crates.io; README install section made real |
+| M3 | Release fuxx-autosuggestions | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |
 | M5 | Line parsing, generators and shell state | current command and word found; built-in Rust generators (git first) and declarative generators with timeout and cache; adapters send `state` (§5.9) and the core uses it |
 | M6 | zsh menu | as-you-type menu in zsh drawn below the line; Tab untouched; fzf-safe |
 | M7 | bash and fish menus | key-driven bash menu (blocks only while open, `sync` bounded at 50 ms); fish argument values through `complete`, only for commands fish lacks |
 | M8 | Release fuxx-autocomplete | packaged like M3 |
 
-The fuxx side (Preferences switches, loading adapters, setting `FUXX_COMPLETES_HOST`, the nicer
-menu) is a milestone in fuxx's roadmap, not here.
+The fuxx side is fuxx's plugin system (M11y–M11z in fuxx's roadmap). fuxx drawing the nicer menu
+over the host channel is later, in both repos.
 
 ### Left to the builder
 

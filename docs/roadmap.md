@@ -19,12 +19,19 @@ Building starts after fuxx's v0.5.0 release.
 | M7 | bash and fish menus | ⬜ |
 | M8 | Release fuxx-autocomplete | ⬜ |
 
-What "done" means for each is in `design.md` §15. The fuxx side (Preferences switches, loading the
-adapters, the nicer menu) is tracked in fuxx's own roadmap.
+What "done" means for each is in `design.md` §15. **fuxx installs fuxx-completes as a fuxx plugin**
+(since 2026-11-13, `design.md` §8): M1 adds `FUXX_PLUGIN_DATA` and the double-load guard, M3 adds
+the `fuxx-plugin.conf` and the plugin zips. fuxx's side (its plugin system, M11y–M11z) is tracked in
+fuxx's own roadmap.
 
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links
+  these crates; it installs fuxx-completes as a plugin. `design.md` §2, §4, §8, §9 and §15 updated:
+  the plugin manifest and release zips (M3), the context file under `FUXX_PLUGIN_DATA` and a
+  double-load guard (M1). fuxx drawing the menu itself is later.
 
 - **2026-11-09** — Design revised after a builder check. The user decided context data lives in a
   small local file (folder, exit code, time per command; keyed hash, no command text; `forget`
