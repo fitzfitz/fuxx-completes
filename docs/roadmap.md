@@ -28,6 +28,19 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **`cd` target check, fixes after the independent review.** (1) A `cd`/`pushd`
+  alias or function (zoxide's `--cmd cd`, a wrapper) or `CDABLE_VARS` reaches folders the core
+  can't see: the zsh adapter then leaves the `cdpath` field off, so relative targets not found
+  from the cwd are kept (`CDABLE_VARS` is read at the prompt, since the request runs under
+  `emulate`). (2) A hung network or iCloud folder could stall the core past the adapter's 2 s
+  watchdog: the walk now returns the next candidate unchecked once 50 ms have passed; one hung
+  `stat` still can't be interrupted (a worker thread is a later fix). (3) Only a `stat` that
+  certainly says no (not found, not a folder, no permission) means missing; any other error keeps
+  the candidate. `design.md` §5.4 and §5.5. Tests first, each seen failing: the error mapping, a
+  target under a file or a locked folder, the time budget with a slow checker, and in a real zsh a
+  wrapped `cd` (function, alias), a `pushd` function and `CDABLE_VARS` keeping `cd fuxx-cli` from
+  `Kerja`. 112 adapter tests on zsh 5.3.1, 5.8.1 and 5.9.
+
 - **2026-11-13** — **A `cd` to a folder that isn't there is never suggested (the user's
   decision).** The user's report: in `Kerja`, typing `cd` suggested `fuxx-cli`, which is in
   `Kerja/proj`; then "yes" to never suggesting `cd`/`pushd` to a folder that doesn't exist from the

@@ -2414,3 +2414,23 @@ fn cdpath_with_a_control_character_is_left_off_as_unknown() {
     suggest_line_with("cdpath=(/a $'/x\\ny')", "");
     suggest_line_with("cdpath=(/a $'/u\\x1fv')", "");
 }
+
+/// A `cd` or `pushd` alias or function (zoxide's `--cmd cd`, a wrapper) or `CDABLE_VARS` can reach
+/// folders the core can't see, so the adapter leaves `cdpath` off and relative targets not found
+/// here are kept (design §5.4).
+#[test]
+fn cd_wrapped_by_the_user_or_cdablevars_keeps_relative_targets() {
+    for rc in [
+        "cd() { builtin cd \"$@\" }",
+        "alias cd='builtin cd'",
+        "pushd() { builtin pushd \"$@\" }",
+        "setopt cdablevars",
+    ] {
+        let mut z = ZshHarness::start(ZshOpts {
+            rc_before: format!("command mkdir -p Kerja/proj/fuxx-cli; builtin cd Kerja\n{rc}"),
+            history: vec!["cd fuxx-cli"],
+            ..Default::default()
+        });
+        type_until_ghost(&mut z, "cd ", "fuxx-cli");
+    }
+}

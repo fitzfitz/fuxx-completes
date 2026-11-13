@@ -42,6 +42,7 @@
   # Without nonblock (zsh below 5.9) a write could block on a full pipe, so the bytes the core may
   # not have read yet are counted instead: sent minus what an answer proves it consumed.
   typeset -gi _FUXX_AS_UNREAD=0 _FUXX_AS_SINCE_SUGGEST=0
+  typeset -g _FUXX_AS_CDABLE=off   # the user's CDABLE_VARS, read at each prompt
   # Command reports (§5.8): the line zshaddhistory saw, where the running command started, and the
   # one command held back until the next prompt (its event number, history text, cwd, status, time).
   typeset -g _FUXX_AS_NOTED='' _FUXX_AS_CMD_PWD=''
@@ -240,10 +241,16 @@ _fuxx_as_request() {
   _FUXX_AS_INFLIGHT_SINCE=$EPOCHREALTIME
   _FUXX_AS_INFLIGHT_BUFFER=$BUFFER
   # `cdpath` goes along, one folder per line: the core checks `cd` targets through it (design
-  # §5.4). If a folder holds a control character the wire can't carry, the field is left off and
-  # the core treats `cdpath` as unknown.
+  # §5.4). The field is left off, so the core treats `cdpath` as unknown and keeps relative
+  # targets it can't find, when a folder holds a control character the wire can't carry, or when
+  # `cd`/`pushd` is an alias or function (zoxide's `--cmd cd`, a wrapper) or CDABLE_VARS is on
+  # (read at the prompt: this runs under `emulate`): those reach folders the core can't see.
   local -a f=( suggest $id async $CURSOR "$PWD" "$BUFFER" )
-  (( ${#${(@M)cdpath:#*[[:cntrl:]]*}} )) || f+=( "${(pj:\n:)cdpath}" )
+  if (( ! ${#${(@M)cdpath:#*[[:cntrl:]]*}} \
+        && ! $+aliases[cd] && ! $+functions[cd] && ! $+aliases[pushd] && ! $+functions[pushd] )) \
+     && [[ $_FUXX_AS_CDABLE != on ]]; then
+    f+=( "${(pj:\n:)cdpath}" )
+  fi
   _fuxx_as_send "${f[@]}" || _fuxx_as_stop kill
   return 0
 }
@@ -750,6 +757,7 @@ _fuxx_as_preexec() {
 _fuxx_as_precmd() {
   local -i st=$?
   local ign_space=${options[histignorespace]-off} no_store=${options[histnostore]-off}
+  _FUXX_AS_CDABLE=${options[cdablevars]-off}   # for _fuxx_as_request, which runs emulated
   # Every option that changes how a pattern is read; HISTORY_IGNORE is matched under the user's.
   local -a pat_opts=()
   local o

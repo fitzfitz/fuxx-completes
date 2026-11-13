@@ -2,9 +2,13 @@
 //! the adapter reported this session.
 
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 /// How many distinct candidates `latest_with_prefix_except` may reject before it gives up.
 pub const MAX_SKIPPED: usize = 50;
+
+/// How long `latest_with_prefix_except` may spend checking candidates.
+pub const CHECK_BUDGET: Duration = Duration::from_millis(50);
 
 /// The shell history file formats the core can read. Only zsh in M0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,13 +52,25 @@ impl History {
     }
 
     /// Like `latest_with_prefix`, but walks past candidates that `skip` rejects. Each distinct
-    /// rejected candidate counts once; after `MAX_SKIPPED` of them the walk stops with `None`, so
-    /// the checks stay within the latency budget (`docs/design.md` §3).
+    /// rejected candidate counts once; after `MAX_SKIPPED` of them the walk stops with `None`.
+    /// Once `CHECK_BUDGET` has passed, the next candidate is returned unchecked (a slow folder
+    /// keeps a suggestion rather than miss the latency budget, `docs/design.md` §3, §5.4).
     pub fn latest_with_prefix_except(
         &self,
         prefix: &str,
+        skip: impl FnMut(&str) -> bool,
+    ) -> Option<&str> {
+        self.latest_with_prefix_within(prefix, CHECK_BUDGET, skip)
+    }
+
+    /// `latest_with_prefix_except` with its time budget given (tests use a slow `skip`).
+    pub fn latest_with_prefix_within(
+        &self,
+        prefix: &str,
+        budget: Duration,
         mut skip: impl FnMut(&str) -> bool,
     ) -> Option<&str> {
+        let start = Instant::now();
         let mut rejected: Vec<&str> = Vec::new();
         for entry in self
             .session
@@ -67,7 +83,7 @@ impl History {
             if rejected.contains(&entry) {
                 continue;
             }
-            if !skip(entry) {
+            if start.elapsed() >= budget || !skip(entry) {
                 return Some(entry);
             }
             rejected.push(entry);
@@ -119,6 +135,7 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn file(entries: &[&str]) -> History {
         let mut h = History::new();
@@ -249,6 +266,35 @@ mod tests {
             h.latest_with_prefix_except("cd proj", |_| false),
             Some("cd proj")
         );
+    }
+
+    #[test]
+    fn walk_keeps_the_next_candidate_unchecked_once_the_time_budget_is_spent() {
+        // Newest first: slow0, slow1, slow2, slow3. Each check takes 30 ms and rejects.
+        let h = file(&["cd slow3", "cd slow2", "cd slow1", "cd slow0"]);
+        let mut checked = Vec::new();
+        let got = h.latest_with_prefix_within("cd", Duration::from_millis(50), |c| {
+            checked.push(c.to_string());
+            std::thread::sleep(Duration::from_millis(30));
+            true
+        });
+        // slow0 at 0 ms, slow1 at ~30 ms; at ~60 ms the budget is spent: slow2 is kept unchecked.
+        assert_eq!(got, Some("cd slow2"));
+        assert_eq!(checked, ["cd slow0", "cd slow1"]);
+    }
+
+    #[test]
+    fn walk_within_budget_checks_as_before() {
+        let h = file(&["cd good", "cd bad"]);
+        assert_eq!(
+            h.latest_with_prefix_within("cd", Duration::from_secs(5), |c| c == "cd bad"),
+            Some("cd good")
+        );
+    }
+
+    #[test]
+    fn walk_budget_is_50_ms() {
+        assert_eq!(CHECK_BUDGET, Duration::from_millis(50));
     }
 
     #[test]

@@ -240,12 +240,24 @@ fn is_folder(path: &str, tilde: bool, place: &Place) -> bool {
     }
 }
 
-/// A folder (or a symlink to one) at `p` taken physically, or with `..` taken lexically as zsh's
-/// `cd` does by default (without CHASE_DOTS): either one counts.
+/// Whether a failed `stat` certainly means "no folder there", as `chdir` would fail too: not
+/// found, a file where a folder should be, or no permission. Anything else (an I/O error, a stale
+/// network handle, a timeout) might pass later, so the candidate is kept.
+fn error_means_missing(kind: std::io::ErrorKind) -> bool {
+    use std::io::ErrorKind as K;
+    matches!(kind, K::NotFound | K::NotADirectory | K::PermissionDenied)
+}
+
+/// Whether `p` may be a folder (or a symlink to one), taken physically or with `..` taken
+/// lexically as zsh's `cd` does by default (without CHASE_DOTS): either one counts. False only
+/// when every `stat` certainly says no.
 fn dir_at(p: &Path) -> bool {
     let lexical = lexical(p);
-    let is_dir = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.is_dir());
-    is_dir(&lexical) || (lexical != p && is_dir(p))
+    let maybe_dir = |p: &Path| match std::fs::metadata(p) {
+        Ok(m) => m.is_dir(),
+        Err(e) => !error_means_missing(e.kind()),
+    };
+    maybe_dir(&lexical) || (lexical != p && maybe_dir(p))
 }
 
 /// `p` with `.` dropped and each `..` removing the component before it.
@@ -510,6 +522,37 @@ mod tests {
         let t = Tree::new();
         assert!(t.missing("cd file.txt"));
         assert!(t.missing("cd filelink"));
+    }
+
+    #[test]
+    fn only_certain_stat_errors_mean_missing() {
+        use std::io::ErrorKind as K;
+        for kind in [K::NotFound, K::NotADirectory, K::PermissionDenied] {
+            assert!(error_means_missing(kind), "{kind:?}");
+        }
+        for kind in [
+            K::TimedOut,
+            K::StaleNetworkFileHandle,
+            K::Interrupted,
+            K::Other,
+            K::Unsupported,
+            K::OutOfMemory,
+        ] {
+            assert!(!error_means_missing(kind), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_target_under_a_file_or_a_locked_folder_is_missing() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = Tree::new();
+        assert!(t.missing("cd file.txt/x"));
+        let locked = t.kerja().join("locked");
+        fs::create_dir_all(locked.join("sub")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let missing = t.missing("cd locked/sub");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(missing, "chdir into locked/sub fails with EACCES too");
     }
 
     #[test]

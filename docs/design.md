@@ -292,12 +292,21 @@ looked for in the `cdpath` folders the adapter forwards with each request (§5.5
 didn't send them, such a target is kept. Anything it can't check is kept: no argument, `-`, `-N`
 and `+N`, `~name`, anything with `$`, backticks, globs, braces, `!` or `=cmd`, an unknown option,
 the two-argument form `cd old new`, a redirection. Only the first simple command of an entry is
-looked at (`cd x && make` checks `x`); `popd` takes no folder. The walk never blocks: one or two
-`stat`s per distinct candidate checked (more with `cdpath`), a repeated candidate is checked once,
-and after 50 rejected candidates it stops with no suggestion (§3 budget) (**AI's calls:** the
-bound, the both-ways `..`, keeping relative targets when `cdpath` is unknown). Known limits: a `cd`
-that is an alias or function (zoxide's `--cmd cd`, for example) or `CDABLE_VARS` can reach folders
-this check can't see; the core doesn't know aliases until shell state (§5.9, M5).
+looked at (`cd x && make` checks `x`); `popd` takes no folder. Only a `stat` that certainly says
+no counts as missing: not found, a file where a folder should be, or no permission (`chdir` fails
+the same way); any other error (I/O, a stale network handle, a timeout) keeps the candidate. When
+`cd` or `pushd` is an alias or a function (zoxide's `--cmd cd`, enhancd, a wrapper) or
+`CDABLE_VARS` is on, `cd` can reach folders this check can't see, so the zsh adapter leaves the
+`cdpath` field off and relative targets not found from the cwd are kept; absolute and `~/`
+targets are still checked (fixes after the independent review, 2026-11-13). The walk stays
+within the latency budget (§3): one or two `stat`s per distinct candidate checked (more with
+`cdpath`), a repeated candidate is checked once, after 50 rejected candidates it stops with no
+suggestion, and once 50 ms have passed the next candidate is returned unchecked (**AI's calls:**
+the bounds, the both-ways `..`, keeping relative targets when `cdpath` is unknown). Known limit:
+the time budget is checked between `stat`s, so one `stat` that hangs (a disconnected network or
+iCloud folder) can't be interrupted yet; if it outlasts the adapter's 2 s watchdog the core is
+stopped and that shell has no suggestions. Running the checks on a worker thread with a timeout is
+a later fix.
 
 **Menu items** are ordered by kind (subcommands, then options, then argument values; open to
 change), then by prefix match quality, then by how often the user picked them (counted in memory
@@ -327,8 +336,8 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   The `cdpath` field was added on 2026-11-13 (§5.4) without a version bump: a `suggest` with six
   fields still decodes, and its `cdpath` is unknown (relative `cd` targets not found from the cwd
   are then kept). The zsh adapter sends it with every request, so a `cdpath` changed at the
-  prompt counts at once; if a folder holds a control character it leaves the field off (**AI's
-  call**). Unknown kinds are ignored. A `suggest` whose id parses but whose other fields don't still gets an
+  prompt counts at once; it leaves the field off when a folder holds a control character, or when
+  `cd`/`pushd` is an alias or function or `CDABLE_VARS` is on (§5.4) (**AI's call**). Unknown kinds are ignored. A `suggest` whose id parses but whose other fields don't still gets an
   empty `suggestion` for that id, so the adapter's one-in-flight slot always clears. A JSON encoding
   of the same messages is added when an embedder in another language needs one (deferred).
 - **Request modes (AI's call).** Every request has a `mode`: `async` (the default; the adapter
