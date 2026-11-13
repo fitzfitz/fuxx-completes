@@ -37,6 +37,7 @@ Newest first. Add an entry whenever a task is ready.
   zsh adapter core (`adapters/zsh/fuxx-autosuggestions.plugin.zsh`, pty harness `cli/tests/common/mod.rs`): serve on named pipes, async ghost text, hung/dead core handled.
   zsh accept, partial-accept and clear widgets; End and ⌥→ bound only if free; vi mode (`emacs`/`viins` keymaps only).
   zsh command reports (`zshaddhistory`/`preexec` hooks, one prompt late by the user's decision, filters per §5.8) and the history re-read tested end to end.
+  zsh matrix on 5.3.1, 5.8.1 and 5.9 (`scripts/build-zsh.sh`, `scripts/test-zsh-matrix.sh`); 5.3.x has no working close-on-exec, so the adapter uses plain fds there.
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links
   these crates; it installs fuxx-completes as a plugin. `design.md` §2, §4, §8, §9 and §15 updated:
