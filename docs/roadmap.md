@@ -35,6 +35,7 @@ Newest first. Add an entry whenever a task is ready.
   History file re-reading (`core/src/history_file.rs`: growth read inline, any other change a background full read).
   The `fuxx-completes serve` binary (`cli/`: session, serve loop, tested over real pipes).
   zsh adapter core (`adapters/zsh/fuxx-autosuggestions.plugin.zsh`, pty harness `cli/tests/common/mod.rs`): serve on named pipes, async ghost text, hung/dead core handled.
+  zsh accept, partial-accept and clear widgets; End and ⌥→ bound only if free; vi mode (`emacs`/`viins` keymaps only).
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links
   these crates; it installs fuxx-completes as a plugin. `design.md` §2, §4, §8, §9 and §15 updated:

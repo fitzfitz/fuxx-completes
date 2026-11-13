@@ -506,7 +506,7 @@ Honest about what each shell allows.
   and `forward-word` accepts up to where the cursor moves. In stock zsh's emacs keymap that means
   → and `^E` for all of it and `Esc f` for a word; End and ⌥→ have no binding by default. So the
   adapter binds End (`^[[F`, `^[[4~`) to `end-of-line` and ⌥→ (`^[[1;3C`) to `forward-word`
-  **only if those sequences are unbound**, and never rebinds a user's binding. Terminals differ in
+  **only if those sequences are unbound**, and never rebinds a user's binding. The bindings are made in the `emacs` and `viins` keymaps; `vicmd` is left alone (AI's call, M0). Terminals differ in
   what ⌥→ sends; `doctor` shows what is bound.
 - **vi mode is in scope.** As zsh-autosuggestions does, the accept widgets include
   `vi-forward-char`, `vi-end-of-line` and `vi-add-eol`, and the partial-accept widgets include

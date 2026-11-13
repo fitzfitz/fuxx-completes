@@ -282,6 +282,80 @@ _fuxx_as_w_modify() {
   return $ret
 }
 
+# _fuxx_as_w_accept <original widget> [args]: at the end of the buffer (the last character in vicmd,
+# where the cursor can't pass it) the suggestion becomes part of the buffer and the original then
+# runs on the longer text; anywhere else the key just moves the cursor and the ghost text stays.
+_fuxx_as_w_accept() {
+  emulate -L zsh
+  local orig=$1
+  shift
+  local -i ret max=$#BUFFER
+  [[ $KEYMAP == vicmd ]] && max=$(( max - 1 ))
+  if [[ -z $POSTDISPLAY || $CURSOR -ne $max ]]; then
+    _fuxx_as_w_modify $orig "$@"
+    return
+  fi
+  BUFFER+=$POSTDISPLAY
+  _fuxx_as_clear
+  zle fuxx-as-orig-$orig -- "$@"
+  ret=$?
+  # The original may have left vicmd (vi-add-eol), so the keymap is asked again.
+  if [[ $KEYMAP == vicmd ]]; then CURSOR=$(( $#BUFFER - 1 )); else CURSOR=$#BUFFER; fi
+  _FUXX_AS_LAST_BUFFER=$BUFFER
+  return $ret
+}
+
+# _fuxx_as_w_partial <original widget> [args]: runs the original on buffer + suggestion; if the cursor
+# ended up past the typed text, the part up to the cursor is accepted and the rest stays as ghost
+# text, otherwise the buffer is put back. The rest of the suggestion is still right, so no request.
+_fuxx_as_w_partial() {
+  emulate -L zsh
+  local orig=$1 saved=$BUFFER
+  shift
+  local -i ret loc
+  if [[ -z $POSTDISPLAY ]]; then
+    _fuxx_as_w_modify $orig "$@"
+    return
+  fi
+  # Our entry comes off in every version: the text is about to grow under it.
+  _fuxx_as_unhighlight
+  BUFFER+=$POSTDISPLAY
+  zle fuxx-as-orig-$orig -- "$@"
+  ret=$?
+  loc=$CURSOR
+  [[ $KEYMAP == vicmd ]] && loc+=1   # in vicmd the cursor is ON a character, so it is that one too
+  if (( loc > $#saved )); then
+    POSTDISPLAY=${BUFFER[loc+1,-1]}
+    BUFFER=${BUFFER[1,loc]}
+  else
+    BUFFER=$saved
+  fi
+  _fuxx_as_highlight
+  _FUXX_AS_LAST_BUFFER=$BUFFER
+  return $ret
+}
+
+# _fuxx_as_w_clear <original widget> [args]: widgets that replace the line or leave it.
+_fuxx_as_w_clear() {
+  emulate -L zsh
+  local orig=$1
+  shift
+  local -i ret
+  _fuxx_as_clear
+  zle fuxx-as-orig-$orig -- "$@"
+  ret=$?
+  _FUXX_AS_LAST_BUFFER=$BUFFER
+  return $ret
+}
+
+# _fuxx_as_bind_if_free <keymap> <sequence> <widget>: binds only a key nothing else has bound.
+_fuxx_as_bind_if_free() {
+  emulate -L zsh
+  [[ $(bindkey -M $1 -- $2 2>/dev/null) == *' undefined-key' ]] || return 0
+  bindkey -M $1 -- $2 $3 2>/dev/null
+  return 0
+}
+
 _fuxx_as_line_init() {
   emulate -L zsh
   _FUXX_AS_LAST_BUFFER=''
@@ -299,7 +373,16 @@ _fuxx_as_line_finish() {   # ghost text never stays in the scrollback
 # widget calls with `zle name` finds its original without relying on $WIDGET.
 _fuxx_as_wrap_widgets() {
   emulate -L zsh
-  local w
+  local w km fn
+  # zsh-autosuggestions' default lists; every other widget gets the plain `modify` wrapper.
+  local -a accept=( forward-char end-of-line vi-forward-char vi-end-of-line vi-add-eol )
+  local -a partial=( forward-word emacs-forward-word vi-forward-word vi-forward-word-end
+    vi-forward-blank-word vi-forward-blank-word-end vi-find-next-char vi-find-next-char-skip )
+  local -a clear=( history-search-forward history-search-backward history-beginning-search-forward
+    history-beginning-search-backward history-beginning-search-forward-end
+    history-beginning-search-backward-end history-substring-search-up history-substring-search-down
+    up-line-or-beginning-search down-line-or-beginning-search up-line-or-history
+    down-line-or-history accept-line copy-earlier-word )
   for w in ${(f)"$(zle -la 2>/dev/null)"}; do
     case $w in
       .*|_*|fuxx-as-*|orig-*|zle-*|azhw:*) continue ;;
@@ -307,8 +390,18 @@ _fuxx_as_wrap_widgets() {
     esac
     [[ ${widgets[$w]-} == user:_fuxx_as_bound_* ]] && continue   # already ours
     zle -A $w fuxx-as-orig-$w 2>/dev/null || continue
-    functions[_fuxx_as_bound_$w]="emulate -L zsh; _fuxx_as_w_modify ${(q)w} \"\$@\""
+    fn=modify
+    (( ${accept[(Ie)$w]} )) && fn=accept
+    (( ${partial[(Ie)$w]} )) && fn=partial
+    (( ${clear[(Ie)$w]} )) && fn=clear
+    functions[_fuxx_as_bound_$w]="emulate -L zsh; _fuxx_as_w_$fn ${(q)w} \"\$@\""
     zle -N $w _fuxx_as_bound_$w 2>/dev/null
+  done
+  # End and ⌥→ have no default binding; vicmd is left alone.
+  for km in emacs viins; do
+    _fuxx_as_bind_if_free $km '^[[F' end-of-line
+    _fuxx_as_bind_if_free $km '^[[4~' end-of-line
+    _fuxx_as_bind_if_free $km '^[[1;3C' forward-word
   done
   add-zle-hook-widget line-init _fuxx_as_line_init 2>/dev/null
   add-zle-hook-widget line-finish _fuxx_as_line_finish 2>/dev/null

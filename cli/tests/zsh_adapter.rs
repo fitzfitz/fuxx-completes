@@ -530,3 +530,192 @@ fn without_zsh_system_pipes_still_work() {
     let cx = std::fs::read_to_string(z.home().join("cx")).unwrap();
     assert_eq!(cx.trim(), "0");
 }
+
+// ---- Task 7: accept, partial accept, clear, End and ⌥→, vi mode ----
+
+/// Types "git p" on the git history and waits for the ghost text.
+fn with_ghost(opts: ZshOpts) -> ZshHarness {
+    let mut z = ZshHarness::start(opts);
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z
+}
+
+/// `bindkey -v` goes in `rc_after` (the harness runs `bindkey -e` after `rc_before`); the test
+/// widget's key is bound in both vi keymaps too, so `state()` works in either.
+fn vi_opts() -> ZshOpts {
+    ZshOpts {
+        rc_after: "bindkey -v\n\
+                   bindkey -M viins '^[[9999~' _fuxx-test-dump\n\
+                   bindkey -M vicmd '^[[9999~' _fuxx-test-dump"
+            .into(),
+        ..git_history()
+    }
+}
+
+/// Esc needs `KEYTIMEOUT` (10 ms in the harness) to pass before the next key is a command.
+fn esc(z: &mut ZshHarness) {
+    z.send("\x1b");
+    std::thread::sleep(Duration::from_millis(150));
+}
+
+fn assert_fully_accepted(s: &common::LineState) {
+    assert_eq!(s.buffer, "git push origin main", "{s:?}");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+}
+
+#[test]
+fn right_arrow_accepts_whole_suggestion() {
+    let mut z = with_ghost(git_history());
+    z.send("\x1b[C");
+    let s = z.wait_state(|s| s.buffer == "git push origin main");
+    assert_fully_accepted(&s);
+    assert_eq!(s.cursor, 20);
+}
+
+#[test]
+fn ctrl_e_accepts_whole_suggestion() {
+    let mut z = with_ghost(git_history());
+    z.send("\x05");
+    let s = z.wait_state(|s| s.buffer == "git push origin main");
+    assert_fully_accepted(&s);
+    assert_eq!(s.cursor, 20);
+}
+
+#[test]
+fn esc_f_accepts_one_word() {
+    // zshzle: `forward-word` moves "to the beginning of the next word", so the accepted part keeps
+    // the trailing space (parity with zsh-autosuggestions). Ruling (controller, Task 7).
+    let mut z = with_ghost(git_history());
+    z.send("\x1bf");
+    let s = z.wait_state(|s| s.buffer == "git push ");
+    assert_eq!(s.postdisplay, "origin main");
+    assert_eq!(s.cursor, 9);
+    let want = if zsh_at_least("5.9") {
+        format!("9 20 fg=8 {MEMO}")
+    } else {
+        "9 20 fg=8".to_string()
+    };
+    assert_eq!(s.region_highlight, vec![want]);
+}
+
+#[test]
+fn forward_char_mid_buffer_only_moves() {
+    let mut z = with_ghost(git_history());
+    z.send("\x02"); // ⌃B: cursor to 4
+    z.send("\x1b[C");
+    let s = z.wait_state(|s| s.cursor == 5);
+    assert_eq!(s.buffer, "git p");
+    assert_eq!(s.postdisplay, "ush origin main");
+}
+
+#[test]
+fn end_key_accepts_when_free() {
+    for seq in ["\x1b[F", "\x1b[4~"] {
+        let mut z = with_ghost(git_history());
+        z.send(seq);
+        let s = z.wait_state(|s| s.buffer == "git push origin main");
+        assert_fully_accepted(&s);
+    }
+}
+
+#[test]
+fn alt_right_accepts_a_word_when_free() {
+    // Same `forward-word` semantics as above (zshzle). Ruling (controller, Task 7).
+    let mut z = with_ghost(git_history());
+    z.send("\x1b[1;3C");
+    let s = z.wait_state(|s| s.buffer == "git push ");
+    assert_eq!(s.postdisplay, "origin main");
+}
+
+#[test]
+fn user_binding_of_end_is_kept() {
+    let mut z = with_ghost(ZshOpts {
+        rc_before: "bindkey '^[[F' beginning-of-line".into(),
+        ..git_history()
+    });
+    z.send("\x1b[F");
+    let s = z.wait_state(|s| s.cursor == 0);
+    assert_eq!(s.buffer, "git p");
+    assert_eq!(s.postdisplay, "ush origin main");
+}
+
+#[test]
+fn user_binding_of_alt_right_is_kept() {
+    let mut z = with_ghost(ZshOpts {
+        rc_before: "bindkey '^[[1;3C' beginning-of-line".into(),
+        ..git_history()
+    });
+    z.send("\x1b[1;3C");
+    let s = z.wait_state(|s| s.cursor == 0);
+    assert_eq!(s.buffer, "git p");
+    assert_eq!(s.postdisplay, "ush origin main");
+}
+
+#[test]
+fn accept_line_clears_ghost_text() {
+    let mut z = with_ghost(git_history());
+    let mark = z.screen_now().len();
+    z.send("\r");
+    std::thread::sleep(Duration::from_millis(300));
+    // Only what the shell drew after Enter: the line is redrawn without the ghost text.
+    let after = z.screen_now()[mark..].to_string();
+    assert!(
+        !printable(&after).contains("ush origin"),
+        "ghost text stayed on the line: {after:?}"
+    );
+}
+
+#[test]
+fn up_arrow_clears_ghost_text() {
+    let mut z = with_ghost(git_history());
+    z.send("\x1b[A");
+    let s = z.wait_state(|s| s.postdisplay.is_empty());
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+}
+
+#[test]
+fn vi_end_of_line_accepts() {
+    let mut z = with_ghost(vi_opts());
+    esc(&mut z);
+    z.send("$");
+    let s = z.wait_state(|s| s.buffer == "git push origin main");
+    assert_fully_accepted(&s);
+    assert_eq!(s.cursor, 19, "vicmd cursor sits on the last character");
+}
+
+#[test]
+fn vi_add_eol_accepts() {
+    let mut z = with_ghost(vi_opts());
+    esc(&mut z);
+    z.send("A");
+    let s = z.wait_state(|s| s.buffer == "git push origin main");
+    assert_fully_accepted(&s);
+    assert_eq!(s.cursor, 20);
+}
+
+#[test]
+fn vi_forward_word_accepts_part() {
+    let mut z = with_ghost(vi_opts());
+    esc(&mut z);
+    z.send("w");
+    let s = z.wait_state(|s| s.buffer == "git push o");
+    assert_eq!(s.postdisplay, "rigin main");
+}
+
+#[test]
+fn tab_ctrl_r_ctrl_t_are_not_bound_by_us() {
+    const DUMP: &str = "for k in '^I' '^R' '^T' '^[[A'; do bindkey -- $k; done";
+    let mut z = ZshHarness::start(ZshOpts {
+        // Before the plugin's first precmd: the bindings as zsh and the rc leave them.
+        rc_after: format!("{DUMP} > \"$HOME/bind-before\""),
+        ..git_history()
+    });
+    // After the first prompt the plugin has started and made its bindings.
+    z.run(&format!("{DUMP} > \"$HOME/bind-after\""));
+    let before = std::fs::read_to_string(z.home().join("bind-before")).unwrap();
+    let after = std::fs::read_to_string(z.home().join("bind-after")).unwrap();
+    assert!(before.contains("\"^I\""), "empty dump: {before:?}");
+    assert_eq!(before, after);
+}
