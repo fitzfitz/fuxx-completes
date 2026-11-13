@@ -55,6 +55,11 @@ Newest first. Add an entry whenever a task is ready.
   other plugins' `*-orig-*` saved widgets are left alone, and only the outermost of our wrappers
   acts when another plugin nests them (partial accept no longer doubles the suggestion, one
   request per key).
+  Second re-review fixes: the "only the outermost acts" guard is keyed on the widget, so a user
+  widget that calls `zle end-of-line` or `zle forward-word` accepts again; a widget set back to a
+  definition we wrapped before reuses that generation, so re-sourcing an oh-my-zsh rc no longer
+  reaches the 20-generation cap and silently ends suggestions; the "still calls us" memo includes
+  the function's body.
   Final review fixes: widgets are wrapped at every prompt (not only the first); writes to the core never block (non-blocking fd on zsh 5.9+, byte count below); the core starts from `/` and not niced; the spare `resp` reader stays until `ready`; the core drops suggestions over 1000 characters; the history stamp is taken after the read; README try-it copy is private and removed; build-zsh.sh never keeps a half install; design wording updated.
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links

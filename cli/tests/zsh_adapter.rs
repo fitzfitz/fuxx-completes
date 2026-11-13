@@ -1421,3 +1421,63 @@ fn one_request_per_key_under_another_plugin() {
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(suggests(&z), before + 1, "wire: {:?}", read_wire(z.home()));
 }
+
+#[test]
+fn a_user_widget_calling_an_accept_widget_still_accepts() {
+    let mut z = with_ghost(ZshOpts {
+        rc_after: "my-end() { zle end-of-line }; zle -N my-end; bindkey '^Xe' my-end\n\
+                   my-fw() { zle forward-word }; zle -N my-fw; bindkey '^Xf' my-fw"
+            .into(),
+        ..git_history()
+    });
+    z.send("\x18e");
+    let s = z.wait_state(|s| s.buffer != "git p");
+    assert_fully_accepted(&s);
+    z.send("\x15");
+    z.wait_state(|s| s.buffer.is_empty());
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x18f");
+    let s = z.wait_state(|s| s.buffer != "git p");
+    assert_eq!(s.buffer, "git push ", "{s:?}");
+    assert_eq!(s.postdisplay, "origin main", "{s:?}");
+}
+
+#[test]
+fn sourcing_an_rc_that_redefines_widgets_many_times_keeps_suggestions() {
+    // oh-my-zsh's lib/misc.zsh and key-bindings.zsh do this on every source.
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "autoload -Uz url-quote-magic; zle -N self-insert url-quote-magic\n\
+                   autoload -U up-line-or-beginning-search; zle -N up-line-or-beginning-search\n\
+                   bindkey '^[[A' up-line-or-beginning-search"
+            .into(),
+        ..git_history()
+    });
+    for _ in 0..25 {
+        z.run("source ~/.zshrc");
+    }
+    let gens = our_generations(&mut z, "self-insert up-line-or-beginning-search");
+    assert!(gens.iter().all(|&n| n <= 3), "our generations: {gens:?}");
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x1b[C");
+    let s = z.wait_state(|s| s.buffer != "git p");
+    assert_fully_accepted(&s);
+    assert_no_errors_on_screen(&mut z);
+}
+
+#[test]
+fn a_widget_function_redefined_to_stop_calling_us_is_wrapped_again() {
+    let mut z = ZshHarness::start(git_history());
+    z.run("zle -A self-insert saved-si; my-si() { zle saved-si }; zle -N self-insert my-si");
+    z.run("true");
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x15");
+    z.wait_state(|s| s.buffer.is_empty());
+    z.run("my-si() { zle .self-insert }");
+    z.run("true");
+    z.send("git p");
+    let s = z.wait_state(|s| s.postdisplay == "ush origin main");
+    assert_eq!(s.buffer, "git p");
+}

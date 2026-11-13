@@ -544,16 +544,20 @@ Honest about what each shell allows.
     when we made it.
   - A widget whose definition still calls our wrapper for it (another plugin wrapped us, such as
     zsh-syntax-highlighting after `source ~/.zshrc`; seen through the widget names its function
-    uses) is not wrapped again, so a plugin that re-wraps at every `precmd`, as
-    zsh-autosuggestions does, can't grow the chain. A plugin that hides the name is caught by a cap
-    of 20 generations per widget. Other plugins' saved originals (`orig-*`, `*-orig-*`) are never
-    wrapped, or two such plugins would make new widgets at every prompt.
-  - When another plugin's wrapper puts one of our wrappers inside another, only the outermost acts
-    and an inner one just runs its original, so a key is handled once (one request; partial accept
-    appends the suggestion once).
+    uses, and checked again whenever the function's body changes) is not wrapped again, so a
+    plugin that re-wraps at every `precmd`, as zsh-autosuggestions does, can't grow the chain.
+    Setting a widget back to a definition we wrapped before (oh-my-zsh does
+    `zle -N self-insert url-quote-magic` on every source) uses that generation again; only new
+    definitions count toward a cap of 20 generations per widget, which catches a plugin that makes
+    a fresh wrapper at every prompt and hides the name. Other plugins' saved originals (`orig-*`,
+    `*-orig-*`) are never wrapped, or two such plugins would make new widgets at every prompt.
+  - When another plugin's wrapper puts our wrapper of a widget inside another of ours for the same
+    widget, only the outermost acts and the inner one just runs its original, so a key is handled
+    once (one request; partial accept appends the suggestion once). A widget that calls a
+    different wrapped widget (`my-end() { zle end-of-line }`) still gets that widget's work.
 
   It compares the strings in `$widgets` only, with no subshell: about 0.25 ms per prompt on zsh
-  5.3.1, 5.8.1 and 5.9 (measured with 291 widgets), about 0.8 ms with a plugin that wraps every
+  5.3.1, 5.8.1 and 5.9 (measured with 291 widgets), about 1.3 ms with a plugin that wraps every
   widget on top of ours.
 - **Keys:** at the end of the buffer, `forward-char` and `end-of-line` accept the whole suggestion
   and `forward-word` accepts up to where the cursor moves. In stock zsh's emacs keymap that means

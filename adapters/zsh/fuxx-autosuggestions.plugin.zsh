@@ -44,9 +44,12 @@
   typeset -g _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
   # How many times each widget has been wrapped: each wrap saves the original under a fresh name.
   typeset -gA _FUXX_AS_WRAPS
-  # Definitions known to still call our wrapper (another plugin wrapped us), so they aren't checked
-  # again at every prompt.
+  # Per widget, the definition (with its function's body) known to still call our wrapper (another
+  # plugin wrapped us), so it isn't checked again at every prompt.
   typeset -gA _FUXX_AS_UNDER
+  # "<widget> <definition>" -> the generation that wrapped that definition, used again when the
+  # widget is set back to it (oh-my-zsh does `zle -N self-insert url-quote-magic` on every source).
+  typeset -gA _FUXX_AS_GEN
   is-at-least 5.9 && _FUXX_AS_MEMO=1
   local fd
   # zsh/system is optional: without sysopen or its options we open pipes with plain `exec`.
@@ -332,10 +335,14 @@ _fuxx_as_w_modify() {
   emulate -L zsh
   local orig=$1
   shift
-  # Another plugin that wrapped us can put one of our wrappers inside another (ours, theirs, ours):
-  # only the outermost one acts, an inner one just runs its original (see _fuxx_as_wrap_widgets).
-  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
-  local -i ret _fuxx_as_inside=1
+  # Another plugin that wrapped us can put our wrapper of a widget inside another of ours for the
+  # same widget (ours, theirs, ours): only the outermost acts, the inner one just runs its original.
+  # Keyed on the widget, so a widget that calls another wrapped widget (`zle end-of-line`) still
+  # gets that one's work.
+  local self=${orig#fuxx-as-orig-<->-}
+  if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
+  local _fuxx_as_inside=$self
+  local -i ret
   # Only without `memo=`: with it our entry is found by tag, and taking it off would draw the ghost
   # text unstyled whenever the widget redraws (isearch, completion lists, `zle -R`).
   (( _FUXX_AS_MEMO )) || _fuxx_as_unhighlight
@@ -358,14 +365,15 @@ _fuxx_as_w_accept() {
   emulate -L zsh
   local orig=$1
   shift
-  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
+  local self=${orig#fuxx-as-orig-<->-}
+  if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
   local -i ret max=$#BUFFER
   [[ $KEYMAP == vicmd ]] && max=$(( max - 1 ))
   if [[ -z $POSTDISPLAY || $CURSOR -ne $max ]]; then
     _fuxx_as_w_modify $orig "$@"
     return
   fi
-  local -i _fuxx_as_inside=1
+  local _fuxx_as_inside=$self
   BUFFER+=$POSTDISPLAY
   _fuxx_as_clear
   zle $orig -- "$@"
@@ -383,13 +391,14 @@ _fuxx_as_w_partial() {
   emulate -L zsh
   local orig=$1 saved=$BUFFER
   shift
-  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
+  local self=${orig#fuxx-as-orig-<->-}
+  if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
   local -i ret loc
   if [[ -z $POSTDISPLAY ]]; then
     _fuxx_as_w_modify $orig "$@"
     return
   fi
-  local -i _fuxx_as_inside=1
+  local _fuxx_as_inside=$self
   # Our entry comes off in every version: the text is about to grow under it.
   _fuxx_as_unhighlight
   BUFFER+=$POSTDISPLAY
@@ -413,8 +422,10 @@ _fuxx_as_w_clear() {
   emulate -L zsh
   local orig=$1
   shift
-  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
-  local -i ret _fuxx_as_inside=1
+  local self=${orig#fuxx-as-orig-<->-}
+  if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
+  local _fuxx_as_inside=$self
+  local -i ret
   _fuxx_as_clear
   zle $orig -- "$@"
   ret=$?
@@ -458,11 +469,12 @@ _fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the s
 # for it (another plugin wrapped us) is left alone: wrapping it again would add a layer at every
 # prompt when that plugin also re-wraps at every precmd (zsh-autosuggestions does), and would
 # grow the chain until FUNCNEST. A plugin that names our wrapper in a way we can't see is caught
-# by a cap of 20 generations per widget. Cheap by design: no subshell, one pass over the names, and
+# by a cap of 20 generations per widget; setting a widget back to a definition we wrapped before
+# (oh-my-zsh on every `source ~/.zshrc`) uses that generation again and doesn't count. Cheap by design: no subshell, one pass over the names, and
 # only strings are compared.
 _fuxx_as_wrap_widgets() {
   emulate -L zsh
-  local w fn orig
+  local w v key gk fn orig
   local -i n
   # zsh-autosuggestions' default lists; every other widget gets the plain `modify` wrapper.
   local -a accept=( forward-char end-of-line vi-forward-char vi-end-of-line vi-add-eol )
@@ -482,21 +494,31 @@ _fuxx_as_wrap_widgets() {
   local -a ours=( ${(k)widgets[(R)user:_fuxx_as_bound_*]} )
   todo=( ${todo:|ours} )
   for w in $todo; do
-    [[ ${_FUXX_AS_UNDER[$w]-} == ${widgets[$w]} ]] && continue
-    n=$(( ${_FUXX_AS_WRAPS[$w]-0} + 1 ))
-    (( n > 20 )) && continue
+    v=${widgets[$w]}
+    # Whether it calls us depends on the function's body too, not only its name.
+    key=$v
+    [[ $v == user:* ]] && key+=$'\n'${functions[${v#user:}]-}
+    [[ ${_FUXX_AS_UNDER[$w]-} == "$key" ]] && continue
     if _fuxx_as_calls_us $w; then
-      _FUXX_AS_UNDER[$w]=${widgets[$w]}
+      _FUXX_AS_UNDER[$w]=$key
       continue
     fi
-    orig=fuxx-as-orig-$n-$w
-    zle -A $w $orig 2>/dev/null || continue
-    _FUXX_AS_WRAPS[$w]=$n
-    fn=modify
-    (( ${accept[(Ie)$w]} )) && fn=accept
-    (( ${partial[(Ie)$w]} )) && fn=partial
-    (( ${clear[(Ie)$w]} )) && fn=clear
-    functions[_fuxx_as_bound_${n}_$w]="emulate -L zsh; _fuxx_as_w_$fn ${(q)orig} \"\$@\""
+    # A definition wrapped before is still held by that generation's saved original.
+    gk="$w $v"
+    n=${_FUXX_AS_GEN[$gk]-0}
+    if (( ! n )); then
+      n=$(( ${_FUXX_AS_WRAPS[$w]-0} + 1 ))
+      (( n > 20 )) && continue
+      orig=fuxx-as-orig-$n-$w
+      zle -A $w $orig 2>/dev/null || continue
+      _FUXX_AS_WRAPS[$w]=$n
+      _FUXX_AS_GEN[$gk]=$n
+      fn=modify
+      (( ${accept[(Ie)$w]} )) && fn=accept
+      (( ${partial[(Ie)$w]} )) && fn=partial
+      (( ${clear[(Ie)$w]} )) && fn=clear
+      functions[_fuxx_as_bound_${n}_$w]="emulate -L zsh; _fuxx_as_w_$fn ${(q)orig} \"\$@\""
+    fi
     zle -N $w _fuxx_as_bound_${n}_$w 2>/dev/null
   done
   return 0
