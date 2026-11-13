@@ -983,3 +983,133 @@ fn invalid_history_ignore_prints_nothing_and_reports_nothing() {
         read_wire(&home)
     );
 }
+
+// ---- Final review fixes ----
+
+/// A stub core that says `ready` and then never reads another byte.
+const READY_THEN_DEAF: &str = r#"IFS= read -r hello; printf 'ready\0371\n'
+exec sleep 1000"#;
+
+#[test]
+fn widget_redefined_after_the_first_prompt_is_wrapped() {
+    // oh-my-zsh style: the widget is (re)made by a command at a later prompt, not by the rc.
+    let mut z = ZshHarness::start(git_history());
+    z.run(
+        "autoload -U up-line-or-beginning-search; zle -N up-line-or-beginning-search; \
+         bindkey '^[[A' up-line-or-beginning-search",
+    );
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x1b[A"); // ↑: history beginning search, buffer becomes the whole entry
+    let s = z.wait_state(|s| s.buffer == "git push origin main");
+    assert_eq!(s.postdisplay, "", "stale ghost text: {s:?}");
+    assert!(
+        s.region_highlight.is_empty(),
+        "stale highlight entry: {s:?}"
+    );
+}
+
+#[test]
+fn widget_made_after_the_first_prompt_gets_wrapped_once() {
+    let mut z = ZshHarness::start(git_history());
+    z.run("my-w() { zle backward-delete-char }; zle -N my-w");
+    z.run("source ~/.zshrc"); // re-sourcing must not wrap again
+    z.run("print -r -- $widgets[my-w] $widgets[fuxx-as-orig-my-w] $widgets[fuxx-as-orig-forward-char] $widgets[fuxx-as-orig-up-line-or-history] >| $HOME/w");
+    let w = std::fs::read_to_string(z.home().join("w")).unwrap();
+    assert_eq!(
+        w.trim(),
+        "user:_fuxx_as_bound_my-w user:my-w builtin builtin",
+        "widgets: {w:?}"
+    );
+}
+
+#[test]
+fn a_core_that_stops_reading_never_freezes_the_shell() {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(READY_THEN_DEAF),
+        ..Default::default()
+    });
+    let pid = z.state().core_pid.expect("core pid");
+    // 40 commands of ~300 characters is far more than a FIFO holds (8 KiB on macOS); each `run`
+    // asserts its prompt comes back within 10 s.
+    for i in 0..40 {
+        z.run(&format!(": {i} {}", "x".repeat(300)));
+    }
+    let s = z.wait_state(|s| s.core_pid.is_none());
+    assert_eq!(s.buffer, "");
+    assert!(
+        poll(Duration::from_secs(2), || !alive(pid)),
+        "stub core {pid} still running"
+    );
+    let screen = printable(&z.screen_now()).to_lowercase();
+    for bad in ["fuxx", "error", "broken pipe", "bad file", "failed"] {
+        assert!(!screen.contains(bad), "{bad:?} on screen: {screen:?}");
+    }
+}
+
+#[test]
+fn a_failed_send_of_a_ran_report_stops_the_core() {
+    // The next `ran` can't be written: the adapter ends off and kills the core (rule 6).
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(READY_THEN_DEAF),
+        ..Default::default()
+    });
+    let pid = z.state().core_pid.expect("core pid");
+    z.run("functions -c _fuxx_as_send _t_send; _fuxx_as_send() { [[ $1 == ran ]] && return 1; _t_send \"$@\" }");
+    z.run("echo one");
+    z.run("echo two");
+    let s = z.wait_state(|s| s.core_pid.is_none());
+    assert_eq!(s.buffer, "");
+    assert!(
+        poll(Duration::from_secs(2), || !alive(pid)),
+        "stub core {pid} still running"
+    );
+}
+
+#[test]
+fn the_core_starts_in_the_root_folder_and_not_niced() {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(
+            r#"pwd > "$HOME/core.cwd"; ps -o ni= -p $$ > "$HOME/core.ni"; exec cat > /dev/null"#,
+        ),
+        ..Default::default()
+    });
+    let cwd = z.home().join("core.cwd");
+    let ni = z.home().join("core.ni");
+    assert!(poll(Duration::from_secs(3), || {
+        std::fs::read_to_string(&ni).is_ok_and(|t| !t.trim().is_empty())
+    }));
+    assert_eq!(std::fs::read_to_string(&cwd).unwrap().trim(), "/");
+    // Same niceness as the shell itself (whatever the test runner has), not BG_NICE's extra 5.
+    z.run("ps -o ni= -p $$ >| $HOME/shell.ni");
+    let shell_ni = std::fs::read_to_string(z.home().join("shell.ni")).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&ni).unwrap().trim(),
+        shell_ni.trim()
+    );
+}
+
+#[test]
+fn the_spare_response_reader_stays_until_ready_arrives() {
+    // No `ready` ever: the spare reader on `resp` must still be open (it keeps the shell from
+    // seeing EOF before the core has opened its end).
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(r#"exec cat > /dev/null"#),
+        ..Default::default()
+    });
+    z.run("print -r -- $_FUXX_AS_SPARE_FD >| $HOME/spare; { : >&$_FUXX_AS_SPARE_FD } 2>/dev/null && print open >| $HOME/spare_open");
+    let spare = std::fs::read_to_string(z.home().join("spare")).unwrap();
+    assert!(!spare.trim().is_empty(), "no spare descriptor kept");
+    assert!(z.home().join("spare_open").exists(), "spare fd not open");
+}
+
+#[test]
+fn the_spare_response_reader_is_closed_once_ready_arrives() {
+    let mut z = ZshHarness::start(git_history());
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main"); // the handler ran, so `ready` was read
+    z.send("\x15");
+    z.run("print -r -- \"[$_FUXX_AS_SPARE_FD]\" >| $HOME/spare");
+    let spare = std::fs::read_to_string(z.home().join("spare")).unwrap();
+    assert_eq!(spare.trim(), "[]");
+}

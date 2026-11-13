@@ -1,7 +1,8 @@
 # fuxx-completes: design
 
-Status: **design stage.** Nothing here is built. This document is the source of truth for the
-repo; `docs/roadmap.md` tracks the milestones it defines.
+Status: **M0 is built** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh adapter),
+waiting for the user's check in a real terminal; M1 onward are design only. This document is the
+source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
 (facts corrected, gaps filled). Every decision below is the user's unless it is marked **AI's
@@ -327,13 +328,30 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   M0**). The shell opens both pipes read-write first so no open blocks, starts the core on them
   (without the spare descriptors), opens its own write end of `req` and read end of `resp`
   (close-on-exec through `sysopen -o cloexec` on zsh 5.4+, so programs the user runs never
-  inherit them; on 5.3.x the flag is silently lost, so there they do inherit them, harmlessly), and unlinks the pipes when the core's `ready` arrives, because earlier races the core's own open by path
-  (**AI's call, M0**). A dead core gives EOF on the read end, and a write never
-  raises `EPIPE` because the shell keeps a reader on `req`. **One request is in flight at a time**;
+  inherit them; on 5.3.x the flag is silently lost, so there they do inherit them: a core can then
+  linger, for example after `exec zsh` or behind a daemon started from the shell, until whatever
+  inherited the pipe exits), and unlinks the pipes when the core's `ready` arrives, because earlier
+  races the core's own open by path (**AI's call, M0**). The spare read-write descriptor on `resp`
+  also stays open until `ready` arrives (closing it earlier lets the shell see EOF if the core
+  hasn't opened its end yet), and the core is started from `/` and not niced, so it never keeps
+  the shell's folder busy (`hello` and `suggest` carry the cwd) (**AI's call, M0, final review**).
+  A dead core gives EOF on the read end, and a write never raises `EPIPE` because the shell keeps
+  a reader on `req`. **A write never blocks the shell** (hard rule 6; **AI's call, M0, final
+  review**): `ran` reports aren't paced and a finished line forgets its in-flight request, so a
+  core that answers `ready` and then stops reading would fill the pipe (a FIFO holds about 8 KiB
+  on macOS) and freeze the shell. The shell's write end is opened non-blocking (`sysopen -o
+  nonblock`, zsh 5.9+; 5.3.1 and 5.8.1 reject the option, and plain `exec` has no way to ask for
+  it). Below 5.9 the adapter counts the bytes the core may not have read yet (an answer to a
+  `suggest` shows it has read everything up to that request) and refuses a write that could fill
+  the pipe, which is the same failure. Any failed write, `ran` and `hello` included, stops the
+  core and the adapter ends `off`. **One request is in flight at a time**;
   a core that hasn't answered in 2 s is hung and is stopped, and so is one that answers `ready`
   with another protocol or when the shell exits. A core that is already gone (EOF) is never
   signalled, because its pid may belong to another process by now (**AI's call, M0**). A buffer over
   **1000 characters**, or one holding `0x1F` or `0x1E`, sends no request (**AI's call, M0**). The
+  core answers "no suggestion" when the text after the buffer is over 1000 characters, the same
+  cap: a 200 KB entry blocked ZLE for about 200 ms while it was drawn (**AI's call, M0, final
+  review**). The
   adapter finds the binary through `FUXX_COMPLETES_BIN`, then `PATH` (**AI's call, M0**).
   bash has the same single-coproc concern; named pipes opened with `exec` are the likely choice there, settled in M2.
 - A shared per-user daemon on a Unix socket would save memory across many shells but adds
@@ -393,7 +411,8 @@ They:
 - detect conflicting plugins and terminals that replace the line editor, and stay off (§9).
 
 In M0 the zsh adapter is one self-contained file, `adapters/zsh/fuxx-autosuggestions.plugin.zsh`,
-that finds everything through `PATH` or variables, never through its own location.
+that finds everything through `PATH` or variables, never through its own location. It wraps the line editor's
+widgets again at every prompt, not only the first (§6; **AI's call, M0, amended in the final review**).
 
 They hold no ranking, parsing or command knowledge. Forwarding facts the shell already has (the
 buffer, saved commands, alias expansions, `PATH`) is not relying on the shell: the core still
@@ -457,7 +476,11 @@ The core suggests only commands the shell itself kept, after the shell's own fil
   event `n` is beyond `p` and `$history[p]` is still the same text; the new command then becomes
   pending unless it starts with a space under `HIST_IGNORE_SPACE`, is `history`/`fc -l` under
   `HIST_NO_STORE`, matches `HISTORY_IGNORE` (which only filters the file, so the adapter checks it
-  itself) or is over 1000 characters. When in doubt it doesn't report.
+  itself) or is over 1000 characters. When in doubt it doesn't report. Known limits: a line that
+  another `zshaddhistory` hook keeps in memory only (status 2) is reported and suggested for the
+  session, like zsh's own in-memory history; and with `SHARE_HISTORY` or `INC_APPEND_HISTORY` the
+  file already holds a command before its `ran` arrives, so that session record isn't retired and
+  can outrank newer file entries from other shells. That is ranking only, to be fixed in M1.
 - **bash:** a function added to `PROMPT_COMMAND` (appended, not replacing) runs `history 1` and
   reports the entry only if its history number is new since the last prompt. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working
@@ -506,8 +529,16 @@ Honest about what each shell allows.
   and remove only entries equal to them. (Honest limit: if another plugin added a byte-identical
   entry, the fallback could remove that one too.)
 - **Widget wrap:** like zsh-autosuggestions, wrap the widgets that edit the buffer so that after
-  each edit we request a new suggestion, and wrap the accept widgets. Wrapping happens at the
-  first `precmd`, so widgets defined by plugins loaded after us are seen.
+  each edit we request a new suggestion, and wrap the accept widgets. Wrapping is idempotent and
+  runs at **every** `precmd` while the core is on (**AI's call, M0, amended in the final review**):
+  a widget made after the first prompt (oh-my-zsh redefining one on `source ~/.zshrc`, plugins
+  loaded late by zinit turbo or zsh-defer, a `zle -N` typed at the prompt) is wrapped, and one the
+  user redefined is wrapped again around its new definition. A widget already running one of our
+  functions is left alone, so re-sourcing never double-wraps. It compares the strings in
+  `$widgets` only, with no subshell: about 0.25 ms per prompt on zsh 5.3.1, 5.8.1 and 5.9
+  (measured with 291 widgets). Without this a stale ghost text could stay unstyled after, for
+  example, ↑ through an `up-line-or-beginning-search` defined after the first prompt, and → would
+  accept it.
 - **Keys:** at the end of the buffer, `forward-char` and `end-of-line` accept the whole suggestion
   and `forward-word` accepts up to where the cursor moves. In stock zsh's emacs keymap that means
   → and `^E` for all of it and `Esc f` for a word; End and ⌥→ have no binding by default. So the
@@ -830,7 +861,9 @@ over the host channel is later, in both repos.
   dispatcher prints "No such widget `1:…'" at every prompt for any plugin that uses it. We keep
   the hook helpers (AGENTS.md says to use them) and revisit this in M1's coexistence work.
 - **zsh 5.3.x leaks the adapter's pipe fds.** Close-on-exec works from zsh 5.4, so on 5.3.x the
-  adapter's pipe descriptors are inherited by programs the user runs (harmless, but there). §5.5.
+  adapter's pipe descriptors are inherited by programs the user runs, so a core can linger, for
+  example after `exec zsh` or behind a daemon started from the shell, until whatever inherited
+  the pipe exits. §5.5.
 - **One maintainer with AI help.** Time is the limit.
 - **Start small.** Autosuggestions in zsh first; a short spec list; no feature before it's needed.
 - Shell limits are real: bash and fish will never match zsh here (§6).

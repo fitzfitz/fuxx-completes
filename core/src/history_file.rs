@@ -155,8 +155,12 @@ impl HistoryFile {
         if file.read_to_end(&mut bytes).is_err() {
             return;
         }
+        // Stat again after the read, as `read_everything` does: an append that lands during the
+        // read then still differs from the stamp (mtime) and is read on the next refresh, instead
+        // of the stamp being taken before it and hiding it. `len` is what we consumed.
+        let after = file.metadata().unwrap_or(meta);
         let entries = self.parser.feed(&bytes);
-        self.seen = Some(Stamp::of(&meta, seen.len + bytes.len() as u64));
+        self.seen = Some(Stamp::of(&after, seen.len + bytes.len() as u64));
         history.append_file_entries(entries);
     }
 

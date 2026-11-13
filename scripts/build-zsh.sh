@@ -10,10 +10,20 @@ out="$root/target/zsh"
 prefix="$out/$ver"
 src="$out/src"
 
-if [ -x "$prefix/bin/zsh" ]; then
+# "Built" means the install is complete: the binary runs and loads every module the adapter and
+# its tests need. A half-installed prefix (binary there, modules missing) is wiped and rebuilt.
+# (The prefix is compiled into zsh, so it can't be installed elsewhere and renamed.)
+complete_install() {
+  [ -x "$prefix/bin/zsh" ] &&
+    "$prefix/bin/zsh" -fc 'zmodload zsh/zleparameter zsh/parameter zsh/datetime zsh/system && zmodload -F zsh/files b:zf_rm b:zf_rmdir b:zf_mkdir && autoload -Uz is-at-least add-zsh-hook add-zle-hook-widget && whence -w is-at-least >/dev/null' >/dev/null 2>&1
+}
+if complete_install; then
   echo "zsh $ver already built: $prefix/bin/zsh"
   exit 0
 fi
+rm -rf "$prefix"
+# Any failure from here on leaves no prefix behind, so a failed install is never taken as built.
+trap 'rc=$?; [ "$rc" -eq 0 ] || rm -rf "$prefix"' EXIT
 
 # MD5 as published by the zsh project (https://www.zsh.org/pub/old/MD5SUM); compared in addition
 # to printing the SHA-256. gpg was not available when this was written, so the .asc is not checked.
@@ -53,4 +63,5 @@ make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$src/make-$ver.log" 2>&1 \
   || { tail -30 "$src/make-$ver.log" >&2; exit 1; }
 make install.bin install.modules install.fns >"$src/install-$ver.log" 2>&1 \
   || { tail -30 "$src/install-$ver.log" >&2; exit 1; }
+complete_install || { echo "zsh $ver installed but incomplete" >&2; exit 1; }
 echo "built: $("$prefix/bin/zsh" -fc 'print $ZSH_VERSION') at $prefix/bin/zsh"

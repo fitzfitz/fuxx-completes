@@ -4,6 +4,9 @@ use fuxx_completes_core::history::{History, HistoryFormat};
 use fuxx_completes_core::history_file::HistoryFile;
 use fuxx_completes_core::protocol::{DecodeError, Request, Response, PROTOCOL_VERSION};
 
+/// Longest suggestion text sent back, in characters (same cap as the adapter's buffer).
+const MAX_SUGGESTION_CHARS: usize = 1000;
+
 pub struct Session {
     history: History,
     /// Set by `hello`; without it (no path, unknown format, no hello yet) only `ran` commands count.
@@ -39,8 +42,13 @@ impl Session {
                 if let Some(file) = &mut self.file {
                     file.refresh(&mut self.history);
                 }
-                let text =
-                    fuxx_autosuggestions::suggestion(&self.history, &buffer).map(str::to_owned);
+                // Longer than the adapter's own 1000-character buffer cap: drawing it stalls ZLE
+                // (a 200 KB entry took about 200 ms), so answer "no suggestion".
+                let text = fuxx_autosuggestions::suggestion(&self.history, &buffer)
+                    .filter(|t| {
+                        t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
+                    })
+                    .map(str::to_owned);
                 Some(Response::Suggestion { id, text })
             }
             Request::Ran { command, .. } => {
@@ -137,6 +145,42 @@ mod tests {
             Some(Response::Suggestion {
                 id: 2,
                 text: Some(" test".into())
+            })
+        );
+    }
+
+    #[test]
+    fn suggestion_text_over_1000_chars_is_dropped() {
+        let ran = |command: String| Request::Ran {
+            cwd: PathBuf::from("/"),
+            status: 0,
+            time: 0,
+            command,
+        };
+        let mut s = Session::new();
+        s.handle(hello(1, None));
+        // Exactly 1000 characters after the buffer still counts.
+        s.handle(ran(format!("make {}", "x".repeat(999))));
+        assert_eq!(
+            s.handle(suggest(1, "make")),
+            Some(Response::Suggestion {
+                id: 1,
+                text: Some(format!(" {}", "x".repeat(999)))
+            })
+        );
+        // One more character is over the cap: no suggestion (it would stall ZLE while drawn).
+        s.handle(ran(format!("make {}", "y".repeat(1000))));
+        assert_eq!(
+            s.handle(suggest(2, "make")),
+            Some(Response::Suggestion { id: 2, text: None })
+        );
+        // Characters, not bytes: 1000 two-byte characters pass.
+        s.handle(ran(format!("run {}", "é".repeat(999))));
+        assert_eq!(
+            s.handle(suggest(3, "run")),
+            Some(Response::Suggestion {
+                id: 3,
+                text: Some(format!(" {}", "é".repeat(999)))
             })
         );
     }

@@ -12,19 +12,20 @@ a copy of your history:
 
 ```
 cargo build
-cp "${HISTFILE:-$HOME/.zsh_history}" /tmp/fuxx-try-history
-env -i HOME="$(mktemp -d)" TERM="$TERM" PATH=/usr/bin:/bin zsh -d -i
+try=$(mktemp -d) && (umask 077; cp "${HISTFILE:-$HOME/.zsh_history}" "$try/history")
+env -i HOME="$try" TERM="$TERM" LANG="${LANG:-en_US.UTF-8}" PATH=/usr/bin:/bin zsh -d -i; rm -r "$try"
 ```
 
-Then, inside that new shell (`<repo>` is this checkout):
+The copy lives in a private folder (mode 0700, the file 0600) and is deleted when the try-it shell
+exits. Then, inside that new shell (`<repo>` is this checkout):
 
 ```
-HISTFILE=/tmp/fuxx-try-history; FUXX_COMPLETES_BIN=<repo>/target/debug/fuxx-completes
+HISTFILE=$HOME/history; FUXX_COMPLETES_BIN=<repo>/target/debug/fuxx-completes
 source <repo>/adapters/zsh/fuxx-autosuggestions.plugin.zsh
 ```
 
-`exit` ends it; nothing in your normal shell changes. (`-d` skips the global rc files and the
-temporary `HOME` has no `.zshrc`, so `-f` isn't needed.)
+`exit` ends it and removes the copy; nothing in your normal shell changes. (`-d` skips the global
+rc files and the temporary `HOME` has no `.zshrc`, so `-f` isn't needed.)
 
 A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugin.zsh` and
 `fuxx-autocomplete.plugin.zsh`). It holds no ranking, parsing or command knowledge.
@@ -53,6 +54,7 @@ A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugi
   to the terminal over OSC 7701 instead of being drawn here, and `ESC [ 7701 ~` applies what the
   terminal accepted.
 - **Menu (M6):** drawn below the line, not through zsh's completion system. Tab stays zsh's.
-- **Stays off** when zsh-autosuggestions (for ghost text) or zsh-autocomplete (`.autocomplete__*`
-  or older `.autocomplete.*` functions, for the menu) is loaded, and entirely in Warp
-  (`TERM_PROGRAM=WarpTerminal`), whose own editor replaces ZLE. Never binds ⌃R, ⌃T or Tab.
+- **Stays off (M1, not built yet)** when zsh-autosuggestions (for ghost text) or zsh-autocomplete
+  (`.autocomplete__*` or older `.autocomplete.*` functions, for the menu) is loaded, and entirely
+  in Warp (`TERM_PROGRAM=WarpTerminal`), whose own editor replaces ZLE. Today none of that is
+  detected. Never binds ⌃R, ⌃T or Tab.

@@ -26,12 +26,17 @@
   typeset -g _FUXX_AS_STATE=''
   typeset -g _FUXX_AS_PID=''
   typeset -g _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD=''
+  typeset -g _FUXX_AS_SPARE_FD=''  # read-write holder on `resp` until `ready` (see _fuxx_as_start)
   typeset -g _FUXX_AS_NEXT_ID=1 _FUXX_AS_INFLIGHT_ID='' _FUXX_AS_INFLIGHT_SINCE=0
   typeset -g _FUXX_AS_INFLIGHT_BUFFER='' _FUXX_AS_LAST_BUFFER=''
   typeset -g _FUXX_AS_DIR=''     # the temp folder holding the pipes, until the core has them open
   typeset -g _FUXX_AS_HL=''      # the exact highlight string we added (used below zsh 5.9)
   typeset -g _FUXX_AS_MEMO=0     # 1 when region_highlight accepts `memo=` (zsh 5.9+)
   typeset -g _FUXX_AS_CLOEXEC=0  # 1 when `sysopen -o cloexec` works on this zsh
+  typeset -g _FUXX_AS_NONBLOCK=0 # 1 when `sysopen -o nonblock` works (zsh 5.9+): writes never block
+  # Without nonblock (zsh below 5.9) a write could block on a full pipe, so the bytes the core may
+  # not have read yet are counted instead: sent minus what an answer proves it consumed.
+  typeset -gi _FUXX_AS_UNREAD=0 _FUXX_AS_SINCE_SUGGEST=0
   # Command reports (§5.8): the line zshaddhistory saw, where the running command started, and the
   # one command held back until the next prompt (its event number, history text, cwd, status, time).
   typeset -g _FUXX_AS_NOTED='' _FUXX_AS_CMD_PWD=''
@@ -39,12 +44,20 @@
   typeset -g _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
   is-at-least 5.9 && _FUXX_AS_MEMO=1
   local fd
-  # zsh/system is optional: without sysopen or its cloexec option we open pipes with plain `exec`.
+  # zsh/system is optional: without sysopen or its options we open pipes with plain `exec`.
   # Below 5.4 `sysopen -o cloexec -u fd` is accepted but ineffective (zsh moves the descriptor and
   # drops the flag; fixed 2017-05-23, 5.4): checked on 5.3.1, so there we use the plain path too.
-  if is-at-least 5.4 && zmodload zsh/system 2>/dev/null && sysopen -r -o cloexec -u fd /dev/null 2>/dev/null; then
-    { exec {fd}<&- } 2>/dev/null
-    _FUXX_AS_CLOEXEC=1
+  # `-o nonblock` exists from 5.9 only ("unsupported option" on 5.3.1 and 5.8.1); plain `exec`
+  # has no way to ask for O_NONBLOCK, so older zsh counts bytes instead (see _fuxx_as_send).
+  if zmodload zsh/system 2>/dev/null; then
+    if is-at-least 5.4 && sysopen -r -o cloexec -u fd /dev/null 2>/dev/null; then
+      { exec {fd}<&- } 2>/dev/null
+      _FUXX_AS_CLOEXEC=1
+    fi
+    if sysopen -w -o nonblock -u fd /dev/null 2>/dev/null; then
+      { exec {fd}>&- } 2>/dev/null
+      _FUXX_AS_NONBLOCK=1
+    fi
   fi
   return 0
 } || return 0
@@ -58,13 +71,26 @@ _fuxx_as_unlink_pipes() {
   return 0
 }
 
+# Drops the spare read-write holder on `resp` (kept from the start until the core says `ready`).
+_fuxx_as_close_spare() {
+  emulate -L zsh
+  [[ -n $_FUXX_AS_SPARE_FD ]] && { exec {_FUXX_AS_SPARE_FD}>&- } 2>/dev/null
+  _FUXX_AS_SPARE_FD=''
+  return 0
+}
+
 # _fuxx_as_open <r|w|rw> <file>: opens a pipe, close-on-exec where zsh can (so the programs the
-# user runs never inherit it); the descriptor number comes back in $REPLY.
+# user runs never inherit it), and the shell's write end also non-blocking where zsh can (a write
+# to a full pipe then fails instead of freezing the shell); the descriptor number comes back in
+# $REPLY.
 _fuxx_as_open() {
   emulate -L zsh
   local mode=$1 file=$2 fd
-  if (( _FUXX_AS_CLOEXEC )); then
-    sysopen -$mode -o cloexec -u fd $file 2>/dev/null || return 1
+  local -a o=()
+  (( _FUXX_AS_CLOEXEC )) && o+=cloexec
+  [[ $mode == w ]] && (( _FUXX_AS_NONBLOCK )) && o+=nonblock
+  if (( $#o )); then
+    sysopen -$mode -o ${(j:,:)o} -u fd $file 2>/dev/null || return 1
   else
     case $mode in
       rw) { exec {fd}<>$file } 2>/dev/null ;;
@@ -77,12 +103,14 @@ _fuxx_as_open() {
 
 # Starts the core on two named pipes. Open order (checked on macOS): the shell opens both pipes
 # read-write first, so no open blocks; the core is started on them; the shell then opens its
-# write end of `req` and read end of `resp`, and drops the helper descriptors. A dead core gives
-# EOF on the read end, and a write never raises EPIPE because the shell keeps a reader on `req`.
-# The pipes are unlinked when the core's `ready` arrives, not before: the core opens them by path
-# in its own process, and unlinking earlier races that open (the core then fails to start).
+# write end of `req` and read end of `resp`. A dead core gives EOF on the read end, and a write
+# never raises EPIPE because the shell keeps a reader on `req`. The read-write holder on `resp`
+# stays until `ready` arrives: closing it earlier lets the shell see EOF if the core hasn't opened
+# `resp` yet. The pipes are unlinked at `ready` too, not before: the core opens them by path in its
+# own process, and unlinking earlier races that open (the core then fails to start).
 _fuxx_as_start() {
   emulate -L zsh
+  setopt nobgnice   # emulate -L turns BG_NICE on, which would run the core niced
   local bin=${FUXX_COMPLETES_BIN:-${commands[fuxx-completes]-}} dir rs='' ok=1
   if [[ -z $bin || ! -x $bin || -d $bin ]]; then
     _FUXX_AS_STATE=off
@@ -99,23 +127,28 @@ _fuxx_as_start() {
   # Any failure below falls through to the cleanup after the block (never `return` from inside).
   {
     _fuxx_as_open rw $dir/req && _FUXX_AS_KEEPFD=$REPLY || ok=0
-    if (( ok )); then _fuxx_as_open rw $dir/resp && rs=$REPLY || ok=0; fi
+    if (( ok )); then _fuxx_as_open rw $dir/resp && _FUXX_AS_SPARE_FD=$REPLY rs=$REPLY || ok=0; fi
     if (( ok )); then
       # The core must not inherit our spare descriptors, or it would hold its own pipe ends open.
-      "$bin" serve <$dir/req >$dir/resp 2>/dev/null {_FUXX_AS_KEEPFD}>&- {rs}>&- &!
+      # It starts from `/`, so it never keeps the shell's folder busy (hello and suggest carry the
+      # cwd); `exec` keeps the subshell's pid, so $! is the core's.
+      ( { builtin cd -q / } 2>/dev/null; exec "$bin" serve <$dir/req >$dir/resp 2>/dev/null {_FUXX_AS_KEEPFD}>&- {rs}>&- ) &!
       _FUXX_AS_PID=$!
       _fuxx_as_open w $dir/req && _FUXX_AS_WFD=$REPLY || ok=0
     fi
     if (( ok )); then _fuxx_as_open r $dir/resp && _FUXX_AS_RFD=$REPLY || ok=0; fi
-    [[ -n $rs ]] && { exec {rs}>&- }
   } 2>/dev/null
   # A plain function, not `-w`, so it also gets the error argument (`hup`, ...).
   if (( ! ok )) || ! zle -F $_FUXX_AS_RFD _fuxx_as_on_response 2>/dev/null; then
     _fuxx_as_stop kill
     return 0
   fi
-  _fuxx_as_send hello 1 zsh "$ZSH_VERSION" zsh "${HISTFILE:+${HISTFILE:a}}" autosuggestions
+  if ! _fuxx_as_send hello 1 zsh "$ZSH_VERSION" zsh "${HISTFILE:+${HISTFILE:a}}" autosuggestions; then
+    _fuxx_as_stop kill
+    return 0
+  fi
   _fuxx_as_wrap_widgets
+  _fuxx_as_install_once
   _FUXX_AS_STATE=on
 }
 
@@ -131,12 +164,14 @@ _fuxx_as_stop() {
   fi
   [[ -n $_FUXX_AS_WFD ]] && { exec {_FUXX_AS_WFD}>&- } 2>/dev/null
   [[ -n $_FUXX_AS_KEEPFD ]] && { exec {_FUXX_AS_KEEPFD}>&- } 2>/dev/null
+  _fuxx_as_close_spare
   if [[ $why == kill && -n $_FUXX_AS_PID ]]; then
     kill $_FUXX_AS_PID 2>/dev/null
   fi
   _fuxx_as_unlink_pipes
   _FUXX_AS_RFD='' _FUXX_AS_WFD='' _FUXX_AS_KEEPFD='' _FUXX_AS_PID=''
   _FUXX_AS_INFLIGHT_ID=''
+  _FUXX_AS_UNREAD=0 _FUXX_AS_SINCE_SUGGEST=0
   _FUXX_AS_STATE=off
   # Inside a handler the line's variables only exist in a widget; elsewhere clear directly.
   zle fuxx-as-clear 2>/dev/null || _fuxx_as_clear
@@ -144,6 +179,11 @@ _fuxx_as_stop() {
 }
 
 # _fuxx_as_send <kind> <fields...>: fields joined by 0x1F, a newline inside a field written as 0x1E.
+# A write must never block the shell (hard rule 6). With a non-blocking descriptor (zsh 5.9+) a
+# full pipe makes `print` fail. Below 5.9 there is no such descriptor, so the bytes the core may
+# not have read yet are counted (_FUXX_AS_UNREAD; an answer to a `suggest` resets it to what was
+# sent after that `suggest`) and a write that could fill the pipe fails the same way. Callers
+# treat a failure as "the core isn't reading" and stop it.
 _fuxx_as_send() {
   emulate -L zsh
   [[ -n $_FUXX_AS_WFD ]] || return 1
@@ -152,8 +192,20 @@ _fuxx_as_send() {
   for f in "$@"; do
     out+=( "${f//$nl/$rs}" )
   done
-  line="${(pj:\x1f:)out}"
-  print -rn -u $_FUXX_AS_WFD -- "$line"$'\n' 2>/dev/null
+  line="${(pj:\x1f:)out}"$'\n'
+  local -i len=0
+  if (( ! _FUXX_AS_NONBLOCK )); then
+    { local LC_ALL=C; len=$#line }   # bytes, not characters
+    # A pipe holds at least 8 KiB; stay well under it. The first message into a drained pipe
+    # always goes (one message is at most a few KiB).
+    (( _FUXX_AS_UNREAD > 0 && _FUXX_AS_UNREAD + len > 6144 )) && return 1
+  fi
+  print -rn -u $_FUXX_AS_WFD -- "$line" 2>/dev/null || return 1
+  if (( ! _FUXX_AS_NONBLOCK )); then
+    _FUXX_AS_UNREAD+=len
+    if [[ $1 == suggest ]]; then _FUXX_AS_SINCE_SUGGEST=0; else _FUXX_AS_SINCE_SUGGEST+=len; fi
+  fi
+  return 0
 }
 
 # Asks for a suggestion for $BUFFER; one request in flight at a time.
@@ -191,11 +243,13 @@ _fuxx_as_on_response() {
   case $f[1] in
     ready)
       _fuxx_as_unlink_pipes
+      _fuxx_as_close_spare
       [[ $f[2] == 1 ]] || _fuxx_as_stop kill
       ;;
     suggestion)
       [[ $f[2] == $_FUXX_AS_INFLIGHT_ID && -n $_FUXX_AS_INFLIGHT_ID ]] || return 0   # stale: drop
       _FUXX_AS_INFLIGHT_ID=''
+      _FUXX_AS_UNREAD=$_FUXX_AS_SINCE_SUGGEST   # the core has read everything up to that request
       # $BUFFER and POSTDISPLAY only exist inside a widget, so the rest happens in one.
       zle fuxx-as-answer -- "${f[3]//$rs/$nl}" 2>/dev/null
       ;;
@@ -367,7 +421,8 @@ _fuxx_as_line_init() {
   emulate -L zsh
   _FUXX_AS_LAST_BUFFER=''
 }
-_fuxx_as_line_finish() {   # ghost text never stays in the scrollback
+_fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the scrollback
+  # (after ⌃C it can: zsh doesn't redraw the line on SIGINT)
   emulate -L zsh
   _fuxx_as_clear
   # Forget the request in flight: a handler doesn't run while the command does, so by the next
@@ -375,12 +430,17 @@ _fuxx_as_line_finish() {   # ghost text never stays in the scrollback
   _FUXX_AS_INFLIGHT_ID='' _FUXX_AS_INFLIGHT_SINCE=0 _FUXX_AS_INFLIGHT_BUFFER=''
 }
 
-# Runs once, at the first precmd, so it sees every widget the user's rc and other plugins made.
-# Each widget gets its own small function that names the original, so a widget that another
-# widget calls with `zle name` finds its original without relying on $WIDGET.
+# Runs at every precmd while the core is on, so it sees every widget the user's rc, other plugins
+# and later commands made: oh-my-zsh redefining a widget after the first prompt, plugins loaded late
+# (zinit turbo, zsh-defer), a `zle -N` typed at the prompt. It is idempotent: a widget that is
+# already ours is left alone, a new one is wrapped, and one the user redefined since (its current
+# definition isn't one of our `_fuxx_as_bound_*` functions) is wrapped again around its new
+# definition. Each widget gets its own small function that names the original, so a widget that
+# another widget calls with `zle name` finds its original without relying on $WIDGET. Cheap by
+# design: no subshell, one pass over the names, and only strings are compared.
 _fuxx_as_wrap_widgets() {
   emulate -L zsh
-  local w km fn
+  local w fn
   # zsh-autosuggestions' default lists; every other widget gets the plain `modify` wrapper.
   local -a accept=( forward-char end-of-line vi-forward-char vi-end-of-line vi-add-eol )
   local -a partial=( forward-word emacs-forward-word vi-forward-word vi-forward-word-end
@@ -390,12 +450,12 @@ _fuxx_as_wrap_widgets() {
     history-beginning-search-backward-end history-substring-search-up history-substring-search-down
     up-line-or-beginning-search down-line-or-beginning-search up-line-or-history
     down-line-or-history accept-line copy-earlier-word )
-  for w in ${(f)"$(zle -la 2>/dev/null)"}; do
-    case $w in
-      .*|_*|fuxx-as-*|orig-*|zle-*|azhw:*) continue ;;
-      beep|run-help|set-local-history|which-command|yank|yank-pop) continue ;;
-    esac
-    [[ ${widgets[$w]-} == user:_fuxx_as_bound_* ]] && continue   # already ours
+  # Every name except the ones we never wrap, minus the widgets that already run our functions
+  # (matched by value, so an alias made by the user of one of ours counts as ours too).
+  local -a todo=( ${(k)widgets:#(.*|_*|fuxx-as-*|orig-*|zle-*|azhw:*|beep|run-help|set-local-history|which-command|yank|yank-pop)} )
+  local -a ours=( ${(k)widgets[(R)user:_fuxx_as_bound_*]} )
+  todo=( ${todo:|ours} )
+  for w in $todo; do
     zle -A $w fuxx-as-orig-$w 2>/dev/null || continue
     fn=modify
     (( ${accept[(Ie)$w]} )) && fn=accept
@@ -404,6 +464,13 @@ _fuxx_as_wrap_widgets() {
     functions[_fuxx_as_bound_$w]="emulate -L zsh; _fuxx_as_w_$fn ${(q)w} \"\$@\""
     zle -N $w _fuxx_as_bound_$w 2>/dev/null
   done
+  return 0
+}
+
+# Once, at start: the keys nobody has bound, and the line hooks.
+_fuxx_as_install_once() {
+  emulate -L zsh
+  local km
   # End and ⌥→ have no default binding; vicmd is left alone.
   for km in emacs viins; do
     _fuxx_as_bind_if_free $km '^[[F' end-of-line
@@ -448,6 +515,7 @@ _fuxx_as_precmd() {
     _fuxx_as_start
     return 0
   fi
+  [[ $_FUXX_AS_STATE == on ]] && _fuxx_as_wrap_widgets
   [[ -n $_FUXX_AS_NOTED ]] || return 0
   local noted=$_FUXX_AS_NOTED E
   local -i n=$(( HISTCMD - 1 )) p
@@ -456,10 +524,12 @@ _fuxx_as_precmd() {
   if [[ -n $_FUXX_AS_PEND_EVENT ]]; then
     p=$_FUXX_AS_PEND_EVENT
     if (( n > p )) && [[ ${history[$p]-} == "$_FUXX_AS_PEND_ENTRY" ]]; then
-      _fuxx_as_send ran "$_FUXX_AS_PEND_PWD" "$_FUXX_AS_PEND_STATUS" "$_FUXX_AS_PEND_TIME" "$_FUXX_AS_PEND_ENTRY"
+      _fuxx_as_send ran "$_FUXX_AS_PEND_PWD" "$_FUXX_AS_PEND_STATUS" "$_FUXX_AS_PEND_TIME" "$_FUXX_AS_PEND_ENTRY" \
+        || _fuxx_as_stop kill
     fi
     _FUXX_AS_PEND_EVENT='' _FUXX_AS_PEND_ENTRY='' _FUXX_AS_PEND_PWD=''
     _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
+    [[ $_FUXX_AS_STATE == on ]] || return 0
   fi
   # Report E, the entry as zsh stored it (HIST_REDUCE_BLANKS etc.), so it matches the file.
   E=${history[$n]-}
