@@ -181,6 +181,12 @@ arrive.
   one command. With it, context ranking works across all shells and after restarts. The rule: no
   copy of the command history itself; only this small metadata file, keyed by commands already in
   the shell's own history. Details in §5.7 (the key is an AI's call).
+- **Never suggest a `cd` to a folder that isn't there (decided 2026-11-13).** The user's report:
+  "fuxx-suggestion give wrong suggestion. doesn't validate it. im on Kerja folder, when I type cd,
+  it suggested to go fuxx-cli. fuxx-cli is not on Kerja folder, but its in Kerja/proj/fuxx-cli",
+  then "yes" to: never suggest `cd`/`pushd` to a folder that doesn't exist from the current
+  folder; the next valid match is shown instead. Folder-aware ranking stays M1, general argument
+  checks stay M5. How it works: §5.4.
 - **License (AI's call):** MIT OR Apache-2.0, the Rust convention.
 - **Layout (AI's call):** a Cargo workspace (§12).
 
@@ -275,6 +281,24 @@ no session field, §5.7). The weights are the builder's choice; ranking must be 
 given history and context, so it can be tested. A command missing from the history the core holds
 is never suggested (§5.8).
 
+**A `cd` to a folder that isn't there is passed over (the user's decision, 2026-11-13, §4).** The
+core walks the matches in rank order and skips one whose command is `cd` or `pushd` (after leading
+`builtin`/`command` words and `NAME=value` assignments, and the options `-q -s -L -P --`) and whose
+one argument **certainly** isn't a folder (a symlink to a folder counts) from the request's cwd.
+It resolves simple quoting and escapes (`'a b'`, `"a b"`, `a\ b`), `~` and `~/x` with the core's
+own `$HOME`, absolute paths, `.` and `..` (taken both lexically, as zsh's `cd` does by default, and
+physically, as with `CHASE_DOTS`: either one counts). A relative target not found from the cwd is
+looked for in the `cdpath` folders the adapter forwards with each request (§5.5); when the adapter
+didn't send them, such a target is kept. Anything it can't check is kept: no argument, `-`, `-N`
+and `+N`, `~name`, anything with `$`, backticks, globs, braces, `!` or `=cmd`, an unknown option,
+the two-argument form `cd old new`, a redirection. Only the first simple command of an entry is
+looked at (`cd x && make` checks `x`); `popd` takes no folder. The walk never blocks: one or two
+`stat`s per distinct candidate checked (more with `cdpath`), a repeated candidate is checked once,
+and after 50 rejected candidates it stops with no suggestion (§3 budget) (**AI's calls:** the
+bound, the both-ways `..`, keeping relative targets when `cdpath` is unknown). Known limits: a `cd`
+that is an alias or function (zoxide's `--cmd cd`, for example) or `CDABLE_VARS` can reach folders
+this check can't see; the core doesn't know aliases until shell state (§5.9, M5).
+
 **Menu items** are ordered by kind (subcommands, then options, then argument values; open to
 change), then by prefix match quality, then by how often the user picked them (counted in memory
 only; persisting them would need the user to widen §5.7 first).
@@ -294,13 +318,17 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   | Direction | Message | Fields after the kind |
   | --- | --- | --- |
   | adapter → core | `hello` | protocol (`1`), shell (`zsh`), shell version, history format (`zsh`), history path (absolute, may be empty), libraries (comma list: `autosuggestions`) |
-  | adapter → core | `suggest` | id (u64), mode (`async`/`sync`), cursor (code points), cwd, buffer |
+  | adapter → core | `suggest` | id (u64), mode (`async`/`sync`), cursor (code points), cwd, buffer, then optionally cdpath (the shell's `cdpath` folders, one per line, so `RS` on the wire; empty = none) |
   | adapter → core | `ran` | cwd (where it started), exit status (i32), time (Unix seconds), command |
   | adapter → core | `bye` | none |
   | core → adapter | `ready` | protocol (`1`) |
   | core → adapter | `suggestion` | id, text after the buffer (empty = none) |
 
-  Unknown kinds are ignored. A `suggest` whose id parses but whose other fields don't still gets an
+  The `cdpath` field was added on 2026-11-13 (§5.4) without a version bump: a `suggest` with six
+  fields still decodes, and its `cdpath` is unknown (relative `cd` targets not found from the cwd
+  are then kept). The zsh adapter sends it with every request, so a `cdpath` changed at the
+  prompt counts at once; if a folder holds a control character it leaves the field off (**AI's
+  call**). Unknown kinds are ignored. A `suggest` whose id parses but whose other fields don't still gets an
   empty `suggestion` for that id, so the adapter's one-in-flight slot always clears. A JSON encoding
   of the same messages is added when an embedder in another language needs one (deferred).
 - **Request modes (AI's call).** Every request has a `mode`: `async` (the default; the adapter

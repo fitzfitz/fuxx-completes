@@ -239,7 +239,12 @@ _fuxx_as_request() {
   _FUXX_AS_INFLIGHT_ID=$id
   _FUXX_AS_INFLIGHT_SINCE=$EPOCHREALTIME
   _FUXX_AS_INFLIGHT_BUFFER=$BUFFER
-  _fuxx_as_send suggest $id async $CURSOR "$PWD" "$BUFFER" || _fuxx_as_stop kill
+  # `cdpath` goes along, one folder per line: the core checks `cd` targets through it (design
+  # §5.4). If a folder holds a control character the wire can't carry, the field is left off and
+  # the core treats `cdpath` as unknown.
+  local -a f=( suggest $id async $CURSOR "$PWD" "$BUFFER" )
+  (( ${#${(@M)cdpath:#*[[:cntrl:]]*}} )) || f+=( "${(pj:\n:)cdpath}" )
+  _fuxx_as_send "${f[@]}" || _fuxx_as_stop kill
   return 0
 }
 

@@ -28,6 +28,26 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **A `cd` to a folder that isn't there is never suggested (the user's
+  decision).** The user's report: in `Kerja`, typing `cd` suggested `fuxx-cli`, which is in
+  `Kerja/proj`; then "yes" to never suggesting `cd`/`pushd` to a folder that doesn't exist from the
+  current folder, with the next valid match shown instead (folder-aware ranking stays M1, general
+  argument checks stay M5). `design.md` §4, §5.4 and §5.5 updated. The core
+  (`core/src/cd_target.rs`) decides whether a `cd`/`pushd` target certainly isn't a folder from the
+  request's cwd (quoting, `~`, absolute, `.`/`..`, options, `builtin`/`command`/assignments,
+  symlinks; anything it can't check is kept); `History::latest_with_prefix_except` walks the
+  matches in rank order, checking each distinct candidate once and giving up after 50 rejected.
+  `suggestion()` and the session pass the request's cwd, the core's `$HOME` and the `cdpath` the
+  zsh adapter now sends as an optional last `suggest` field (old six-field requests still decode,
+  `cdpath` unknown: relative targets not found from the cwd are kept). Tests first, each seen
+  failing: the resolver (relative, `~`, absolute, quotes and escapes, what's kept, options, two
+  arguments, `cdpath` known/unknown, symlinked folder, a file named like the target, logical and
+  physical `..`), the walk (next valid match, all invalid, the bound, a repeated candidate), the
+  wire field, the session, and in a real zsh the user's case (from `Kerja` `cd ` suggests `proj`,
+  from `Kerja/proj` `fuxx-cli`), a folder found through `cdpath`, and the field on the wire. The Tab
+  and Esc tests' fixture now makes the folders their `cd` histories go to. 111 adapter tests on zsh
+  5.3.1, 5.8.1 and 5.9; 211 in the workspace.
+
 - **2026-11-13** — **Tab and Esc, fix round 2 (re-review).** ⌃D mid-line is a plain forward
   delete, but as a completion widget (`completion:` after compinit) it took the
   hide-until-next-edit path, so "git pu", ⌃B, ⌃D left "git p" with no suggestion. Now ⌃D before

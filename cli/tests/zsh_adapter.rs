@@ -184,7 +184,7 @@ fn sends_hello_then_one_suggest_in_flight() {
     assert_eq!(
         wire,
         format!(
-            "{hello}suggest{US}1{US}async{US}1{US}{}{US}a\n",
+            "{hello}suggest{US}1{US}async{US}1{US}{}{US}a{US}\n",
             home.display()
         )
     );
@@ -1637,7 +1637,9 @@ fn a_builtin_widget_aliased_to_another_builtin_keeps_the_new_behaviour() {
 // `vi-cmd-mode` that Esc runs does the same on its way.
 
 /// Three folders starting with "alpha" and one "beta", in the shell's (temporary) home.
-const DIRS: &str = "command mkdir -p alpha1 alpha2 alpha3 beta";
+/// The folders the `cd` histories below go to exist, or the core passes those entries over
+/// (design §5.4).
+const DIRS: &str = "command mkdir -p alpha1/x alpha2/deep alpha3 beta";
 const COMPINIT: &str = "autoload -Uz compinit; compinit -u -d $HOME/.zcompdump";
 /// A Tab widget that only marks the buffer, standing in for fzf's or fzf-tab's.
 fn tab_widget(name: &str) -> String {
@@ -2352,4 +2354,63 @@ fn ctrl_d_at_the_end_lists_and_keeps_the_ghost_off() {
             "{rc:?} {s:?}"
         );
     }
+}
+
+/// The user's report (2026-11-13): in `Kerja`, `cd ` suggested `fuxx-cli`, which is only in
+/// `Kerja/proj`. A `cd` to a folder that isn't there from the current folder is passed over for
+/// the next match; from `Kerja/proj` the same entry is suggested.
+#[test]
+fn cd_to_a_folder_missing_here_is_passed_over_for_the_next_match() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "command mkdir -p Kerja/proj/fuxx-cli; cd Kerja".into(),
+        history: vec!["cd proj", "cd fuxx-cli"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "cd ", "proj");
+    z.send("\x15"); // ⌃U
+    z.wait_state(|s| s.buffer.is_empty());
+    z.run("cd proj");
+    type_until_ghost(&mut z, "cd ", "fuxx-cli");
+}
+
+/// `cdpath` is forwarded with each request, so a folder found only through it is suggested.
+#[test]
+fn cd_to_a_folder_found_through_cdpath_is_suggested() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "command mkdir -p lib/sub here; cdpath=($HOME/lib); cd here".into(),
+        history: vec!["cd sub", "cd nope"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "cd ", "sub");
+}
+
+/// The suggest line the adapter sends for "a" with `cdpath` set by `rc` (a recording core).
+fn suggest_line_with(rc: &str, tail: &str) {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(r#"exec cat > "$HOME/wire.log""#),
+        rc_before: rc.into(),
+        ..Default::default()
+    });
+    z.send("a");
+    let home = z.home().to_path_buf();
+    let want = format!(
+        "suggest{US}1{US}async{US}1{US}{}{US}a{tail}\n",
+        home.display()
+    );
+    assert!(
+        poll(Duration::from_secs(3), || read_wire(&home).ends_with(&want)),
+        "{rc:?} wire: {:?}",
+        read_wire(&home)
+    );
+}
+
+#[test]
+fn suggest_carries_cdpath_one_folder_per_line() {
+    suggest_line_with("cdpath=(/a '/b c')", &format!("{US}/a\u{1e}/b c"));
+}
+
+#[test]
+fn cdpath_with_a_control_character_is_left_off_as_unknown() {
+    suggest_line_with("cdpath=(/a $'/x\\ny')", "");
+    suggest_line_with("cdpath=(/a $'/u\\x1fv')", "");
 }

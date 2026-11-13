@@ -3,6 +3,9 @@
 
 use std::str::FromStr;
 
+/// How many distinct candidates `latest_with_prefix_except` may reject before it gives up.
+pub const MAX_SKIPPED: usize = 50;
+
 /// The shell history file formats the core can read. Only zsh in M0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryFormat {
@@ -42,6 +45,37 @@ impl History {
             .chain(self.file.iter().rev())
             .map(String::as_str)
             .find(|entry| entry.starts_with(prefix))
+    }
+
+    /// Like `latest_with_prefix`, but walks past candidates that `skip` rejects. Each distinct
+    /// rejected candidate counts once; after `MAX_SKIPPED` of them the walk stops with `None`, so
+    /// the checks stay within the latency budget (`docs/design.md` §3).
+    pub fn latest_with_prefix_except(
+        &self,
+        prefix: &str,
+        mut skip: impl FnMut(&str) -> bool,
+    ) -> Option<&str> {
+        let mut rejected: Vec<&str> = Vec::new();
+        for entry in self
+            .session
+            .iter()
+            .rev()
+            .chain(self.file.iter().rev())
+            .map(String::as_str)
+            .filter(|entry| entry.starts_with(prefix))
+        {
+            if rejected.contains(&entry) {
+                continue;
+            }
+            if !skip(entry) {
+                return Some(entry);
+            }
+            rejected.push(entry);
+            if rejected.len() >= MAX_SKIPPED {
+                return None;
+            }
+        }
+        None
     }
 
     pub fn record_session(&mut self, command: String) {
@@ -141,6 +175,80 @@ mod tests {
     #[test]
     fn match_is_case_sensitive() {
         assert_eq!(file(&["Git x"]).latest_with_prefix("git"), None);
+    }
+
+    #[test]
+    fn walk_returns_the_first_candidate_not_skipped() {
+        let h = file(&["cd proj", "cd fuxx-cli"]);
+        assert_eq!(
+            h.latest_with_prefix_except("cd ", |c| c == "cd fuxx-cli"),
+            Some("cd proj")
+        );
+        assert_eq!(
+            h.latest_with_prefix_except("cd ", |_| false),
+            Some("cd fuxx-cli")
+        );
+    }
+
+    #[test]
+    fn walk_with_every_candidate_skipped_is_none() {
+        let h = file(&["cd a", "cd b", "ls"]);
+        assert_eq!(h.latest_with_prefix_except("cd", |_| true), None);
+    }
+
+    #[test]
+    fn walk_keeps_session_before_file_order() {
+        let mut h = file(&["cd b"]);
+        h.record_session("cd a".into());
+        h.record_session("cd x".into());
+        assert_eq!(
+            h.latest_with_prefix_except("cd", |c| c == "cd x"),
+            Some("cd a")
+        );
+    }
+
+    #[test]
+    fn walk_gives_up_after_max_skipped_distinct_candidates() {
+        // Newest first: MAX_SKIPPED rejected ones, then a good one.
+        let mut entries = vec!["cd good".to_string()];
+        entries.extend((0..MAX_SKIPPED).map(|i| format!("cd bad{i}")));
+        let h = {
+            let mut h = History::new();
+            h.replace_file_entries(entries.clone());
+            h
+        };
+        let bad = |c: &str| c.starts_with("cd bad");
+        assert_eq!(h.latest_with_prefix_except("cd", bad), None);
+        // One fewer rejected candidate: the good one is reached.
+        entries.pop();
+        let mut h = History::new();
+        h.replace_file_entries(entries);
+        assert_eq!(h.latest_with_prefix_except("cd", bad), Some("cd good"));
+    }
+
+    #[test]
+    fn walk_counts_and_checks_a_repeated_rejected_candidate_once() {
+        let mut entries = vec!["cd good".to_string()];
+        entries.extend((0..MAX_SKIPPED * 3).map(|_| "cd bad".to_string()));
+        let mut h = History::new();
+        h.replace_file_entries(entries);
+        let mut checks = 0;
+        let got = h.latest_with_prefix_except("cd", |c| {
+            checks += 1;
+            c == "cd bad"
+        });
+        assert_eq!(got, Some("cd good"));
+        assert_eq!(checks, 2);
+    }
+
+    #[test]
+    fn walk_stops_at_the_first_kept_candidate_even_if_exact() {
+        // The exact match is the newest kept one; `suggestion()` turns that into no suggestion.
+        let h = file(&["cd proj/x", "cd proj"]);
+        assert_eq!(
+            h.latest_with_prefix_except("cd proj", |_| false),
+            Some("cd proj")
+        );
     }
 
     #[test]

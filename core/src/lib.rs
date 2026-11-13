@@ -5,7 +5,8 @@
 //!
 //! Implemented so far (M0): the wire format 1 protocol types (`protocol`), the zsh history parser
 //! (`zsh_history`), the history index with ranking for a prefix (`history`) and re-reading the
-//! history file when it changes (`history_file`).
+//! history file when it changes (`history_file`). Since 2026-11-13, whether a `cd` target is
+//! certainly missing (`cd_target`), so such a match is passed over.
 //!
 //! What goes here:
 //!
@@ -22,6 +23,7 @@
 //! The core knows nothing about any shell's runtime: it never calls, embeds or depends on
 //! zsh, bash or fish. It never sends history or command lines off the machine.
 
+pub mod cd_target;
 pub mod history;
 pub mod history_file;
 pub mod protocol;

@@ -37,6 +37,9 @@ pub enum Request {
         cursor: usize,
         cwd: PathBuf,
         buffer: String,
+        /// The shell's `cdpath` folders, in order (an optional last field: newline-separated, so
+        /// `RS` on the wire). `None` when the adapter didn't send the field: unknown.
+        cdpath: Option<Vec<PathBuf>>,
     },
     Ran {
         cwd: PathBuf,
@@ -113,17 +116,33 @@ pub fn encode_request(req: &Request) -> Vec<u8> {
             cursor,
             cwd,
             buffer,
-        } => join(&[
-            "suggest",
-            &id.to_string(),
-            match mode {
-                Mode::Async => "async",
-                Mode::Sync => "sync",
-            },
-            &cursor.to_string(),
-            &cwd.to_string_lossy(),
-            buffer,
-        ]),
+            cdpath,
+        } => {
+            let id = id.to_string();
+            let cursor = cursor.to_string();
+            let cwd = cwd.to_string_lossy();
+            let mut fields = vec![
+                "suggest",
+                &id,
+                match mode {
+                    Mode::Async => "async",
+                    Mode::Sync => "sync",
+                },
+                &cursor,
+                &cwd,
+                buffer,
+            ];
+            let cdpath = cdpath.as_ref().map(|dirs| {
+                dirs.iter()
+                    .map(|d| d.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
+            if let Some(cdpath) = &cdpath {
+                fields.push(cdpath);
+            }
+            join(&fields)
+        }
         Request::Ran {
             cwd,
             status,
@@ -207,11 +226,17 @@ fn decode_hello(fields: &[&[u8]]) -> Result<Request, DecodeError> {
     build().ok_or(bad)
 }
 
+/// Six fields, or seven with the optional `cdpath` (added after wire format 1 first shipped;
+/// an adapter that doesn't send it leaves `cdpath` unknown).
 fn decode_suggest(fields: &[&[u8]]) -> Result<Request, DecodeError> {
-    let [_, id, mode, cursor, cwd, buffer] = fields[..] else {
-        return Err(DecodeError::Malformed {
-            id: fields.get(1).and_then(|f| parse(f)),
-        });
+    let (id, mode, cursor, cwd, buffer, cdpath) = match fields[..] {
+        [_, id, mode, cursor, cwd, buffer] => (id, mode, cursor, cwd, buffer, None),
+        [_, id, mode, cursor, cwd, buffer, cdpath] => (id, mode, cursor, cwd, buffer, Some(cdpath)),
+        _ => {
+            return Err(DecodeError::Malformed {
+                id: fields.get(1).and_then(|f| parse(f)),
+            })
+        }
     };
     let id: u64 = parse(id).ok_or(DecodeError::Malformed { id: None })?;
     let build = || {
@@ -225,6 +250,17 @@ fn decode_suggest(fields: &[&[u8]]) -> Result<Request, DecodeError> {
             cursor: parse(cursor)?,
             cwd: PathBuf::from(field(cwd)?),
             buffer: field(buffer)?,
+            cdpath: match cdpath {
+                None => None,
+                Some(f) => {
+                    let f = field(f)?;
+                    Some(if f.is_empty() {
+                        Vec::new()
+                    } else {
+                        f.split('\n').map(PathBuf::from).collect()
+                    })
+                }
+            },
         })
     };
     build().ok_or(DecodeError::Malformed { id: Some(id) })
@@ -349,8 +385,48 @@ mod tests {
                 mode: Mode::Async,
                 cursor: 3,
                 cwd: "/tmp".into(),
-                buffer: "for\ndo".into()
+                buffer: "for\ndo".into(),
+                cdpath: None,
             }
+        );
+    }
+
+    #[test]
+    fn decodes_suggest_with_cdpath() {
+        let r = decode_request(&line(&[
+            "suggest",
+            "7",
+            "async",
+            "3",
+            "/w",
+            "cd ",
+            "/a\x1e/b c",
+        ]))
+        .unwrap();
+        match r {
+            Request::Suggest { cdpath, .. } => {
+                assert_eq!(cdpath, Some(vec!["/a".into(), "/b c".into()]))
+            }
+            other => panic!("not a suggest: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_cdpath_field_is_known_and_empty() {
+        let r = decode_request(&line(&["suggest", "7", "async", "3", "/w", "cd ", ""])).unwrap();
+        match r {
+            Request::Suggest { cdpath, .. } => assert_eq!(cdpath, Some(vec![])),
+            other => panic!("not a suggest: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn suggest_with_too_many_fields_is_malformed() {
+        assert_eq!(
+            decode_request(&line(&[
+                "suggest", "9", "async", "0", "/", "cd", "", "extra"
+            ])),
+            Err(DecodeError::Malformed { id: Some(9) })
         );
     }
 
@@ -495,6 +571,23 @@ mod tests {
                 cursor: 4,
                 cwd: "/tmp".into(),
                 buffer: "a\nb".into(),
+                cdpath: None,
+            },
+            Request::Suggest {
+                id: 2,
+                mode: Mode::Async,
+                cursor: 3,
+                cwd: "/w".into(),
+                buffer: "cd ".into(),
+                cdpath: Some(vec!["/a b".into(), "rel".into()]),
+            },
+            Request::Suggest {
+                id: 3,
+                mode: Mode::Async,
+                cursor: 3,
+                cwd: "/w".into(),
+                buffer: "cd ".into(),
+                cdpath: Some(vec![]),
             },
             Request::Ran {
                 cwd: "/w".into(),
