@@ -406,7 +406,12 @@ _fuxx_as_w_modify() {
   # Any other completion widget (Shift-Tab's reverse-menu-complete, a ⌃Space bound to
   # complete-word, compinit's `completion:` widgets) leaves the ghost text off as Tab does, so a
   # suggestion that came back never takes the next Tab out of the menu.
+  # ⌃D (delete-char-or-list) lists only at the end of the line; before that it is a plain delete,
+  # an edit like any other, so it takes the normal path below and asks again.
   local v=${widgets[$orig]-}
+  if [[ $self == delete-char-or-list ]] && (( CURSOR < $#BUFFER )); then
+    v=''
+  fi
   if [[ $v == completion:* ]] || { [[ $v == builtin ]] && (( ${_FUXX_AS_COMPLETERS[(Ie)$self]} )) }; then
     _fuxx_as_complete $orig "$@"
     return

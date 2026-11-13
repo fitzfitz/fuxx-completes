@@ -28,6 +28,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **Tab and Esc, fix round 2 (re-review).** ⌃D mid-line is a plain forward
+  delete, but as a completion widget (`completion:` after compinit) it took the
+  hide-until-next-edit path, so "git pu", ⌃B, ⌃D left "git p" with no suggestion. Now ⌃D before
+  the end of the line takes the normal edit path (asks again); at the end it still lists and keeps
+  the ghost text off. `design.md` §6. Tests (the first seen failing): ⌃D mid-line brings back the
+  suggestion and ⌃F accepts it, ⌃D at the end lists with the ghost off, with and without compinit.
+  107 adapter tests on zsh 5.3.1, 5.8.1 and 5.9.
+
 - **2026-11-13** — **Tab and Esc, fix round 1 (an independent review with real-zsh pty
   experiments).** (1) The Esc widget dropped any character after Esc that wasn't the tail of a
   sequence: Esc then ↑ typed `[A`, Esc then a paste with a newline lost its bracketing and ran the

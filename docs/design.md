@@ -615,8 +615,9 @@ Honest about what each shell allows.
   (`complete-word`, `reverse-menu-complete` on Shift-Tab, `menu-complete`, `list-choices`,
   `delete-char-or-list`, ...) runs with the ghost text off and leaves it off until the next edit,
   so Shift-Tab or a ⌃Space bound to `complete-word` in the middle of a menu never brings back a
-  suggestion that the next Tab would accept. (So ⌃D deleting a character mid-line also shows no new
-  suggestion until the next edit.) Inside `menu-select` zsh's complist reads the keys itself, so Tab and
+  suggestion that the next Tab would accept. ⌃D (`delete-char-or-list`) counts as completion only at
+  the end of the line, where it lists; mid-line it is a plain delete and asks again like any edit
+  (fix round 2). Inside `menu-select` zsh's complist reads the keys itself, so Tab and
   Esc there are zsh's own.
 - **Esc (the user's decision, 2026-11-13).** Esc clears a completion list below the prompt
   (`zle -R -c`, checked on 5.3.1, 5.8.1 and 5.9) and hides the ghost text until the next edit (a

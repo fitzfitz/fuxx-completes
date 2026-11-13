@@ -2305,3 +2305,51 @@ fn other_completion_keys_keep_the_ghost_off_as_tab_does() {
         }
     }
 }
+
+#[test]
+fn ctrl_d_mid_line_deletes_and_asks_again() {
+    // ⌃D (delete-char-or-list) is a completion widget only at the end of the line; mid-line it is
+    // a plain delete, an edit like any other (compinit makes it a `completion:` widget).
+    for rc in [COMPINIT, ""] {
+        let mut z = with_ghost(ZshOpts {
+            rc_after: rc.into(),
+            ..git_history()
+        });
+        z.send("u");
+        z.wait_state(|s| s.postdisplay == "sh origin main");
+        z.send("\x02"); // ⌃B
+        z.wait_state(|s| s.cursor == 5);
+        z.send("\x04"); // ⌃D: deletes the "u"
+        let s = z.wait_state(|s| s.buffer == "git p" && s.postdisplay == "ush origin main");
+        assert_eq!(s.region_highlight, vec![our_entry(5, 20)], "{rc:?} {s:?}");
+        z.send("\x06"); // ⌃F at the end accepts
+        let s = z.wait_state(|s| s.buffer != "git p");
+        assert_fully_accepted(&s);
+    }
+}
+
+#[test]
+fn ctrl_d_at_the_end_lists_and_keeps_the_ghost_off() {
+    for rc in [COMPINIT, ""] {
+        let mut z = ZshHarness::start(ZshOpts {
+            rc_before: DIRS.into(),
+            rc_after: rc.into(),
+            history: vec!["cd alpha2/deep"],
+            ..Default::default()
+        });
+        type_until_ghost(&mut z, "cd al", "pha2/deep");
+        let mark = z.screen_now().len();
+        z.send("\x04");
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            printable(&z.screen_now()[mark..]).contains("alpha3/"),
+            "{rc:?}: no list"
+        );
+        let s = z.state();
+        assert_eq!(
+            (s.buffer.as_str(), s.postdisplay.as_str()),
+            ("cd al", ""),
+            "{rc:?} {s:?}"
+        );
+    }
+}
