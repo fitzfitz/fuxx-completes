@@ -1123,7 +1123,8 @@ fn the_spare_response_reader_is_closed_once_ready_arrives() {
 const FAKE_HL: &str = r#"
 fakehl_load() {
   local w prefix=orig-fakehl$(( ++_FAKEHL_GEN ))
-  for w in self-insert forward-char end-of-line backward-delete-char accept-line; do
+  for w in self-insert forward-char end-of-line backward-delete-char accept-line \
+           forward-word emacs-forward-word vi-forward-word; do
     case ${widgets[$w]-} in
       user:_fakehl_widget_*) continue ;;
       user:*)
@@ -1196,4 +1197,227 @@ fn a_plugin_that_wraps_widgets_before_us_still_works() {
         ..git_history()
     });
     assert_works_with_fake_hl(&mut z);
+}
+
+/// zsh-autosuggestions style: at every precmd it wraps again every widget whose definition isn't
+/// its own (ours included), each time under a fresh `fakeas-orig-N-<w>` named in its function.
+const FAKE_AS: &str = r#"
+typeset -gA _FAKEAS_N
+_fakeas_wrap_all() {
+  local w n
+  for w in ${(k)widgets}; do
+    case $w in (.*|_*|fakeas-*|zle-*|orig-*) continue ;; esac
+    case ${widgets[$w]} in
+      user:_fakeas_bound_*) continue ;;
+      user:*|builtin) ;;
+      *) continue ;;
+    esac
+    n=$(( ${_FAKEAS_N[$w]-0} + 1 ))
+    if [[ ${widgets[$w]} == builtin ]]; then
+      zle -A $w fakeas-orig-$n-$w || continue
+    else
+      zle -N fakeas-orig-$n-$w ${widgets[$w]#*:} || continue
+    fi
+    _FAKEAS_N[$w]=$n
+    functions[_fakeas_bound_${n}_$w]="_fakeas_call fakeas-orig-$n-${(q)w} \"\$@\""
+    zle -N $w _fakeas_bound_${n}_$w
+  done
+}
+_fakeas_call() { local o=$1; shift; builtin zle $o -- "$@" }
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _fakeas_wrap_all
+"#;
+
+/// The same, but its function names the saved widget only through a variable, so we can't see
+/// that it calls us.
+const FAKE_VAR: &str = r#"
+typeset -gA _FAKEVAR_N
+_fakevar_wrap_all() {
+  local w n v
+  for w in self-insert forward-char backward-delete-char; do
+    [[ ${widgets[$w]} == user:_fakevar_bound_* ]] && continue
+    n=$(( ${_FAKEVAR_N[$w]-0} + 1 ))
+    _FAKEVAR_N[$w]=$n
+    zle -A $w fakevar-orig-$n-$w || continue
+    v=_FAKEVAR_ORIG_${n}_${w//-/_}
+    typeset -g $v=fakevar-orig-$n-$w
+    functions[_fakevar_bound_${n}_$w]="_fakevar_call $v \"\$@\""
+    zle -N $w _fakevar_bound_${n}_$w
+  done
+}
+_fakevar_call() { local o=${(P)1}; shift; builtin zle $o -- "$@" }
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _fakevar_wrap_all
+"#;
+
+/// `n` empty prompts.
+fn prompts(z: &mut ZshHarness, n: usize) {
+    for _ in 0..n {
+        z.run("");
+    }
+}
+
+/// `$_FUXX_AS_WRAPS[w]` for each `w`, space-separated.
+fn our_generations(z: &mut ZshHarness, ws: &str) -> Vec<u32> {
+    z.run(&format!(
+        "for w in {ws}; do print -rn -- \"${{_FUXX_AS_WRAPS[$w]-0}} \"; done >| $HOME/gens"
+    ));
+    let screen = printable(&z.screen_now());
+    std::fs::read_to_string(z.home().join("gens"))
+        .unwrap_or_else(|_| {
+            let tail: String = screen
+                .chars()
+                .rev()
+                .take(400)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            panic!("no gens; screen ends: {tail:?}")
+        })
+        .split_whitespace()
+        .map(|n| n.parse().unwrap())
+        .collect()
+}
+
+fn widget_count(z: &mut ZshHarness) -> usize {
+    z.run("print -r -- ${#widgets} >| $HOME/count");
+    std::fs::read_to_string(z.home().join("count"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+fn assert_no_errors_on_screen(z: &mut ZshHarness) {
+    let screen = printable(&z.screen_now());
+    let lower = screen.to_lowercase();
+    for bad in ["nested", "error", "not found", "no such"] {
+        assert!(!lower.contains(bad), "{bad:?} on screen: {screen:?}");
+    }
+}
+
+#[test]
+fn a_plugin_that_rewraps_at_every_prompt_does_not_grow_the_chain() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: FAKE_AS.into(),
+        ..git_history()
+    });
+    prompts(&mut z, 5);
+    let early = widget_count(&mut z);
+    prompts(&mut z, 300);
+    assert_eq!(widget_count(&mut z), early, "widgets keep being made");
+    let gens = our_generations(&mut z, "self-insert forward-char accept-line");
+    assert!(gens.iter().all(|&n| n <= 2), "our generations: {gens:?}");
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x1b[C");
+    z.wait_state(|s| s.buffer == "git push origin main" && s.postdisplay.is_empty());
+    assert_no_errors_on_screen(&mut z);
+}
+
+#[test]
+fn a_plugin_we_cannot_see_through_is_wrapped_a_bounded_number_of_times() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: FAKE_VAR.into(),
+        ..git_history()
+    });
+    prompts(&mut z, 300);
+    let gens = our_generations(&mut z, "self-insert forward-char backward-delete-char");
+    assert!(gens.iter().all(|&n| n <= 20), "our generations: {gens:?}");
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x1b[C");
+    z.wait_state(|s| s.buffer == "git push origin main" && s.postdisplay.is_empty());
+    assert_no_errors_on_screen(&mut z);
+}
+
+/// The real core behind a `tee` that records every request into `$HOME/wire.log`.
+fn teed_core() -> &'static str {
+    Box::leak(
+        format!(
+            r#"tee "$HOME/wire.log" | exec '{}' "$@""#,
+            env!("CARGO_BIN_EXE_fuxx-completes")
+        )
+        .into_boxed_str(),
+    )
+}
+
+fn suggests(z: &ZshHarness) -> usize {
+    read_wire(z.home())
+        .lines()
+        .filter(|l| l.starts_with(&format!("suggest{US}")))
+        .count()
+}
+
+/// The fake highlighter (it wraps forward-word too) loaded at a prompt, after our first wrap,
+/// on the real core behind a tee.
+fn under_fake_hl() -> ZshHarness {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: FAKE_HL.into(),
+        core_script: Some(teed_core()),
+        ..git_history()
+    });
+    z.run("fakehl_load");
+    z.run("true");
+    z
+}
+
+fn assert_one_entry_of_ours(s: &common::LineState) {
+    assert_eq!(s.region_highlight.len(), 1, "{s:?}");
+}
+
+#[test]
+fn partial_accept_of_the_last_word_under_another_plugin() {
+    for key in ["\x1bf", "\x1b[1;3C"] {
+        let mut z = under_fake_hl();
+        z.send("git push origin m");
+        z.wait_state(|s| s.postdisplay == "ain");
+        z.send(key);
+        let s = z.wait_state(|s| s.buffer != "git push origin m");
+        assert_eq!(s.buffer, "git push origin main", "key {key:?}: {s:?}");
+        assert_eq!(s.postdisplay, "", "key {key:?}: {s:?}");
+        assert!(s.region_highlight.is_empty(), "key {key:?}: {s:?}");
+        assert_no_errors_on_screen(&mut z);
+    }
+}
+
+#[test]
+fn partial_accept_of_one_word_under_another_plugin() {
+    for (keys, key) in [
+        ("git p", "\x1bf"),
+        ("git p", "\x1b[1;3C"),
+        ("git p\x02", "\x1bf"),
+    ] {
+        let mut z = under_fake_hl();
+        z.send(keys);
+        z.wait_state(|s| s.postdisplay == "ush origin main");
+        z.send(key);
+        let s = z.wait_state(|s| s.buffer != "git p");
+        assert_eq!(s.buffer, "git push ", "{keys:?} {key:?}: {s:?}");
+        assert_eq!(s.postdisplay, "origin main", "{keys:?} {key:?}: {s:?}");
+        assert_one_entry_of_ours(&s);
+        // Typing on still works and leaves one entry of ours.
+        z.send("o");
+        let s = z.wait_state(|s| s.buffer == "git push o" && s.postdisplay == "rigin main");
+        assert_one_entry_of_ours(&s);
+        assert_no_errors_on_screen(&mut z);
+    }
+}
+
+#[test]
+fn one_request_per_key_under_another_plugin() {
+    let mut z = under_fake_hl();
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    std::thread::sleep(Duration::from_millis(300));
+    let before = suggests(&z);
+    z.send("u");
+    z.wait_state(|s| s.buffer == "git pu" && s.postdisplay == "sh origin main");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(suggests(&z), before + 1, "wire: {:?}", read_wire(z.home()));
+    z.send("\x1b[C"); // a full accept asks nothing
+    z.wait_state(|s| s.buffer == "git push origin main");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(suggests(&z), before + 1, "wire: {:?}", read_wire(z.home()));
 }

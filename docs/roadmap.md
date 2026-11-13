@@ -50,6 +50,11 @@ Newest first. Add an entry whenever a task is ready.
   (`fuxx-as-orig-N-<widget>`), so a zsh-syntax-highlighting-style plugin that wraps our wrappers
   (loaded late, or after `source ~/.zshrc`) no longer makes every key recurse until FUNCNEST;
   tested with a fake highlighting plugin loaded after, re-sourced and loaded before ours.
+  Re-review fixes: a widget that still calls our wrapper is not wrapped again (a plugin that
+  re-wraps at every prompt no longer grows the chain or the widget table; 20 generations at most),
+  other plugins' `*-orig-*` saved widgets are left alone, and only the outermost of our wrappers
+  acts when another plugin nests them (partial accept no longer doubles the suggestion, one
+  request per key).
   Final review fixes: widgets are wrapped at every prompt (not only the first); writes to the core never block (non-blocking fd on zsh 5.9+, byte count below); the core starts from `/` and not niced; the spare `resp` reader stays until `ready`; the core drops suggestions over 1000 characters; the history stamp is taken after the read; README try-it copy is private and removed; build-zsh.sh never keeps a half install; design wording updated.
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links

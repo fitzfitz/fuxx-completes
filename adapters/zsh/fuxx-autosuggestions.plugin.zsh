@@ -44,6 +44,9 @@
   typeset -g _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
   # How many times each widget has been wrapped: each wrap saves the original under a fresh name.
   typeset -gA _FUXX_AS_WRAPS
+  # Definitions known to still call our wrapper (another plugin wrapped us), so they aren't checked
+  # again at every prompt.
+  typeset -gA _FUXX_AS_UNDER
   is-at-least 5.9 && _FUXX_AS_MEMO=1
   local fd
   # zsh/system is optional: without sysopen or its options we open pipes with plain `exec`.
@@ -329,7 +332,10 @@ _fuxx_as_w_modify() {
   emulate -L zsh
   local orig=$1
   shift
-  local -i ret
+  # Another plugin that wrapped us can put one of our wrappers inside another (ours, theirs, ours):
+  # only the outermost one acts, an inner one just runs its original (see _fuxx_as_wrap_widgets).
+  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
+  local -i ret _fuxx_as_inside=1
   # Only without `memo=`: with it our entry is found by tag, and taking it off would draw the ghost
   # text unstyled whenever the widget redraws (isearch, completion lists, `zle -R`).
   (( _FUXX_AS_MEMO )) || _fuxx_as_unhighlight
@@ -352,12 +358,14 @@ _fuxx_as_w_accept() {
   emulate -L zsh
   local orig=$1
   shift
+  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
   local -i ret max=$#BUFFER
   [[ $KEYMAP == vicmd ]] && max=$(( max - 1 ))
   if [[ -z $POSTDISPLAY || $CURSOR -ne $max ]]; then
     _fuxx_as_w_modify $orig "$@"
     return
   fi
+  local -i _fuxx_as_inside=1
   BUFFER+=$POSTDISPLAY
   _fuxx_as_clear
   zle $orig -- "$@"
@@ -375,11 +383,13 @@ _fuxx_as_w_partial() {
   emulate -L zsh
   local orig=$1 saved=$BUFFER
   shift
+  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
   local -i ret loc
   if [[ -z $POSTDISPLAY ]]; then
     _fuxx_as_w_modify $orig "$@"
     return
   fi
+  local -i _fuxx_as_inside=1
   # Our entry comes off in every version: the text is about to grow under it.
   _fuxx_as_unhighlight
   BUFFER+=$POSTDISPLAY
@@ -403,7 +413,8 @@ _fuxx_as_w_clear() {
   emulate -L zsh
   local orig=$1
   shift
-  local -i ret
+  if (( ${+_fuxx_as_inside} )); then zle $orig -- "$@"; return; fi
+  local -i ret _fuxx_as_inside=1
   _fuxx_as_clear
   zle $orig -- "$@"
   ret=$?
@@ -443,8 +454,12 @@ _fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the s
 # (zsh-autosuggestions' scheme), and older ones are never redefined: another plugin that wrapped
 # us (zsh-syntax-highlighting after `source ~/.zshrc`) keeps calling the generation it saved, which
 # calls the original that existed then, never our newer wrapper around that plugin (with one
-# shared name that loop recursed until FUNCNEST). Cheap by design: no subshell, one pass over the
-# names, and only strings are compared.
+# shared name that loop recursed until FUNCNEST). A widget whose definition still calls our wrapper
+# for it (another plugin wrapped us) is left alone: wrapping it again would add a layer at every
+# prompt when that plugin also re-wraps at every precmd (zsh-autosuggestions does), and would
+# grow the chain until FUNCNEST. A plugin that names our wrapper in a way we can't see is caught
+# by a cap of 20 generations per widget. Cheap by design: no subshell, one pass over the names, and
+# only strings are compared.
 _fuxx_as_wrap_widgets() {
   emulate -L zsh
   local w fn orig
@@ -459,12 +474,21 @@ _fuxx_as_wrap_widgets() {
     up-line-or-beginning-search down-line-or-beginning-search up-line-or-history
     down-line-or-history accept-line copy-earlier-word )
   # Every name except the ones we never wrap, minus the widgets that already run our functions
-  # (matched by value, so an alias made by the user of one of ours counts as ours too).
-  local -a todo=( ${(k)widgets:#(.*|_*|fuxx-as-*|orig-*|zle-*|azhw:*|beep|run-help|set-local-history|which-command|yank|yank-pop)} )
+  # (matched by value, so an alias made by the user of one of ours counts as ours too). Other
+  # plugins' saved originals (`orig-*` of zsh-syntax-highlighting, `autosuggest-orig-*` of
+  # zsh-autosuggestions) are never wrapped: with a plugin that wraps at every precmd, wrapping each
+  # other's saved copies would make new widgets at every prompt.
+  local -a todo=( ${(k)widgets:#(.*|_*|fuxx-as-*|orig-*|*-orig-*|zle-*|azhw:*|beep|run-help|set-local-history|which-command|yank|yank-pop)} )
   local -a ours=( ${(k)widgets[(R)user:_fuxx_as_bound_*]} )
   todo=( ${todo:|ours} )
   for w in $todo; do
+    [[ ${_FUXX_AS_UNDER[$w]-} == ${widgets[$w]} ]] && continue
     n=$(( ${_FUXX_AS_WRAPS[$w]-0} + 1 ))
+    (( n > 20 )) && continue
+    if _fuxx_as_calls_us $w; then
+      _FUXX_AS_UNDER[$w]=${widgets[$w]}
+      continue
+    fi
     orig=fuxx-as-orig-$n-$w
     zle -A $w $orig 2>/dev/null || continue
     _FUXX_AS_WRAPS[$w]=$n
@@ -476,6 +500,33 @@ _fuxx_as_wrap_widgets() {
     zle -N $w _fuxx_as_bound_${n}_$w 2>/dev/null
   done
   return 0
+}
+
+# _fuxx_as_calls_us <widget>: true when the widget's function still reaches our wrapper for that
+# same widget through the widgets it names, as another plugin's wrapper of us does
+# (zsh-syntax-highlighting, zsh-autosuggestions: `_their_call orig-…-<widget> "$@"`, where that
+# saved widget is our `_fuxx_as_bound_N_<widget>`). Words of each function are checked against
+# $widgets only; at most 8 widgets are looked at, and our wrappers of other widgets are not
+# followed (a user widget that calls `zle self-insert` is not "us").
+_fuxx_as_calls_us() {
+  emulate -L zsh
+  setopt extendedglob
+  local w=$1 x v
+  local -a queue=( $w )
+  local -i i=1
+  while (( i <= $#queue && i <= 8 )); do
+    v=${widgets[${queue[i]}]-}
+    (( i++ ))
+    [[ $v == user:* ]] || continue
+    for x in ${(Q)${(z)functions[${v#user:}]-}}; do
+      [[ $x == [[:alnum:]_.:-]## ]] || continue
+      (( ${+widgets[$x]} && ! ${queue[(Ie)$x]} )) || continue
+      v=${widgets[$x]}
+      [[ $v == user:_fuxx_as_bound_<->_${(b)w} ]] && return 0
+      [[ $v == user:_fuxx_as_bound_* ]] || queue+=( $x )
+    done
+  done
+  return 1
 }
 
 # Once, at start: the keys nobody has bound, and the line hooks.
