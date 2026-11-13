@@ -327,10 +327,14 @@ _fuxx_as_widget_clear() {
 }
 zle -N fuxx-as-clear _fuxx_as_widget_clear
 
-# _fuxx_as_w_modify <original widget> [args]: runs the original; if the buffer changed, drops the
-# old ghost text and asks again. Our highlight entry is taken off first, because zsh shifts
-# region_highlight entries when text is inserted (below 5.9 we can only match our entry by its exact
-# string), and put back if the ghost text stays.
+# _fuxx_as_w_modify <original widget> [args]: runs the original with the ghost text taken off (and
+# our highlight entry with it); then, if the buffer changed, asks again, otherwise puts the same
+# ghost text back, styled. zsh-autosuggestions does the same. Kept on, it would show as typed text
+# whenever the widget redraws: zsh draws the line without region_highlight before completion's "do
+# you wish to see all" question, and completion leaves our entry zero-width afterwards.
+# While the outermost of our wrappers runs, the hidden suggestion is held in `_fuxx_as_held` (a
+# local the wrappers it calls see), so a widget that calls an accept or partial widget
+# (`my-end() { zle end-of-line }`) still accepts it, and a widget that changes the buffer drops it.
 _fuxx_as_w_modify() {
   emulate -L zsh
   local orig=$1
@@ -342,18 +346,23 @@ _fuxx_as_w_modify() {
   local self=${orig#fuxx-as-orig-<->-}
   if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
   local _fuxx_as_inside=$self
-  local -i ret
-  # Only without `memo=`: with it our entry is found by tag, and taking it off would draw the ghost
-  # text unstyled whenever the widget redraws (isearch, completion lists, `zle -R`).
-  (( _FUXX_AS_MEMO )) || _fuxx_as_unhighlight
+  local -i ret holder=0
+  if (( ! ${+_fuxx_as_held} )); then
+    local _fuxx_as_held=$POSTDISPLAY
+    holder=1
+  elif [[ -n $POSTDISPLAY ]]; then
+    _fuxx_as_held=$POSTDISPLAY
+  fi
+  _fuxx_as_clear
   zle $orig -- "$@"
   ret=$?
   if [[ $BUFFER != "$_FUXX_AS_LAST_BUFFER" ]]; then
+    _fuxx_as_held=
     _fuxx_as_clear
     _FUXX_AS_LAST_BUFFER=$BUFFER
     _fuxx_as_request
-  elif (( ! _FUXX_AS_MEMO )); then
-    _fuxx_as_highlight
+  elif (( holder )) && [[ -n $_fuxx_as_held ]]; then
+    _fuxx_as_show "$_fuxx_as_held"
   fi
   return $ret
 }
@@ -368,14 +377,16 @@ _fuxx_as_w_accept() {
   local self=${orig#fuxx-as-orig-<->-}
   if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
   local -i ret max=$#BUFFER
+  local sugg=${POSTDISPLAY:-${_fuxx_as_held-}}
   [[ $KEYMAP == vicmd ]] && max=$(( max - 1 ))
-  if [[ -z $POSTDISPLAY || $CURSOR -ne $max ]]; then
+  if [[ -z $sugg || $CURSOR -ne $max ]]; then
     _fuxx_as_w_modify $orig "$@"
     return
   fi
   local _fuxx_as_inside=$self
-  BUFFER+=$POSTDISPLAY
+  BUFFER+=$sugg
   _fuxx_as_clear
+  (( ${+_fuxx_as_held} )) && _fuxx_as_held=
   zle $orig -- "$@"
   ret=$?
   # The original may have left vicmd (vi-add-eol), so the keymap is asked again.
@@ -389,12 +400,12 @@ _fuxx_as_w_accept() {
 # text, otherwise the buffer is put back. The rest of the suggestion is still right, so no request.
 _fuxx_as_w_partial() {
   emulate -L zsh
-  local orig=$1 saved=$BUFFER sugg=$POSTDISPLAY
+  local orig=$1 saved=$BUFFER sugg=${POSTDISPLAY:-${_fuxx_as_held-}} rest
   shift
   local self=${orig#fuxx-as-orig-<->-}
   if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
   local -i ret loc
-  if [[ -z $POSTDISPLAY ]]; then
+  if [[ -z $sugg ]]; then
     _fuxx_as_w_modify $orig "$@"
     return
   fi
@@ -404,19 +415,26 @@ _fuxx_as_w_partial() {
   # nothing to append again; it also finds the buffer already seen, so it asks the core nothing.
   BUFFER+=$sugg
   _fuxx_as_clear
+  (( ${+_fuxx_as_held} )) && _fuxx_as_held=
   _FUXX_AS_LAST_BUFFER=$BUFFER
   zle $orig -- "$@"
   ret=$?
   loc=$CURSOR
   [[ $KEYMAP == vicmd ]] && loc+=1   # in vicmd the cursor is ON a character, so it is that one too
   if (( loc > $#saved )); then
-    POSTDISPLAY=${BUFFER[loc+1,-1]}
+    rest=${BUFFER[loc+1,-1]}
     BUFFER=${BUFFER[1,loc]}
   else
     BUFFER=$saved
-    POSTDISPLAY=$sugg
+    rest=$sugg
   fi
-  _fuxx_as_highlight
+  # Called from a widget that one of our modify wrappers runs: that wrapper shows it at its end.
+  if (( ${+_fuxx_as_held} )); then
+    _fuxx_as_held=$rest
+  else
+    POSTDISPLAY=$rest
+    _fuxx_as_highlight
+  fi
   _FUXX_AS_LAST_BUFFER=$BUFFER
   return $ret
 }
@@ -431,6 +449,7 @@ _fuxx_as_w_clear() {
   local _fuxx_as_inside=$self
   local -i ret
   _fuxx_as_clear
+  (( ${+_fuxx_as_held} )) && _fuxx_as_held=
   zle $orig -- "$@"
   ret=$?
   _FUXX_AS_LAST_BUFFER=$BUFFER

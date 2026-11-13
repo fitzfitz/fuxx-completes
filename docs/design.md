@@ -528,6 +528,14 @@ Honest about what each shell allows.
   on zsh 5.9+ we tag them with `memo=`; on 5.8 and older we remember the exact strings we added
   and remove only entries equal to them. (Honest limit: if another plugin added a byte-identical
   entry, the fallback could remove that one too.)
+- **Ghost text is hidden while a widget runs** (fixed after v0.0.1, a bug the user hit): every
+  wrapper that edits or moves takes `POSTDISPLAY` and our entry off before running the original
+  and, when the buffer didn't change, puts the same ghost text back, styled; when it changed, it
+  asks again. zsh-autosuggestions does the same. Kept on, the ghost text showed as typed text:
+  zsh draws the line without `region_highlight` before completion's "do you wish to see all"
+  question, and completion left our entry zero-width afterwards. While the outermost wrapper
+  runs, the hidden suggestion is held where the wrappers it calls can see it, so a widget that
+  calls an accept or partial widget (`my-end() { zle end-of-line }`) still accepts it.
 - **Widget wrap:** like zsh-autosuggestions, wrap the widgets that edit the buffer so that after
   each edit we request a new suggestion, and wrap the accept widgets. Wrapping is idempotent and
   runs at **every** `precmd` while the core is on (**AI's call, M0, amended in the final review**):

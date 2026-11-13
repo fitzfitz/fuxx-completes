@@ -28,6 +28,20 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **Fix after v0.0.1 (a bug the user hit; "if some issue come up, we fix it").**
+  In zsh 5.9, typing `c` showed the ghost text `d Kerja/`; Tab then asked "do you wish to see all
+  151 possibilities?" while the line showed `cd Kerja/` in normal colour, as if typed. Cause
+  (reproduced in the pty tests): the wrapper of every edit widget (completion included) kept the
+  ghost text on while the original ran; zsh draws the line without `region_highlight` before that
+  question, and completion left our entry zero-width (`1 1`), so the text stayed plain after. Now
+  the ghost text is taken off while a widget runs and put back, styled, when the buffer didn't
+  change (zsh-autosuggestions' way); a changed buffer asks again; an accept or partial widget
+  called from another widget still accepts the held suggestion (`design.md` §6 zsh). Tests: the
+  completion question never shows the ghost text, `n` brings it back styled, a Tab that completes
+  asks again, the ghost text is hidden inside a widget (replaces the "keeps its style while a
+  widget redraws" test). 75 adapter tests on zsh 5.3.1, 5.8.1 and 5.9. Needs the user's look in
+  fuxx's terminal.
+
 - **2026-11-13** — **v0.0.1 test release, before M3 (the user's call: "just push fuxx-completes so we
   can test it directly by installing it. if some issue come up, we fix it").** M0 merged to `main`.
   Part of M3's packaging pulled forward so fuxx can install it from Settings → Plugins: a

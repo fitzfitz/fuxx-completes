@@ -465,13 +465,13 @@ fn a_failed_start_ends_off_stops_the_core_and_leaves_nothing() {
 }
 
 #[test]
-fn ghost_text_keeps_its_style_while_a_widget_redraws() {
-    if !zsh_at_least("5.9") {
-        return; // below 5.9 the entry is deliberately taken off while a widget runs
-    }
+fn ghost_text_is_hidden_while_a_widget_runs() {
+    // A redraw inside a widget can draw the line without region_highlight (zsh does so before
+    // completion's "do you wish to see all" question), so the ghost text is taken off while the
+    // original runs and put back, styled, when the buffer didn't change.
     let mut z = ZshHarness::start(ZshOpts {
         rc_after:
-            "my-dump() { zle -R; print -r -- \"${(pj:\\x1e:)region_highlight}\" >| $HOME/inner }\n\
+            "my-dump() { zle -R; print -r -- \"$POSTDISPLAY\"$'\\x1f'\"${(pj:\\x1e:)region_highlight}\" >| $HOME/inner }\n\
                    zle -N my-dump\n\
                    bindkey '^X3' my-dump"
                 .into(),
@@ -483,10 +483,78 @@ fn ghost_text_keeps_its_style_while_a_widget_redraws() {
     let inner = z.home().join("inner");
     assert!(poll(Duration::from_secs(3), || inner.exists()));
     let seen = std::fs::read_to_string(&inner).unwrap();
-    assert!(
-        seen.contains(MEMO),
-        "our entry was gone inside the widget: {seen:?}"
+    assert_eq!(
+        seen.trim_end(),
+        format!("{US}"),
+        "ghost text shown inside the widget"
     );
+    let s = z.wait_state(|s| s.postdisplay == "ush origin main");
+    assert_eq!(s.region_highlight, vec![our_entry(5, 20)], "{s:?}");
+}
+
+/// Our highlight entry for ghost text from `start` to `end`, as this zsh writes it.
+fn our_entry(start: usize, end: usize) -> String {
+    if zsh_at_least("5.9") {
+        format!("{start} {end} fg=8 {MEMO}")
+    } else {
+        format!("{start} {end} fg=8")
+    }
+}
+
+/// Types `keys` and waits for the ghost text `want`. The core reads the history file in the
+/// background, so the very first request of a session can be answered before that read lands;
+/// erasing the last key and typing it again asks once more.
+fn type_until_ghost(z: &mut ZshHarness, keys: &str, want: &str) {
+    z.send(keys);
+    for _ in 0..10 {
+        if poll(Duration::from_millis(300), || z.state().postdisplay == want) {
+            return;
+        }
+        z.send("\x7f");
+        z.send(&keys[keys.len() - 1..]);
+    }
+    panic!("no ghost text {want:?} for {keys:?}: {:?}", z.state());
+}
+
+#[test]
+fn tab_completion_question_never_shows_the_ghost_text_as_typed() {
+    // LISTMAX=1: any completion with more than one match asks "do you wish to see all".
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "LISTMAX=1".into(),
+        history: vec!["cd Kerja/"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "c", "d Kerja/");
+    let mark = z.screen_now().len();
+    z.send("\t");
+    assert!(
+        poll(Duration::from_secs(3), || z.screen_now()[mark..]
+            .contains("do you wish")),
+        "no question: {:?}",
+        &z.screen_now()[mark..]
+    );
+    let raw = z.screen_now()[mark..].to_string();
+    let before_question = &raw[..raw.find("do you wish").unwrap()];
+    assert!(
+        !printable(before_question).contains("Kerja"),
+        "ghost text drawn as typed before the question: {raw:?}"
+    );
+    z.send("n");
+    let s = z.wait_state(|s| s.postdisplay == "d Kerja/");
+    assert_eq!(s.buffer, "c", "{s:?}");
+    assert_eq!(s.region_highlight, vec![our_entry(1, 9)], "{s:?}");
+}
+
+#[test]
+fn tab_that_completes_the_buffer_drops_the_old_ghost_and_asks_again() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["mkfifo /tmp/p"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "mkfif", "o /tmp/p");
+    z.send("\t"); // the only command named mkfif*: completes to "mkfifo "
+    let s = z.wait_state(|s| s.buffer == "mkfifo " && s.postdisplay == "/tmp/p");
+    assert_eq!(s.region_highlight, vec![our_entry(7, 13)], "{s:?}");
 }
 
 #[test]
