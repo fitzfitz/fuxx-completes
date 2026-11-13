@@ -518,13 +518,17 @@ fn type_until_ghost(z: &mut ZshHarness, keys: &str, want: &str) {
 
 #[test]
 fn tab_completion_question_never_shows_the_ghost_text_as_typed() {
-    // LISTMAX=1: any completion with more than one match asks "do you wish to see all".
+    // LISTMAX=1: any completion with more than one match asks "do you wish to see all". Tab with
+    // the cursor at the end accepts the ghost text (design §6), so the cursor is moved onto the
+    // command word "c" first: there Tab completes it, with the ghost text still on the line.
     let mut z = ZshHarness::start(ZshOpts {
         rc_after: "LISTMAX=1".into(),
-        history: vec!["cd Kerja/"],
+        history: vec!["c Kerja/zz"],
         ..Default::default()
     });
-    type_until_ghost(&mut z, "c", "d Kerja/");
+    type_until_ghost(&mut z, "c K", "erja/zz");
+    z.send("\x02\x02"); // ⌃B ⌃B
+    z.wait_state(|s| s.cursor == 1);
     let mark = z.screen_now().len();
     z.send("\t");
     assert!(
@@ -540,21 +544,33 @@ fn tab_completion_question_never_shows_the_ghost_text_as_typed() {
         "ghost text drawn as typed before the question: {raw:?}"
     );
     z.send("n");
-    let s = z.wait_state(|s| s.postdisplay == "d Kerja/");
-    assert_eq!(s.buffer, "c", "{s:?}");
-    assert_eq!(s.region_highlight, vec![our_entry(1, 9)], "{s:?}");
+    // A completion run by Tab leaves the ghost text off until the next edit (design §6).
+    let s = z.wait_state(|s| s.buffer == "c K");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    assert!(s.region_highlight.is_empty(), "{s:?}");
 }
 
 #[test]
-fn tab_that_completes_the_buffer_drops_the_old_ghost_and_asks_again() {
+fn tab_mid_word_completes_and_the_ghost_stays_off_until_the_next_edit() {
     let mut z = ZshHarness::start(ZshOpts {
         history: vec!["mkfifo /tmp/p"],
         ..Default::default()
     });
     type_until_ghost(&mut z, "mkfif", "o /tmp/p");
+    z.send("\x02"); // ⌃B: not at the end, so Tab completes
+    z.wait_state(|s| s.cursor == 4);
     z.send("\t"); // the only command named mkfif*: completes to "mkfifo "
-    let s = z.wait_state(|s| s.buffer == "mkfifo " && s.postdisplay == "/tmp/p");
-    assert_eq!(s.region_highlight, vec![our_entry(7, 13)], "{s:?}");
+    let s = z.wait_state(|s| s.buffer == "mkfifo ");
+    std::thread::sleep(Duration::from_millis(400));
+    let s2 = z.state();
+    assert_eq!(
+        s2.postdisplay, "",
+        "ghost came back after Tab: {s:?} {s2:?}"
+    );
+    assert!(s2.region_highlight.is_empty(), "{s2:?}");
+    z.send("/");
+    let s = z.wait_state(|s| s.postdisplay == "tmp/p");
+    assert_eq!(s.region_highlight, vec![our_entry(8, 13)], "{s:?}");
 }
 
 #[test]
@@ -621,7 +637,8 @@ fn vi_opts() -> ZshOpts {
     ZshOpts {
         rc_after: "bindkey -v\n\
                    bindkey -M viins '^[[9999~' _fuxx-test-dump\n\
-                   bindkey -M vicmd '^[[9999~' _fuxx-test-dump"
+                   bindkey -M vicmd '^[[9999~' _fuxx-test-dump\n\
+                   bindkey -M viins '^X^V' vi-cmd-mode"
             .into(),
         ..git_history()
     }
@@ -631,6 +648,13 @@ fn vi_opts() -> ZshOpts {
 fn esc(z: &mut ZshHarness) {
     z.send("\x1b");
     std::thread::sleep(Duration::from_millis(150));
+}
+
+/// Command mode by a key other than Esc (`vi_opts` binds ⌃X⌃V, as a user's `jk` would be): Esc
+/// drops the ghost text on the way (design §6), another key bound to `vi-cmd-mode` keeps it.
+fn to_vicmd(z: &mut ZshHarness) {
+    z.send("\x18\x16");
+    z.wait_state(|s| s.keymap == "vicmd");
 }
 
 fn assert_fully_accepted(s: &common::LineState) {
@@ -752,7 +776,7 @@ fn up_arrow_clears_ghost_text() {
 #[test]
 fn vi_end_of_line_accepts() {
     let mut z = with_ghost(vi_opts());
-    esc(&mut z);
+    to_vicmd(&mut z);
     z.send("$");
     let s = z.wait_state(|s| s.buffer == "git push origin main");
     assert_fully_accepted(&s);
@@ -762,7 +786,7 @@ fn vi_end_of_line_accepts() {
 #[test]
 fn vi_add_eol_accepts() {
     let mut z = with_ghost(vi_opts());
-    esc(&mut z);
+    to_vicmd(&mut z);
     z.send("A");
     let s = z.wait_state(|s| s.buffer == "git push origin main");
     assert_fully_accepted(&s);
@@ -772,7 +796,7 @@ fn vi_add_eol_accepts() {
 #[test]
 fn vi_forward_word_accepts_part() {
     let mut z = with_ghost(vi_opts());
-    esc(&mut z);
+    to_vicmd(&mut z);
     z.send("w");
     let s = z.wait_state(|s| s.buffer == "git push o");
     assert_eq!(s.postdisplay, "rigin main");
@@ -1604,4 +1628,559 @@ fn a_builtin_widget_aliased_to_another_builtin_keeps_the_new_behaviour() {
     assert_eq!(s.cursor, 6, "{s:?}");
     assert_eq!(s.buffer, "git pu", "{s:?}");
     assert_eq!(s.postdisplay, "sh origin main", "{s:?}");
+}
+
+// ---- Tab and Esc (design §6, the user's decision 2026-11-13) ----
+// Tab accepts the ghost text while it shows (cursor at the end); otherwise the widget bound to Tab
+// runs as before, and the ghost text stays off until the next edit. Esc clears a completion list
+// and hides the ghost text; in emacs mode it is bound only when `^[` is free, in vi mode the
+// `vi-cmd-mode` that Esc runs does the same on its way.
+
+/// Three folders starting with "alpha" and one "beta", in the shell's (temporary) home.
+const DIRS: &str = "command mkdir -p alpha1 alpha2 alpha3 beta";
+const COMPINIT: &str = "autoload -Uz compinit; compinit -u -d $HOME/.zcompdump";
+/// A Tab widget that only marks the buffer, standing in for fzf's or fzf-tab's.
+fn tab_widget(name: &str) -> String {
+    format!("{name}() {{ BUFFER+=T; CURSOR=$#BUFFER }}\nzle -N {name}\nbindkey '^I' {name}")
+}
+
+/// The output since byte `mark`, once the shell has had `ms` to draw.
+fn output_after(z: &mut ZshHarness, mark: usize, ms: u64) -> String {
+    std::thread::sleep(Duration::from_millis(ms));
+    z.screen_now()[mark..].to_string()
+}
+
+#[test]
+fn tab_with_ghost_accepts_the_whole_suggestion_and_lists_nothing() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: DIRS.into(),
+        rc_after: COMPINIT.into(),
+        history: vec!["cd alpha2/deep"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "cd al", "pha2/deep");
+    let mark = z.screen_now().len();
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer == "cd alpha2/deep");
+    assert_eq!(s.cursor, 14, "{s:?}");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+    let after = output_after(&mut z, mark, 200);
+    assert!(
+        !after.contains("alpha1") && !after.contains('\x07'),
+        "a completion ran: {after:?}"
+    );
+}
+
+#[test]
+fn tab_without_ghost_still_completes() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: DIRS.into(),
+        rc_after: COMPINIT.into(),
+        ..Default::default()
+    });
+    z.send("cd be\t");
+    z.wait_state(|s| s.buffer == "cd beta/");
+    z.send("\x15cd al\t");
+    z.wait_state(|s| s.buffer == "cd alpha");
+    let mark = z.screen_now().len();
+    z.send("\t");
+    let after = output_after(&mut z, mark, 1500);
+    assert!(printable(&after).contains("alpha3/"), "no list: {after:?}");
+    let s = z.state();
+    assert_eq!(s.buffer, "cd alpha", "{s:?}");
+}
+
+#[test]
+fn tab_bound_to_another_plugins_widget_still_runs_it_when_no_ghost() {
+    for name in ["fzf-completion", "fzf-tab-complete"] {
+        let mut z = ZshHarness::start(ZshOpts {
+            rc_after: tab_widget(name),
+            ..git_history()
+        });
+        z.send("zz\t");
+        let s = z.wait_state(|s| s.buffer == "zzT");
+        assert_eq!(s.postdisplay, "", "{name}: {s:?}");
+        z.send("\x15git p");
+        z.wait_state(|s| s.postdisplay == "ush origin main");
+        z.send("\t");
+        let s = z.wait_state(|s| s.buffer != "git p");
+        assert_fully_accepted(&s);
+    }
+}
+
+#[test]
+fn tab_mid_buffer_runs_the_tab_widget() {
+    let mut z = with_ghost(ZshOpts {
+        rc_after: tab_widget("my-tab"),
+        ..git_history()
+    });
+    z.send("\x02"); // ⌃B
+    z.wait_state(|s| s.cursor == 4);
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer == "git pT");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+}
+
+#[test]
+fn tab_right_after_an_accept_runs_the_tab_widget() {
+    let mut z = with_ghost(ZshOpts {
+        rc_after: tab_widget("my-tab"),
+        ..git_history()
+    });
+    z.send("\x1b[C");
+    z.wait_state(|s| s.buffer == "git push origin main");
+    z.send("\t");
+    z.wait_state(|s| s.buffer == "git push origin mainT");
+}
+
+#[test]
+fn tab_with_a_request_in_flight_completes_and_the_late_answer_is_dropped() {
+    // The stub answers every request 0.6 s late with the same suggestion.
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: tab_widget("my-tab"),
+        core_script: Some(
+            r#"US=$(printf '\037')
+IFS= read -r hello; printf 'ready%s1\n' "$US"
+while IFS=$US read -r kind id rest; do
+  [ "$kind" = suggest ] || continue
+  sleep 0.6; printf 'suggestion%s%s%sSUGG\n' "$US" "$id" "$US"
+done"#,
+        ),
+        ..Default::default()
+    });
+    z.send("ab\t");
+    z.wait_state(|s| s.buffer == "abT");
+    std::thread::sleep(Duration::from_millis(1800));
+    let s = z.state();
+    assert_eq!(s.buffer, "abT", "{s:?}");
+    assert_eq!(s.postdisplay, "", "late answer drawn after Tab: {s:?}");
+}
+
+/// "cd al" with a ghost, Esc to hide it, then Tab four times: the prefix, the list, then the menu
+/// takes the first and the second folder. A ghost coming back would make a Tab accept it instead.
+fn tab_tab_tab(rc: &str) -> (ZshHarness, String) {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: DIRS.into(),
+        rc_after: format!("{COMPINIT}\n{rc}"),
+        history: vec!["cd alpha2/deep"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "cd al", "pha2/deep");
+    esc(&mut z);
+    z.wait_state(|s| s.postdisplay.is_empty());
+    let mark = z.screen_now().len();
+    // No state() between the Tabs: the dump widget would end the completion sequence.
+    for _ in 0..4 {
+        z.send("\t");
+        std::thread::sleep(Duration::from_millis(400));
+    }
+    let after = z.screen_now()[mark..].to_string();
+    (z, after)
+}
+
+#[test]
+fn tab_after_a_list_keeps_completing_with_auto_menu() {
+    let (mut z, after) = tab_tab_tab("");
+    assert!(printable(&after).contains("alpha3/"), "no list: {after:?}");
+    let s = z.state();
+    assert_eq!(s.buffer, "cd alpha2/", "{s:?}");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+}
+
+#[test]
+fn tab_after_a_list_keeps_completing_with_menu_select() {
+    let (mut z, after) = tab_tab_tab("zmodload zsh/complist; zstyle ':completion:*' menu select");
+    assert!(
+        after.contains("\x1b[7malpha2/"),
+        "menu not on alpha2: {after:?}"
+    );
+    z.send("\r"); // in the menu: take the match, the line stays
+    let s = z.wait_state(|s| s.buffer == "cd alpha2/");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+}
+
+#[test]
+fn tab_inserts_the_suggestion_literally() {
+    let entries = [
+        r#"echo "a  b" '$HOME' $PATH *.rs ~/x ü日本 {a,b} % `date`"#,
+        // near the 1000-character cap
+        Box::leak(format!("echo {}", "x".repeat(990)).into_boxed_str()),
+    ];
+    for entry in entries {
+        let mut z = ZshHarness::start(ZshOpts {
+            history: vec![entry],
+            ..Default::default()
+        });
+        type_until_ghost(&mut z, "echo ", &entry[5..]);
+        z.send("\t");
+        let s = z.wait_state(|s| s.buffer == entry);
+        assert_eq!(s.cursor, entry.chars().count(), "{s:?}");
+        assert_eq!(s.postdisplay, "", "{s:?}");
+    }
+}
+
+#[test]
+fn tab_accepts_in_a_multiline_buffer() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["for i in 1 2\ndo\n  echo $i\ndone"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "for i in 1 2", "\ndo\n  echo $i\ndone");
+    z.send("\x1b\r"); // a newline in the buffer
+    z.wait_state(|s| s.postdisplay == "do\n  echo $i\ndone");
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer == "for i in 1 2\ndo\n  echo $i\ndone");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+}
+
+#[test]
+fn tab_rebound_after_the_first_prompt_is_wrapped_once() {
+    let mut z = ZshHarness::start(git_history());
+    z.run(&tab_widget("my-tab").replace('\n', "; "));
+    prompts(&mut z, 3);
+    assert_eq!(our_generations(&mut z, "my-tab"), vec![1]);
+    z.send("zz\t");
+    z.wait_state(|s| s.buffer == "zzT");
+    z.send("\x15git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer != "git p");
+    assert_fully_accepted(&s);
+}
+
+#[test]
+fn tab_left_unbound_stays_unbound() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "bindkey -r '^I'".into(),
+        ..git_history()
+    });
+    z.run("bindkey '^I' >| $HOME/tab");
+    let tab = std::fs::read_to_string(z.home().join("tab")).unwrap();
+    assert_eq!(tab.trim(), "\"^I\" undefined-key");
+}
+
+#[test]
+fn esc_hides_the_ghost_until_the_next_edit() {
+    let mut z = with_ghost(git_history());
+    esc(&mut z);
+    let s = z.wait_state(|s| s.postdisplay.is_empty());
+    assert_eq!(s.buffer, "git p", "{s:?}");
+    assert_eq!(s.cursor, 5, "{s:?}");
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+    z.send("\x01\x05"); // ⌃A ⌃E: moves are not edits
+    std::thread::sleep(Duration::from_millis(400));
+    let s = z.state();
+    assert_eq!((s.cursor, s.postdisplay.as_str()), (5, ""), "{s:?}");
+    z.send("u");
+    let s = z.wait_state(|s| s.postdisplay == "sh origin main");
+    assert_eq!(s.region_highlight, vec![our_entry(6, 20)], "{s:?}");
+}
+
+#[test]
+fn esc_with_a_request_in_flight_drops_its_answer() {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(
+            r#"US=$(printf '\037')
+IFS= read -r hello; printf 'ready%s1\n' "$US"
+while IFS=$US read -r kind id rest; do
+  [ "$kind" = suggest ] || continue
+  sleep 0.6; printf 'suggestion%s%s%sSUGG\n' "$US" "$id" "$US"
+done"#,
+        ),
+        ..Default::default()
+    });
+    z.send("ab");
+    esc(&mut z);
+    std::thread::sleep(Duration::from_millis(1200));
+    let s = z.state();
+    assert_eq!(
+        (s.buffer.as_str(), s.postdisplay.as_str()),
+        ("ab", ""),
+        "{s:?}"
+    );
+}
+
+#[test]
+fn esc_clears_a_completion_list() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: DIRS.into(),
+        ..Default::default()
+    });
+    z.send("cd al\t");
+    z.wait_state(|s| s.buffer == "cd alpha");
+    let mark = z.screen_now().len();
+    z.send("\t");
+    assert!(printable(&output_after(&mut z, mark, 400)).contains("alpha3/"));
+    let mark = z.screen_now().len();
+    z.send("\x1b");
+    let after = output_after(&mut z, mark, 300);
+    // No screen emulator here: the evidence is zsh's own "erase below" after the prompt line.
+    assert!(after.contains("\x1b[J"), "list not erased: {after:?}");
+    assert_eq!(printable(&after).trim(), "", "{after:?}");
+    let s = z.state();
+    assert_eq!(s.buffer, "cd alpha", "{s:?}");
+}
+
+#[test]
+fn esc_with_a_list_and_a_ghost_clears_both() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: DIRS.into(),
+        history: vec!["cd alpha2/deep"],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "cd al", "pha2/deep");
+    let mark = z.screen_now().len();
+    z.send("\x04"); // ⌃D at the end: list the choices; the ghost text comes back after
+    assert!(printable(&output_after(&mut z, mark, 400)).contains("alpha3/"));
+    z.wait_state(|s| s.postdisplay == "pha2/deep");
+    let mark = z.screen_now().len();
+    esc(&mut z);
+    let after = output_after(&mut z, mark, 150);
+    assert!(after.contains("\x1b[J"), "list not erased: {after:?}");
+    let s = z.wait_state(|s| s.postdisplay.is_empty());
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+    assert_eq!(s.buffer, "cd al", "{s:?}");
+}
+
+#[test]
+fn esc_with_nothing_showing_changes_nothing_and_never_beeps() {
+    let mut z = ZshHarness::start(git_history());
+    z.send("zz");
+    z.wait_state(|s| s.buffer == "zz");
+    let mark = z.screen_now().len();
+    esc(&mut z);
+    esc(&mut z);
+    z.send("\x1b\x1b"); // twice within KEYTIMEOUT
+    std::thread::sleep(Duration::from_millis(150));
+    let s = z.state();
+    assert_eq!((s.buffer.as_str(), s.cursor), ("zz", 2), "{s:?}");
+    let after = z.screen_now()[mark..].to_string();
+    assert!(!after.contains('\x07'), "beep: {after:?}");
+    assert_eq!(printable(&after).trim(), "", "{after:?}");
+}
+
+#[test]
+fn a_user_binding_of_esc_is_kept() {
+    let mut z = with_ghost(ZshOpts {
+        rc_before: "bindkey '^[' beginning-of-line\n\
+                    ee() { BUFFER=EE }; zle -N ee; bindkey '^[^[' ee"
+            .into(),
+        ..git_history()
+    });
+    esc(&mut z);
+    let s = z.wait_state(|s| s.cursor == 0);
+    assert_eq!(s.postdisplay, "ush origin main", "{s:?}");
+    z.send("\x1b\x1b");
+    z.wait_state(|s| s.buffer == "EE");
+    z.send("\x15");
+    z.run("bindkey '^[' >| $HOME/esc");
+    let esc = std::fs::read_to_string(z.home().join("esc")).unwrap();
+    assert_eq!(esc.trim(), "\"^[\" beginning-of-line");
+}
+
+/// For each key: the line "abc def ghi" with the cursor on the "g" (no suggestion for it), the key,
+/// then the buffer and cursor. `on` false runs the same shell with the plugin off (no core), as
+/// zsh alone.
+fn key_outcomes(on: bool, rc: &str, keys: &[&str]) -> Vec<(String, usize)> {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: rc.into(),
+        history: vec!["zzz last"],
+        core_bin: if on {
+            None
+        } else {
+            Some(PathBuf::from("/nonexistent"))
+        },
+        ..Default::default()
+    });
+    keys.iter()
+        .map(|k| {
+            z.send("\x15abc def ghi\x02\x02\x02");
+            z.wait_state(|s| s.buffer == "abc def ghi" && s.cursor == 8);
+            z.send(k);
+            std::thread::sleep(Duration::from_millis(120));
+            let s = z.state();
+            (s.buffer, s.cursor)
+        })
+        .collect()
+}
+
+#[test]
+fn esc_prefixed_keys_work_as_in_plain_zsh() {
+    // Bound in plain zsh: the same result. ⌥→ and End are bound by us when free (tested above).
+    let bound = [
+        "\x1bb",
+        "\x1bf",
+        "\x1b[D",
+        "\x1b[C",
+        "\x1b[A",
+        "\x1b[B",
+        "\x1b.",
+        "\x1b[200~pasted [x]\x1b[201~",
+    ];
+    // Not bound in plain zsh (-d, no terminfo keys): zsh itself inserts their tails ("~", ";5C")
+    // because a prefix of them is bound; with our `^[` they must insert nothing at all.
+    let unbound = [
+        "\x1b[H",
+        "\x1bOH",
+        "\x1bOF",
+        "\x1b[1;3D",
+        "\x1b[3~",
+        "\x1b[1;5C",
+        "\x1b[1;5D",
+        "\x1b[1;2C",
+        "\x1bOP",
+        "\x1b[15~",
+        "\x1b[24~",
+    ];
+    for rc in ["", "KEYTIMEOUT=40"] {
+        let plain = key_outcomes(false, rc, &bound);
+        let ours = key_outcomes(true, rc, &bound);
+        for (i, k) in bound.iter().enumerate() {
+            assert_eq!(ours[i], plain[i], "{rc:?} key {k:?}");
+        }
+        for (k, got) in unbound.iter().zip(key_outcomes(true, rc, &unbound)) {
+            assert_eq!(got.0, "abc def ghi", "{rc:?} key {k:?} inserted text");
+        }
+    }
+}
+
+#[test]
+fn esc_in_isearch_ends_the_search_on_the_line_found() {
+    // zsh alone waits after Esc in ⌃R for the rest of a sequence (no timeout while `^[` is
+    // unbound); with our `^[` the search ends on the line found once KEYTIMEOUT passes, as Esc
+    // does in bash. Design §6.
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["zzz last"],
+        ..Default::default()
+    });
+    z.send("\x12zz");
+    std::thread::sleep(Duration::from_millis(200));
+    esc(&mut z);
+    let s = z.wait_state(|s| s.buffer == "zzz last");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    z.send("\x05!"); // the search is over: ⌃E and a key edit the line
+    z.wait_state(|s| s.buffer == "zzz last!");
+}
+
+#[test]
+fn esc_after_a_list_longer_than_the_screen() {
+    for opt in ["", "unsetopt alwayslastprompt"] {
+        let mut z = ZshHarness::start(ZshOpts {
+            rc_before: "command mkdir big; for i in {1000..1999}; do : > big/f$i; done".into(),
+            rc_after: opt.into(),
+            ..Default::default()
+        });
+        z.send("ls big/f\t");
+        z.wait_state(|s| s.buffer == "ls big/f1");
+        let mark = z.screen_now().len();
+        z.send("\t");
+        assert!(output_after(&mut z, mark, 400).contains("do you wish"));
+        z.send("y");
+        let mark = z.screen_now().len();
+        std::thread::sleep(Duration::from_millis(400));
+        esc(&mut z);
+        let after = output_after(&mut z, mark, 200);
+        assert!(!after.contains('\x07'), "{opt:?} beep: {after:?}");
+        z.send("9");
+        let s = z.wait_state(|s| s.buffer == "ls big/f19");
+        assert_eq!(s.cursor, 10, "{opt:?} {s:?}");
+        assert_no_errors_on_screen(&mut z);
+    }
+}
+
+#[test]
+fn vi_esc_enters_command_mode_and_hides_the_ghost() {
+    let mut z = with_ghost(vi_opts());
+    esc(&mut z);
+    let s = z.wait_state(|s| s.keymap == "vicmd");
+    assert_eq!(s.buffer, "git p", "{s:?}");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    assert!(s.region_highlight.is_empty(), "{s:?}");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(z.state().postdisplay, "");
+    esc(&mut z); // Esc in command mode: as before
+    let s = z.state();
+    assert_eq!(
+        (s.keymap.as_str(), s.buffer.as_str()),
+        ("vicmd", "git p"),
+        "{s:?}"
+    );
+    z.send("A");
+    z.wait_state(|s| s.keymap != "vicmd"); // insert mode reports `main`
+    z.send("u");
+    z.wait_state(|s| s.postdisplay == "sh origin main");
+}
+
+#[test]
+fn vi_esc_clears_a_completion_list() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: DIRS.into(),
+        ..vi_opts()
+    });
+    z.send("cd al\t");
+    z.wait_state(|s| s.buffer == "cd alpha");
+    let mark = z.screen_now().len();
+    z.send("\t");
+    assert!(printable(&output_after(&mut z, mark, 400)).contains("alpha3/"));
+    let mark = z.screen_now().len();
+    esc(&mut z);
+    let after = output_after(&mut z, mark, 150);
+    assert!(after.contains("\x1b[J"), "list not erased: {after:?}");
+    z.wait_state(|s| s.keymap == "vicmd");
+}
+
+#[test]
+fn bindkey_v_after_the_first_prompt_gets_tab_and_esc() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "bindkey -M viins '^[[9999~' _fuxx-test-dump\n\
+                   bindkey -M vicmd '^[[9999~' _fuxx-test-dump"
+            .into(),
+        ..git_history()
+    });
+    z.run("bindkey -v");
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer != "git p");
+    assert_fully_accepted(&s);
+    z.send("\x15git p"); // ⌃U in viins: backward-kill-line
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    esc(&mut z);
+    let s = z.wait_state(|s| s.keymap == "vicmd");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+}
+
+#[test]
+fn sourcing_zshrc_again_keeps_tab_and_esc_working() {
+    let mut z = ZshHarness::start(git_history());
+    z.run("source ~/.zshrc");
+    z.run("source ~/.zshrc");
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer != "git p");
+    assert_fully_accepted(&s);
+    z.send("\x15git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    esc(&mut z);
+    let s = z.wait_state(|s| s.postdisplay.is_empty());
+    assert_eq!(s.buffer, "git p");
+    z.send("\x15");
+    z.run("bindkey '^[' >| $HOME/esc");
+    let esc = std::fs::read_to_string(z.home().join("esc")).unwrap();
+    assert_eq!(esc.trim(), "\"^[\" fuxx-as-escape");
+    assert_no_errors_on_screen(&mut z);
+}
+
+#[test]
+fn keytimeout_is_left_alone() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "KEYTIMEOUT=37".into(),
+        ..git_history()
+    });
+    z.run("print -r -- $KEYTIMEOUT >| $HOME/kt");
+    let kt = std::fs::read_to_string(z.home().join("kt")).unwrap();
+    assert_eq!(kt.trim(), "37");
 }

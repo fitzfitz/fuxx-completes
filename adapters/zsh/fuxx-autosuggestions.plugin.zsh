@@ -327,6 +327,48 @@ _fuxx_as_widget_clear() {
 }
 zle -N fuxx-as-clear _fuxx_as_widget_clear
 
+# Hides the ghost text until the next edit: what is shown goes, nothing held by an outer wrapper
+# comes back, and the answer to a request in flight is dropped as stale when it arrives. The next
+# key that changes the buffer asks again as usual.
+_fuxx_as_hide() {
+  emulate -L zsh
+  _fuxx_as_clear
+  (( ${+_fuxx_as_held} )) && _fuxx_as_held=
+  _FUXX_AS_INFLIGHT_ID=''
+  return 0
+}
+
+# Esc (design §6): clears a completion list below the prompt (`zle -R -c`; nothing happens when
+# none is shown) and hides the ghost text until the next edit.
+_fuxx_as_dismiss() {
+  emulate -L zsh
+  _fuxx_as_hide
+  zle -R -c
+  return 0
+}
+
+# Bare Esc in emacs mode, bound only when `^[` is free. With `^[` bound, zsh waits KEYTIMEOUT after
+# an Esc for the rest of a sequence (we never change KEYTIMEOUT), and a bound sequence (Esc f, ⌥→,
+# arrows, bracketed paste) still runs as before. A sequence that is not bound (⌃→ `^[[1;5C`, F1
+# `^[OP`) now falls back to this binding with its tail left to be read as typed text, so the bytes
+# already waiting are read and dropped here: after `[` up to the final byte (@ to ~), after `O` one
+# more, anything else (a second Esc) on its own. `read -t 0` never waits for a key not yet typed.
+_fuxx_as_widget_escape() {
+  emulate -L zsh
+  local c
+  if read -k 1 -t 0 c 2>/dev/null; then
+    if [[ $c == '[' ]]; then
+      while read -k 1 -t 0.05 c 2>/dev/null; do
+        [[ $c == [@-~] ]] && break
+      done
+    elif [[ $c == O ]]; then
+      read -k 1 -t 0.05 c 2>/dev/null
+    fi
+  fi
+  _fuxx_as_dismiss
+}
+zle -N fuxx-as-escape _fuxx_as_widget_escape
+
 # _fuxx_as_w_modify <original widget> [args]: runs the original with the ghost text taken off (and
 # our highlight entry with it); then, if the buffer changed, asks again, otherwise puts the same
 # ghost text back, styled. zsh-autosuggestions does the same. Kept on, it would show as typed text
@@ -345,8 +387,22 @@ _fuxx_as_w_modify() {
   # gets that one's work.
   local self=${orig#fuxx-as-orig-<->-}
   if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
+  # Whatever widget Tab runs (expand-or-complete, fzf-completion, fzf-tab-complete, ...): the key
+  # decides, not the widget's name, so a Tab rebound later needs nothing but the wrap at precmd.
+  # vicmd is left as it was. Esc into vi command mode also clears the list and the ghost text.
+  if [[ $KEYS == $'\t' && $KEYMAP != vicmd ]]; then
+    _fuxx_as_tab $orig "$@"
+    return
+  fi
   local _fuxx_as_inside=$self
   local -i ret holder=0
+  if [[ $KEYS == $'\e' && $self == vi-cmd-mode ]]; then
+    _fuxx_as_dismiss
+    zle $orig -- "$@"
+    ret=$?
+    _FUXX_AS_LAST_BUFFER=$BUFFER
+    return $ret
+  fi
   if (( ! ${+_fuxx_as_held} )); then
     local _fuxx_as_held=$POSTDISPLAY
     holder=1
@@ -364,6 +420,31 @@ _fuxx_as_w_modify() {
   elif (( holder )) && [[ -n $_fuxx_as_held ]]; then
     _fuxx_as_show "$_fuxx_as_held"
   fi
+  return $ret
+}
+
+# _fuxx_as_tab <original widget> [args]: Tab (design §6). With ghost text showing and the cursor
+# at the end, the whole suggestion is accepted (as → does) and the original never runs, so no
+# completion and no list. Otherwise the original runs as it did before we were loaded, and the
+# ghost text stays off until the next edit: a list may now be on screen, and the next Tab must go
+# on completing (auto_menu, menu-select) rather than accept a suggestion that came back.
+_fuxx_as_tab() {
+  emulate -L zsh
+  local orig=$1
+  shift
+  local -i ret
+  if [[ -n $POSTDISPLAY && $CURSOR -eq $#BUFFER ]]; then
+    BUFFER+=$POSTDISPLAY
+    _fuxx_as_hide
+    CURSOR=$#BUFFER
+    _FUXX_AS_LAST_BUFFER=$BUFFER
+    return 0
+  fi
+  local _fuxx_as_inside=${orig#fuxx-as-orig-<->-}
+  _fuxx_as_hide
+  zle $orig -- "$@"
+  ret=$?
+  _FUXX_AS_LAST_BUFFER=$BUFFER
   return $ret
 }
 
@@ -603,6 +684,8 @@ _fuxx_as_install_once() {
     _fuxx_as_bind_if_free $km '^[[4~' end-of-line
     _fuxx_as_bind_if_free $km '^[[1;3C' forward-word
   done
+  # Bare Esc in emacs mode (design §6); in viins it is vi-cmd-mode, handled in _fuxx_as_w_modify.
+  _fuxx_as_bind_if_free emacs '^[' fuxx-as-escape
   add-zle-hook-widget line-init _fuxx_as_line_init 2>/dev/null
   add-zle-hook-widget line-finish _fuxx_as_line_finish 2>/dev/null
   return 0

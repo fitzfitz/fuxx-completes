@@ -28,6 +28,31 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **Tab and Esc (the user's decision, after v0.0.2: "hit tab when
+  fuxx-suggestions appeared, still showing the list of things inside the dir … a simple esc hit
+  to lose them … Make it smooth", then "do 1"; and "ensure we cover all edge cases").** `design.md`
+  §2, §6 zsh (Tab, Esc) and §9 changed. Tab: while ghost text shows and the cursor is at the end
+  it accepts all of it and no completion runs; otherwise whatever widget Tab is bound to runs as
+  before (the wrapper looks at `$KEYS`, so a Tab rebound later is covered at the next `precmd`, and
+  Tab is never rebound), and the ghost text stays off until the next edit so a second Tab goes on
+  completing (`auto_menu`, `menu-select`); the answer to a request in flight is dropped. Esc:
+  `zle -R -c` clears a completion list and the ghost text hides until the next edit; bare `^[` is
+  bound in emacs only if free (zsh then waits `KEYTIMEOUT`, 0.4 s by default, after Esc: accepted
+  trade-off; unbound sequences such as ⌃→ now do nothing instead of typing their tail; Esc in ⌃R
+  ends the search on the line found); in vi mode the `vi-cmd-mode` that a bare Esc runs also
+  clears both. Changed tests (the old behaviour is gone): the completion-question test now Tabs
+  with the cursor moved left, "a Tab that completes asks again" became "a mid-word Tab completes and
+  the ghost stays off until the next edit", and the vi accept tests enter command mode with a
+  non-Esc key. The harness reads the pty until it is quiet (one read could leave a completion list
+  unread) and reports `$KEYMAP`. 26 new tests (Tab with/without ghost, other plugins' Tab widgets,
+  mid-buffer, in flight, after an accept, Tab-list-Tab with `auto_menu` and `menu-select`, literal
+  and 995-character suggestions, multi-line, rebinding, unbound Tab; Esc for ghost, list, both,
+  in flight, nothing showing, a user's `^[`/`^[^[`, Esc-prefixed keys against plain zsh at
+  `KEYTIMEOUT` 1 and 40, bracketed paste, ⌃R, a list longer than the screen with and without
+  `ALWAYS_LAST_PROMPT`, vi mode, `bindkey -v` later, re-sourcing, `KEYTIMEOUT` untouched): 101
+  adapter tests on zsh 5.3.1, 5.8.1 and 5.9. The list clearing is checked by zsh's erase-below
+  sequence (no screen emulator in the harness). Needs the user's look in fuxx's terminal.
+
 - **2026-11-13** — **Fix after v0.0.1 (a bug the user hit; "if some issue come up, we fix it").**
   In zsh 5.9, typing `c` showed the ghost text `d Kerja/`; Tab then asked "do you wish to see all
   151 possibilities?" while the line showed `cd Kerja/` in normal colour, as if typed. Cause

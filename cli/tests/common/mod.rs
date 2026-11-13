@@ -47,6 +47,8 @@ pub struct LineState {
     pub region_highlight: Vec<String>,
     /// `$_FUXX_AS_PID`
     pub core_pid: Option<u32>,
+    /// `$KEYMAP` (`main` in emacs mode, `viins` or `vicmd` in vi mode)
+    pub keymap: String,
 }
 
 pub struct ZshHarness {
@@ -78,7 +80,7 @@ impl ZshHarness {
              source '{plugin}'\n\
              _fuxx-test-dump() {{\n\
                emulate -L zsh\n\
-               print -rn -- \"$BUFFER\"$'\\x1f'\"$CURSOR\"$'\\x1f'\"$POSTDISPLAY\"$'\\x1f'\"${{(pj:\\x1e:)region_highlight}}\"$'\\x1f'\"${{_FUXX_AS_PID-}}\"$'\\x1f'END >| \"$HOME/dump\"\n\
+               print -rn -- \"$BUFFER\"$'\\x1f'\"$CURSOR\"$'\\x1f'\"$POSTDISPLAY\"$'\\x1f'\"${{(pj:\\x1e:)region_highlight}}\"$'\\x1f'\"${{_FUXX_AS_PID-}}\"$'\\x1f'\"$KEYMAP\"$'\\x1f'END >| \"$HOME/dump\"\n\
              }}\n\
              zle -N _fuxx-test-dump\n\
              bindkey '^[[9999~' _fuxx-test-dump\n\
@@ -223,9 +225,21 @@ impl ZshHarness {
         String::from_utf8_lossy(&self.screen).into_owned()
     }
 
-    /// Like `screen_since_start`, after reading anything still pending.
+    /// Like `screen_since_start`, after reading anything still pending. One read can leave
+    /// output behind (seen with a completion list), so it reads until two reads in a row, 10 ms
+    /// apart, bring nothing.
     pub fn screen_now(&mut self) -> String {
-        self.pump();
+        let mut quiet = 0;
+        while quiet < 2 {
+            let before = self.screen.len();
+            self.pump();
+            quiet = if self.screen.len() == before {
+                quiet + 1
+            } else {
+                0
+            };
+            std::thread::sleep(Duration::from_millis(10));
+        }
         self.screen_since_start()
     }
 
@@ -248,10 +262,11 @@ pub fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
 }
 
 fn parse_dump(text: &str) -> LineState {
-    // buffer US cursor US postdisplay US highlights US pid US END; the buffer may itself hold
-    // a US byte, so split from the right.
-    let mut it = text.rsplitn(6, US);
+    // buffer US cursor US postdisplay US highlights US pid US keymap US END; the buffer may
+    // itself hold a US byte, so split from the right.
+    let mut it = text.rsplitn(7, US);
     let _end = it.next();
+    let keymap = it.next().unwrap_or("");
     let pid = it.next().unwrap_or("");
     let hl = it.next().unwrap_or("");
     let post = it.next().unwrap_or("");
@@ -267,5 +282,6 @@ fn parse_dump(text: &str) -> LineState {
             .map(String::from)
             .collect(),
         core_pid: pid.parse().ok(),
+        keymap: keymap.to_string(),
     }
 }

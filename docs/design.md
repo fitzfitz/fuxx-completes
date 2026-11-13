@@ -69,7 +69,9 @@ The user wants one engine that:
 ### Anti-goals (must never happen)
 
 - **Breaking zsh's own Tab completion.** If the user has `compinit` and their own completions,
-  those keep working.
+  those keep working. (Changed 2026-11-13, the user's decision: Tab is taken over **only while a
+  suggestion is showing**, to accept it; whenever no ghost text shows, the widget Tab was bound to
+  runs exactly as before, fzf's or fzf-tab's included. §6.)
 - **Breaking ⌃R** or any history search the user already has (zsh's built-in, fzf, atuin).
 - **Breaking prompt themes** such as powerlevel10k (including its instant prompt) or Starship.
 - **Slowing down typing.** A keystroke that types must never wait on the core. A slow core means
@@ -595,7 +597,41 @@ Honest about what each shell allows.
   Keys to move through and pick items are bound in a keymap of our own while the menu is open.
   Which drawing method holds up best (long lists, narrow terminals, multi-line prompts) is
   settled in M6.
-- **Tab:** we don't take Tab by default. zsh's own completion stays on Tab.
+- **Tab (the user's decision, 2026-11-13; it replaces "we don't take Tab").** Tab is never
+  rebound. The widget Tab is bound to (`expand-or-complete`, `complete-word`, fzf's
+  `fzf-completion`, fzf-tab's `fzf-tab-complete`, `menu-select`, ...) is wrapped at `precmd` like
+  every other widget, and the wrapper looks at the key (`$KEYS` is Tab, the keymap isn't `vicmd`),
+  not at the widget's name, so a Tab rebound later is covered by the next `precmd`'s wrap, and an
+  unbound Tab stays unbound. With ghost text showing and the cursor at the end of the line (as for
+  → and `^E`), Tab accepts the whole suggestion and the original widget does not run: no
+  completion, no list. Otherwise (no ghost text, the cursor moved left, a request still in flight,
+  right after an accept) the original runs as before, and the ghost text then **stays off until
+  the next edit**, whether or not the completion changed the buffer: a list may be on screen, and
+  the next Tab must go on completing (`auto_menu` cycling, `menu-select`) instead of accepting a
+  suggestion that came back (AI's call on the user's "edge cases" request). The answer to a request
+  still in flight is dropped. Inside `menu-select` zsh's complist reads the keys itself, so Tab and
+  Esc there are zsh's own.
+- **Esc (the user's decision, 2026-11-13).** Esc clears a completion list below the prompt
+  (`zle -R -c`, checked on 5.3.1, 5.8.1 and 5.9) and hides the ghost text until the next edit (a
+  key that only moves brings nothing back; typing asks again; the answer to a request in flight is
+  dropped). In the emacs keymap the adapter binds a bare `^[` to `fuxx-as-escape` **only if `^[` is
+  unbound**, as with End and ⌥→; a user's `^[` (or `^[^[`) binding is kept. In `viins` Esc stays
+  `vi-cmd-mode`: its wrapper clears the list and the ghost text on the way when the key was a bare
+  Esc, so a user's other key for command mode (`jk`) keeps the ghost text for `$`, `A` and `w`.
+  `vicmd` is left alone. We never change `KEYTIMEOUT` or any option. Accepted trade-offs:
+  - **The KEYTIMEOUT delay.** With `^[` bound, zsh waits `KEYTIMEOUT` (default 0.4 s) after a bare
+    Esc to see whether more of a sequence follows, so the list and the ghost text go 0.4 s after
+    the press (vi mode always had this delay). Sequences sent at once (⌥ as Meta, arrows, Home,
+    End, Delete, function keys, bracketed paste) are unaffected. Before, a bare `^[` had no
+    binding and so no timeout: `Esc`, a pause longer than `KEYTIMEOUT`, then `f` was still
+    `forward-word`; now that pause makes it Esc then a typed `f`.
+  - **Unbound sequences.** With `^[` bound, a sequence nothing binds (⌃→ `^[[1;5C`, F1 `^[OP`)
+    falls back to the `^[` binding and zsh would type its tail into the line, so the Esc widget
+    reads and drops the bytes already waiting (after `[` up to the final byte, after `O` one more;
+    `read -t 0`, never waiting for a key not yet typed). Such keys now do nothing, where zsh alone
+    typed part of some of them (`~`, `;5C`).
+  - **⌃R.** zsh alone waits after Esc in an incremental search for the rest of a sequence; with
+    our `^[` the search ends on the line found once `KEYTIMEOUT` passes, as Esc does in bash.
 - **Host mode:** with `FUXX_COMPLETES_HOST=1`, the same wrapped widgets forward the buffer over the
   host channel instead of drawing (§5.5).
 - **Limits:** a menu below the line pushes the screen and can't overlap other text; very long
@@ -708,7 +744,7 @@ the line.
 | --- | --- |
 | zsh-autosuggestions (e.g. `_zsh_autosuggest_start` defined) | fuxx-autosuggestions stays off in that shell |
 | zsh-autocomplete (functions named `.autocomplete__*` in current versions, `.autocomplete.*` in older ones) | fuxx-autocomplete stays off |
-| fzf key bindings (`fzf-history-widget`, `fzf-file-widget`, `fzf-completion`) | we never bind ⌃R, ⌃T or Tab; if `fzf-completion` holds Tab, our menu never uses Tab |
+| fzf key bindings (`fzf-history-widget`, `fzf-file-widget`, `fzf-completion`) | we never bind ⌃R, ⌃T or Tab; Tab's widget (`fzf-completion`, fzf-tab's `fzf-tab-complete`) is wrapped and runs as before whenever no ghost text shows; while one shows, Tab accepts it (2026-11-13, §6); if `fzf-completion` holds Tab, our menu never uses Tab |
 | atuin | we never bind ⌃R or ↑ |
 | fish's own autosuggestions | fuxx-autosuggestions off in fish (§6) |
 | ble.sh auto-complete | stay off unless the bash milestone finds a clean way in |

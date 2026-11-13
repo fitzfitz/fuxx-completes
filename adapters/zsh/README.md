@@ -2,7 +2,9 @@
 
 Built in M0 (waiting for a check in a real terminal): `fuxx-autosuggestions.plugin.zsh` shows grey
 ghost text from your history, from a `fuxx-completes serve` process. → or ⌃E accepts all of it,
-Esc f takes a word, End and ⌥→ do the same where you haven't bound them, and vi mode works. A
+and so does Tab while a suggestion shows (otherwise Tab completes as before); Esc f takes a word,
+End and ⌥→ do the same where you haven't bound them; Esc hides the ghost text and clears a
+completion list; vi mode works. A
 command you run is reported to the core and suggested from the prompt after the next one ("one
 prompt later"). Needs zsh 5.3 or later. Still planned: M2 (host channel), M6 (menu). Design:
 `docs/design.md` §5.5–§5.9 and §6.
@@ -38,6 +40,18 @@ A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugi
   and `forward-word` accepts up to the next word. In stock zsh that's → and `^E`, and `Esc f`.
   End (`^[[F`, `^[[4~`) and ⌥→ (`^[[1;3C`) are bound by us **only if unbound**; a user's binding is
   never replaced.
+- **Tab** (2026-11-13): while ghost text shows and the cursor is at the end, Tab accepts all of it
+  and no completion runs. Otherwise the widget Tab is bound to runs as before (zsh's completion,
+  fzf's `fzf-completion`, fzf-tab, ...), and the ghost text stays off until you edit again, so a
+  second Tab goes on completing. Tab itself is never rebound: its widget is wrapped like the others.
+- **Esc** (2026-11-13): clears a completion list and hides the ghost text until the next edit. In
+  emacs mode a bare `^[` is bound **only if unbound**; zsh then waits `KEYTIMEOUT` (default 0.4 s)
+  after Esc to tell it from Esc-prefixed keys, so it acts 0.4 s after the press, and Esc, a pause,
+  then `f` is no longer `forward-word`. Keys sent as one sequence (⌥ as Meta, arrows, function
+  keys, paste) are unaffected; unbound sequences such as ⌃→ do nothing instead of typing their
+  tail. In ⌃R, Esc ends the search on the line found. In vi mode Esc still enters command mode and
+  clears both on the way (another key bound to `vi-cmd-mode`, such as `jk`, keeps the ghost text).
+  `KEYTIMEOUT` and your options are never changed. Design §6.
 - **vi mode** is supported: the vi accept and partial-accept widgets are wrapped as
   zsh-autosuggestions does (`vi-forward-char`, `vi-end-of-line`, `vi-add-eol`, `vi-forward-word`
   and friends).
@@ -53,8 +67,8 @@ A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugi
 - **Host channel (M2):** when the terminal sets `FUXX_COMPLETES_HOST=1`, the buffer and cursor go
   to the terminal over OSC 7701 instead of being drawn here, and `ESC [ 7701 ~` applies what the
   terminal accepted.
-- **Menu (M6):** drawn below the line, not through zsh's completion system. Tab stays zsh's.
+- **Menu (M6):** drawn below the line, not through zsh's completion system. Tab completes as above.
 - **Stays off (M1, not built yet)** when zsh-autosuggestions (for ghost text) or zsh-autocomplete
   (`.autocomplete__*` or older `.autocomplete.*` functions, for the menu) is loaded, and entirely
   in Warp (`TERM_PROGRAM=WarpTerminal`), whose own editor replaces ZLE. Today none of that is
-  detected. Never binds ⌃R, ⌃T or Tab.
+  detected. Never binds ⌃R, ⌃T or Tab (Tab's widget is wrapped, see above).
