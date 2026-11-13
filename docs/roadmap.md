@@ -28,6 +28,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **v0.0.1 test release, before M3 (the user's call: "just push fuxx-completes so we
+  can test it directly by installing it. if some issue come up, we fix it").** M0 merged to `main`.
+  Part of M3's packaging pulled forward so fuxx can install it from Settings → Plugins: a
+  `fuxx-plugin.conf` at the repo root (design §8) and a GitHub release `v0.0.1` with
+  `fuxx-plugin-macos-arm64.zip` (`fuxx-plugin.conf`, `bin/fuxx-completes` built with
+  `cargo build --release`, `shell/fuxx-autosuggestions.plugin.zsh`). Apple Silicon only; no x86_64
+  or universal zip, no Homebrew, no crates.io (those stay in M3). M0 stays 🟨 until the hand check.
+
 - **2026-11-13** — M0 started. Wire format 1 (protocol types and line encoding in
   `core/src/protocol.rs`; field-separated, JSON deferred; `design.md` §5.5 and §17 Q1 updated).
   zsh history parser (`core/src/zsh_history.rs`: metafied bytes, EXTENDED_HISTORY, multi-line).
