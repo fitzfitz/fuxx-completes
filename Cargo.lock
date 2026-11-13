@@ -81,6 +81,7 @@ name = "fuxx-autosuggestions"
 version = "0.0.4"
 dependencies = [
  "fuxx-completes-core",
+ "tempfile",
 ]
 
 [[package]]

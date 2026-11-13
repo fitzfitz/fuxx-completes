@@ -187,6 +187,13 @@ arrive.
   then "yes" to: never suggest `cd`/`pushd` to a folder that doesn't exist from the current
   folder; the next valid match is shown instead. Folder-aware ranking stays M1, general argument
   checks stay M5. How it works: §5.4.
+- **A `cd` down into the current folder ranks first (decided 2026-11-13, after v0.0.4).** The
+  user's report: "now cd always suggest to ../.." (in `~/Kerja`, `cd ` suggested `../..`, the
+  newest `cd` that works from there), then "yes do that" to: among `cd`/`pushd` matches, one whose
+  target goes down into the current folder ranks above one that works from anywhere; within each
+  group the order is unchanged, and a lower one is shown only when no "down here" one matches.
+  Other commands are unaffected; folder-aware ranking for all commands stays M1. How it works:
+  §5.4.
 - **License (AI's call):** MIT OR Apache-2.0, the Rust convention.
 - **Layout (AI's call):** a Cargo workspace (§12).
 
@@ -307,6 +314,24 @@ the time budget is checked between `stat`s, so one `stat` that hangs (a disconne
 iCloud folder) can't be interrupted yet; if it outlasts the adapter's 2 s watchdog the core is
 stopped and that shell has no suggestions. Running the checks on a worker thread with a timeout is
 a later fix.
+
+**A `cd` down into the current folder ranks first (the user's decision, 2026-11-13, after v0.0.4,
+§4).** Among the `cd`/`pushd` matches that are kept, the core puts those whose target goes **down
+into the current folder** above the rest: a relative target that, with `.` dropped and `..` taken
+lexically, stays strictly below the cwd and is a folder there (`proj`, `proj/x`, `./proj`, a
+symlink to a folder in the cwd). Everything else is in the lower group: `.`, `..`, `../..`,
+`proj/../..`, `~` and `~/x`, absolute paths, no argument, `-`, a target found only through
+`cdpath` or kept because `cdpath` is unknown, and every form that can't be checked. Within each
+group the order is the old one (newest first, session records first). The walk goes through the
+matches as before; the first "down here" one is returned at once, the newest lower-group one is
+held aside, and it is returned only when the walk runs out of matches, reaches the bound or spends
+the budget. Typed text that only lower-group entries match (`cd .`) still gets the newest of them.
+Other commands keep their place: the walk ends at the first match that isn't a `cd`/`pushd`,
+which is shown unless a newer lower-group `cd` is held (that one was shown before too), so a
+"down here" `cd` never jumps over another command (**AI's call**). The bounds are unchanged and
+now count every distinct candidate passed over, rejected or held: after 50 the walk returns the
+held one (none held: no suggestion, as before); once 50 ms have passed it returns the held one
+(none held: the next candidate unchecked, as before) (**AI's calls**).
 
 **Menu items** are ordered by kind (subcommands, then options, then argument values; open to
 change), then by prefix match quality, then by how often the user picked them (counted in memory

@@ -28,6 +28,24 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **A `cd` down into the current folder ranks first (the user's decision, after
+  v0.0.4).** The user's report: "now cd always suggest to ../.." (in `~/Kerja`, `../..` is the
+  newest `cd` that works from there); then "yes do that". Among `cd`/`pushd` matches, one whose
+  target goes down into the current folder (`proj`, `./proj`, `proj/x`, a symlinked folder here)
+  ranks above one that works from anywhere (`..`, `~`, absolute, `-`, no argument, `cdpath`-only,
+  unchecked forms); a lower one is shown only when no "down here" one matches (`cd .` still gets
+  `../..`). Other commands keep their place: the walk ends at the first non-`cd` match. The walk
+  (`History::best_with_prefix`) stays within its bounds, which now count held candidates too, and
+  returns the held one when it hits the bound or the 50 ms budget. `cd_target::classify` sorts an
+  entry into not-`cd`, missing, down here or anywhere. `design.md` §4 and §5.4. Tests first, each
+  seen failing: the classifier, the walk (best above a newer held one, newest held without one,
+  session first, a plain candidate ends it, bound and budget return the held one, a repeated held
+  one checked once), `suggestion()` on a real folder tree (the user's case, `cd .`, no "down here"
+  match, `./proj`, bare `cd` and `cd -`, other commands), and in a real zsh the user's case (from
+  `~/Kerja` with `cd proj`, `cd Kerja`, `cd ../..` in history, `cd ` suggests `proj` and `cd .`
+  suggests `./..`). fuxx-autosuggestions gains `tempfile` as a dev-dependency (already the
+  workspace's test crate). 113 adapter tests on zsh 5.3.1, 5.8.1 and 5.9; 235 in the workspace.
+
 - **2026-11-13** — **`cd` target check, fixes after the independent review.** (1) A `cd`/`pushd`
   alias or function (zoxide's `--cmd cd`, a wrapper) or `CDABLE_VARS` reaches folders the core
   can't see: the zsh adapter then leaves the `cdpath` field off, so relative targets not found

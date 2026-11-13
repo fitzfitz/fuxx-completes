@@ -10,6 +10,21 @@ pub const MAX_SKIPPED: usize = 50;
 /// How long `latest_with_prefix_except` may spend checking candidates.
 pub const CHECK_BUDGET: Duration = Duration::from_millis(50);
 
+/// What `best_with_prefix` does with a candidate (`docs/design.md` §5.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// Shown at once, above any held candidate (a `cd` down into the current folder).
+    Best,
+    /// Ends the walk: shown unless a newer candidate is held, which is shown instead (any other
+    /// command, so its place in the order never changes).
+    Plain,
+    /// Kept aside: the newest held one is shown only when no `Best` candidate turns up within
+    /// the walk's bounds (a `cd` that works from anywhere).
+    Hold,
+    /// Never shown (a `cd` to a folder that isn't there).
+    Skip,
+}
+
 /// The shell history file formats the core can read. Only zsh in M0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryFormat {
@@ -70,8 +85,40 @@ impl History {
         budget: Duration,
         mut skip: impl FnMut(&str) -> bool,
     ) -> Option<&str> {
+        self.best_with_prefix_within(prefix, budget, |c| {
+            if skip(c) {
+                Verdict::Skip
+            } else {
+                Verdict::Plain
+            }
+        })
+    }
+
+    /// The best entry starting with `prefix`, walking matches newest-first (session records,
+    /// then file entries) and asking `judge` about each distinct one once: the first `Best` or
+    /// `Plain` one ends the walk (a `Plain` one gives way to a newer held one); the newest `Hold`
+    /// one is kept aside; `Skip` ones are passed over. After `MAX_SKIPPED` distinct candidates
+    /// passed over (skipped or held), or once `CHECK_BUDGET` has passed, the walk stops with the
+    /// held candidate; with none held, the bound gives `None` and the budget gives the next
+    /// candidate unchecked (`docs/design.md` §3, §5.4).
+    pub fn best_with_prefix(
+        &self,
+        prefix: &str,
+        judge: impl FnMut(&str) -> Verdict,
+    ) -> Option<&str> {
+        self.best_with_prefix_within(prefix, CHECK_BUDGET, judge)
+    }
+
+    /// `best_with_prefix` with its time budget given (tests use a slow `judge`).
+    pub fn best_with_prefix_within(
+        &self,
+        prefix: &str,
+        budget: Duration,
+        mut judge: impl FnMut(&str) -> Verdict,
+    ) -> Option<&str> {
         let start = Instant::now();
-        let mut rejected: Vec<&str> = Vec::new();
+        let mut passed: Vec<&str> = Vec::new();
+        let mut held: Option<&str> = None;
         for entry in self
             .session
             .iter()
@@ -80,18 +127,26 @@ impl History {
             .map(String::as_str)
             .filter(|entry| entry.starts_with(prefix))
         {
-            if rejected.contains(&entry) {
+            if passed.contains(&entry) {
                 continue;
             }
-            if start.elapsed() >= budget || !skip(entry) {
-                return Some(entry);
+            if start.elapsed() >= budget {
+                return held.or(Some(entry));
             }
-            rejected.push(entry);
-            if rejected.len() >= MAX_SKIPPED {
-                return None;
+            match judge(entry) {
+                Verdict::Best => return Some(entry),
+                Verdict::Plain => return held.or(Some(entry)),
+                Verdict::Hold => {
+                    held.get_or_insert(entry);
+                }
+                Verdict::Skip => {}
+            }
+            passed.push(entry);
+            if passed.len() >= MAX_SKIPPED {
+                return held;
             }
         }
-        None
+        held
     }
 
     pub fn record_session(&mut self, command: String) {
@@ -295,6 +350,92 @@ mod tests {
     #[test]
     fn walk_budget_is_50_ms() {
         assert_eq!(CHECK_BUDGET, Duration::from_millis(50));
+    }
+
+    /// A judge for walk tests: `cd ..`, `cd ../..` and `cd ~` are held, `cd bad*` skipped,
+    /// other `cd`s best, anything else plain.
+    fn judge(c: &str) -> Verdict {
+        match c {
+            "cd .." | "cd ../.." | "cd ~" => Verdict::Hold,
+            _ if c.starts_with("cd bad") => Verdict::Skip,
+            _ if c.starts_with("cd ") => Verdict::Best,
+            _ => Verdict::Plain,
+        }
+    }
+
+    #[test]
+    fn ranked_walk_puts_a_best_candidate_above_a_newer_held_one() {
+        let h = file(&["cd proj", "cd ../.."]);
+        assert_eq!(h.best_with_prefix("cd ", judge), Some("cd proj"));
+    }
+
+    #[test]
+    fn ranked_walk_without_a_best_candidate_shows_the_newest_held_one() {
+        let h = file(&["cd ~", "cd bad", "cd ..", "cd bad2"]);
+        assert_eq!(h.best_with_prefix("cd ", judge), Some("cd .."));
+    }
+
+    #[test]
+    fn ranked_walk_keeps_session_first_within_a_group() {
+        let mut h = file(&["cd proj"]);
+        h.record_session("cd src".into());
+        h.record_session("cd ..".into());
+        assert_eq!(h.best_with_prefix("cd ", judge), Some("cd src"));
+    }
+
+    #[test]
+    fn ranked_walk_ends_at_a_plain_candidate() {
+        // A plain candidate keeps its old place: a newer held one still wins over it, and an
+        // older best one is not reached.
+        let h = file(&["cd proj", "cdk deploy", "cd .."]);
+        assert_eq!(h.best_with_prefix("cd", judge), Some("cd .."));
+        let h = file(&["cd proj", "cdk deploy"]);
+        assert_eq!(h.best_with_prefix("cd", judge), Some("cdk deploy"));
+    }
+
+    #[test]
+    fn ranked_walk_returns_the_held_candidate_when_the_bound_is_hit() {
+        // Newest first: a held one, MAX_SKIPPED - 1 rejected ones, then a best one.
+        let mut entries = vec!["cd good".to_string()];
+        entries.extend((0..MAX_SKIPPED - 1).map(|i| format!("cd bad{i}")));
+        entries.push("cd ..".to_string());
+        let mut h = History::new();
+        h.replace_file_entries(entries.clone());
+        assert_eq!(h.best_with_prefix("cd", judge), Some("cd .."));
+        // One fewer rejected candidate: the best one is reached.
+        entries.remove(1);
+        let mut h = History::new();
+        h.replace_file_entries(entries);
+        assert_eq!(h.best_with_prefix("cd", judge), Some("cd good"));
+    }
+
+    #[test]
+    fn ranked_walk_returns_the_held_candidate_when_the_budget_is_spent() {
+        // Newest first: cd .. (held), cd bad (skipped), cd good. Each check takes 30 ms.
+        let h = file(&["cd good", "cd bad", "cd .."]);
+        let mut checked = Vec::new();
+        let got = h.best_with_prefix_within("cd", Duration::from_millis(50), |c| {
+            checked.push(c.to_string());
+            std::thread::sleep(Duration::from_millis(30));
+            judge(c)
+        });
+        assert_eq!(got, Some("cd .."));
+        assert_eq!(checked, ["cd ..", "cd bad"]);
+    }
+
+    #[test]
+    fn ranked_walk_checks_a_repeated_held_candidate_once() {
+        let mut entries = vec!["cd good".to_string()];
+        entries.extend((0..MAX_SKIPPED * 3).map(|_| "cd ..".to_string()));
+        let mut h = History::new();
+        h.replace_file_entries(entries);
+        let mut checks = 0;
+        let got = h.best_with_prefix("cd", |c| {
+            checks += 1;
+            judge(c)
+        });
+        assert_eq!(got, Some("cd good"));
+        assert_eq!(checks, 2);
     }
 
     #[test]

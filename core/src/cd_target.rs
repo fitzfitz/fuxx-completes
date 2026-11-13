@@ -14,12 +14,55 @@ pub struct Place<'a> {
     pub cdpath: Option<&'a [PathBuf]>,
 }
 
+/// How a history entry stands as a `cd`/`pushd` from `place` (`docs/design.md` §5.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CdKind {
+    /// Not a `cd` or `pushd` (or its command word can't be read).
+    NotCd,
+    /// A `cd`/`pushd` whose one directory argument certainly isn't a folder from here.
+    Missing,
+    /// A `cd`/`pushd` down into the current folder: a relative target that stays below the cwd
+    /// (`proj`, `./proj`, `proj/x`, a symlinked folder here) and is a folder.
+    DownHere,
+    /// Any other `cd`/`pushd`: one that works from anywhere (`..`, `~`, an absolute path, `-`, no
+    /// argument), one found only through `cdpath`, and anything that can't be checked.
+    Anywhere,
+}
+
+/// Classifies `command` from `place`. Anything that can't be checked is `Anywhere` (kept): no
+/// argument, `-`, stack refs (`-N`, `+N`), `~name`, anything with expansions, globs or braces,
+/// the two-argument form, an option we don't know, redirections, unbalanced quotes.
+pub fn classify(command: &str, place: &Place) -> CdKind {
+    let arg = match target(command) {
+        Target::NotCd => return CdKind::NotCd,
+        Target::Unchecked => return CdKind::Anywhere,
+        Target::Dir(arg) => arg,
+    };
+    if !arg.tilde && goes_down(&arg.value, place) {
+        CdKind::DownHere
+    } else if is_folder(&arg.value, arg.tilde, place) {
+        CdKind::Anywhere
+    } else {
+        CdKind::Missing
+    }
+}
+
 /// True only when `command` is a `cd` or `pushd` whose one directory argument certainly isn't a
-/// folder from `place`. Anything that can't be checked is false (kept): no argument, `-`, stack
-/// refs (`-N`, `+N`), `~name`, anything with expansions, globs or braces, the two-argument form,
-/// an option we don't know, redirections, unbalanced quotes.
+/// folder from `place` (`classify` says `Missing`).
 pub fn certainly_missing(command: &str, place: &Place) -> bool {
-    target(command).is_some_and(|arg| !is_folder(&arg.value, arg.tilde, place))
+    classify(command, place) == CdKind::Missing
+}
+
+/// Whether relative `path` names a folder strictly below `place.cwd`, `..` taken lexically.
+/// Only a `stat` that says "a folder" counts.
+fn goes_down(path: &str, place: &Place) -> bool {
+    let p = Path::new(path);
+    if p.is_absolute() || !place.cwd.is_absolute() {
+        return false;
+    }
+    let cwd = lexical(place.cwd);
+    let there = lexical(&place.cwd.join(p));
+    there != cwd && there.starts_with(&cwd) && std::fs::metadata(&there).is_ok_and(|m| m.is_dir())
 }
 
 /// One shell word: its value after quote removal, and what its raw text held.
@@ -36,9 +79,19 @@ struct Word {
     assign: bool,
 }
 
-/// The directory argument of a `cd`/`pushd`, or `None` when it isn't one or can't be checked.
-fn target(command: &str) -> Option<Word> {
-    let mut words = first_simple_command(command)?.into_iter().peekable();
+/// What a command is, as a `cd`/`pushd`.
+enum Target {
+    NotCd,
+    /// A `cd`/`pushd` whose argument can't be checked.
+    Unchecked,
+    /// A `cd`/`pushd` with one directory argument to check.
+    Dir(Word),
+}
+
+/// The directory argument of a `cd`/`pushd`.
+fn target(command: &str) -> Target {
+    let (words, complete) = first_simple_command(command);
+    let mut words = words.into_iter().peekable();
     while words.peek().is_some_and(|w| w.assign) {
         words.next();
     }
@@ -48,9 +101,14 @@ fn target(command: &str) -> Option<Word> {
     {
         words.next();
     }
-    let cmd = words.next()?;
+    let Some(cmd) = words.next() else {
+        return Target::NotCd;
+    };
     if !(cmd.plain && (cmd.value == "cd" || cmd.value == "pushd")) {
-        return None;
+        return Target::NotCd;
+    }
+    if !complete {
+        return Target::Unchecked; // a redirection, parentheses, unbalanced quotes
     }
     let mut args: Vec<Word> = words.collect();
     // Options: `-q -s -L -P` (and runs of them), then `--`.
@@ -64,24 +122,23 @@ fn target(command: &str) -> Option<Word> {
             break;
         }
         if !v[1..].chars().all(|c| "qsLP".contains(c)) {
-            return None; // `-N` or an option we don't know
+            return Target::Unchecked; // `-N` or an option we don't know
         }
         args.remove(0);
     }
     if args.len() != 1 {
-        return None; // no argument, or `cd old new`
+        return Target::Unchecked; // no argument, or `cd old new`
     }
-    let arg = args.pop()?;
+    let Some(arg) = args.pop() else {
+        return Target::Unchecked;
+    };
     if arg.special || arg.value.is_empty() {
-        return None;
+        return Target::Unchecked;
     }
-    if arg.plain && arg.value.starts_with('+') {
-        return None; // a stack ref
+    if arg.plain && (arg.value.starts_with('+') || arg.value == "-") {
+        return Target::Unchecked; // a stack ref, or the previous folder
     }
-    if arg.plain && arg.value == "-" {
-        return None;
-    }
-    Some(arg)
+    Target::Dir(arg)
 }
 
 fn is_name(s: &str) -> bool {
@@ -93,8 +150,9 @@ fn is_name(s: &str) -> bool {
 }
 
 /// Splits the first simple command into words: up to an unquoted `;`, `&`, `|` or newline.
-/// `None` for what we don't parse: a redirection, parentheses, a comment, unbalanced quotes.
-fn first_simple_command(command: &str) -> Option<Vec<Word>> {
+/// The flag is false when it stopped at what we don't parse (a redirection, parentheses, a
+/// comment, unbalanced quotes); the words before that are still returned.
+fn first_simple_command(command: &str) -> (Vec<Word>, bool) {
     let mut words = Vec::new();
     let mut chars = command.chars().peekable();
     loop {
@@ -102,78 +160,86 @@ fn first_simple_command(command: &str) -> Option<Vec<Word>> {
             chars.next();
         }
         match chars.peek() {
-            None | Some(';' | '&' | '|' | '\n') => return Some(words),
-            Some('<' | '>' | '(' | ')' | '#') => return None,
+            None | Some(';' | '&' | '|' | '\n') => return (words, true),
+            Some('<' | '>' | '(' | ')' | '#') => return (words, false),
             _ => {}
         }
-        let mut w = Word {
-            value: String::new(),
-            special: false,
-            tilde: chars.peek() == Some(&'~'),
-            plain: true,
-            assign: false,
-        };
-        let mut first = true;
-        while let Some(&c) = chars.peek() {
-            match c {
-                ' ' | '\t' | ';' | '&' | '|' | '\n' => break,
-                '<' | '>' | '(' | ')' => return None,
-                _ => {}
-            }
-            chars.next();
-            match c {
-                '\\' => {
-                    w.plain = false;
-                    match chars.next() {
-                        Some('\n') => {}
-                        Some(e) => w.value.push(e),
-                        None => return None,
-                    }
-                }
-                '\'' => {
-                    w.plain = false;
-                    loop {
-                        match chars.next()? {
-                            '\'' => break,
-                            q => {
-                                w.special |= is_special(q, Quoting::Single);
-                                w.value.push(q);
-                            }
-                        }
-                    }
-                }
-                '"' => {
-                    w.plain = false;
-                    loop {
-                        match chars.next()? {
-                            '"' => break,
-                            '\\' => match chars.next()? {
-                                e @ ('$' | '`' | '"' | '\\') => w.value.push(e),
-                                '\n' => {}
-                                e => {
-                                    w.value.push('\\');
-                                    w.value.push(e);
-                                }
-                            },
-                            q => {
-                                w.special |= is_special(q, Quoting::Double);
-                                w.value.push(q);
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    if c == '=' && w.plain && !w.assign && is_name(&w.value) {
-                        w.assign = true;
-                    }
-                    w.special |= is_special(c, Quoting::Bare { at_start: first });
-                    w.value.push(c);
-                }
-            }
-            first = false;
+        match read_word(&mut chars) {
+            Some(w) => words.push(w),
+            None => return (words, false),
         }
-        words.push(w);
     }
+}
+
+/// Reads one word; `None` for what we don't parse inside it.
+fn read_word(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<Word> {
+    let mut w = Word {
+        value: String::new(),
+        special: false,
+        tilde: chars.peek() == Some(&'~'),
+        plain: true,
+        assign: false,
+    };
+    let mut first = true;
+    while let Some(&c) = chars.peek() {
+        match c {
+            ' ' | '\t' | ';' | '&' | '|' | '\n' => break,
+            '<' | '>' | '(' | ')' => return None,
+            _ => {}
+        }
+        chars.next();
+        match c {
+            '\\' => {
+                w.plain = false;
+                match chars.next() {
+                    Some('\n') => {}
+                    Some(e) => w.value.push(e),
+                    None => return None,
+                }
+            }
+            '\'' => {
+                w.plain = false;
+                loop {
+                    match chars.next()? {
+                        '\'' => break,
+                        q => {
+                            w.special |= is_special(q, Quoting::Single);
+                            w.value.push(q);
+                        }
+                    }
+                }
+            }
+            '"' => {
+                w.plain = false;
+                loop {
+                    match chars.next()? {
+                        '"' => break,
+                        '\\' => match chars.next()? {
+                            e @ ('$' | '`' | '"' | '\\') => w.value.push(e),
+                            '\n' => {}
+                            e => {
+                                w.value.push('\\');
+                                w.value.push(e);
+                            }
+                        },
+                        q => {
+                            w.special |= is_special(q, Quoting::Double);
+                            w.value.push(q);
+                        }
+                    }
+                }
+            }
+            _ => {
+                if c == '=' && w.plain && !w.assign && is_name(&w.value) {
+                    w.assign = true;
+                }
+                w.special |= is_special(c, Quoting::Bare { at_start: first });
+                w.value.push(c);
+            }
+        }
+        first = false;
+    }
+    Some(w)
 }
 
 /// Where a character stands in a word.
@@ -594,6 +660,92 @@ mod tests {
             &place
         ));
         assert!(certainly_missing("cd ~/nope", &place));
+    }
+
+    fn kind(t: &Tree, cmd: &str) -> CdKind {
+        let cwd = t.kerja();
+        let home = t.home();
+        classify(
+            cmd,
+            &Place {
+                cwd: &cwd,
+                home: Some(&home),
+                cdpath: Some(&[]),
+            },
+        )
+    }
+
+    #[test]
+    fn a_folder_below_the_cwd_goes_down_here() {
+        let t = Tree::new();
+        for cmd in [
+            "cd proj",
+            "cd proj/fuxx-cli",
+            "cd proj/",
+            "cd ./proj",
+            "cd 'a b'",
+            "cd link",
+            "cd deeplink",
+            "pushd proj",
+            "builtin cd -q proj",
+            "cd proj && make",
+        ] {
+            assert_eq!(kind(&t, cmd), CdKind::DownHere, "{cmd:?}");
+        }
+    }
+
+    #[test]
+    fn a_target_that_works_from_anywhere_is_not_down_here() {
+        let t = Tree::new();
+        let abs = format!("cd {}", t.kerja().join("proj").display());
+        for cmd in [
+            "cd ..",
+            "cd ../..",
+            "cd .",
+            "cd ~",
+            "cd ~/docs",
+            abs.as_str(),
+            "cd proj/../..",
+            "cd",
+            "cd -",
+            "cd -2",
+            "cd $X",
+            "cd old new",
+            "cd ~name",
+            "cd nope > out",
+            "cd 'unterminated",
+        ] {
+            assert_eq!(kind(&t, cmd), CdKind::Anywhere, "{cmd:?}");
+        }
+    }
+
+    #[test]
+    fn a_target_found_only_through_cdpath_is_not_down_here() {
+        let t = Tree::new();
+        let cwd = t.kerja();
+        let cdpath = [t.root.join("cdp")];
+        let place = Place {
+            cwd: &cwd,
+            home: None,
+            cdpath: Some(&cdpath),
+        };
+        assert_eq!(classify("cd target", &place), CdKind::Anywhere);
+        // Unknown cdpath: a relative target not found here is kept, not down here.
+        let place = Place {
+            cdpath: None,
+            ..place
+        };
+        assert_eq!(classify("cd nope", &place), CdKind::Anywhere);
+    }
+
+    #[test]
+    fn missing_and_other_commands_are_classified() {
+        let t = Tree::new();
+        assert_eq!(kind(&t, "cd nope"), CdKind::Missing);
+        assert_eq!(kind(&t, "cd file.txt"), CdKind::Missing);
+        for cmd in ["ls proj", "cdx proj", "popd", "git cd proj", "echo cd", ""] {
+            assert_eq!(kind(&t, cmd), CdKind::NotCd, "{cmd:?}");
+        }
     }
 
     #[test]

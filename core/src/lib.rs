@@ -6,7 +6,8 @@
 //! Implemented so far (M0): the wire format 1 protocol types (`protocol`), the zsh history parser
 //! (`zsh_history`), the history index with ranking for a prefix (`history`) and re-reading the
 //! history file when it changes (`history_file`). Since 2026-11-13, whether a `cd` target is
-//! certainly missing (`cd_target`), so such a match is passed over.
+//! certainly missing (`cd_target`), so such a match is passed over, and whether it goes down into
+//! the current folder, so such a match ranks above one that works from anywhere.
 //!
 //! What goes here:
 //!

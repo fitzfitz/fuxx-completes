@@ -2434,3 +2434,19 @@ fn cd_wrapped_by_the_user_or_cdablevars_keeps_relative_targets() {
         type_until_ghost(&mut z, "cd ", "fuxx-cli");
     }
 }
+
+/// The user's report after v0.0.4: in `~/Kerja`, `cd ` suggested `../..`, the newest `cd` that
+/// works from there. A `cd` down into the current folder now ranks above one that works from
+/// anywhere (design §5.4); `cd .` still suggests `../..`.
+#[test]
+fn cd_down_into_the_current_folder_ranks_above_a_newer_cd_up() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "command mkdir -p Kerja/proj; cd Kerja".into(),
+        history: vec!["cd proj", "cd Kerja", "cd ../.."],
+        ..Default::default()
+    });
+    type_until_ghost(&mut z, "cd ", "proj");
+    z.send("\x15"); // ⌃U
+    z.wait_state(|s| s.buffer.is_empty());
+    type_until_ghost(&mut z, "cd .", "./..");
+}
