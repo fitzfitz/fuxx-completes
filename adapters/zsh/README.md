@@ -7,17 +7,24 @@ command you run is reported to the core and suggested from the prompt after the 
 prompt later"). Needs zsh 5.3 or later. Still planned: M2 (host channel), M6 (menu). Design:
 `docs/design.md` §5.5–§5.9 and §6.
 
-Try it by hand, from source, in a throwaway shell:
+Try it by hand, in an isolated shell that never touches your real rc files or history. It works on
+a copy of your history:
 
 ```
 cargo build
-export FUXX_COMPLETES_BIN=<repo>/target/debug/fuxx-completes
+cp "${HISTFILE:-$HOME/.zsh_history}" /tmp/fuxx-try-history
+env -i HOME="$(mktemp -d)" TERM="$TERM" PATH=/usr/bin:/bin zsh -d -i
+```
+
+Then, inside that new shell (`<repo>` is this checkout):
+
+```
+HISTFILE=/tmp/fuxx-try-history; FUXX_COMPLETES_BIN=<repo>/target/debug/fuxx-completes
 source <repo>/adapters/zsh/fuxx-autosuggestions.plugin.zsh
 ```
 
-(`<repo>` is this checkout. To use your own history, leave `HISTFILE` as it is; to try it safely,
-point `HISTFILE` at a copy.) Without `FUXX_COMPLETES_BIN` the plugin looks for `fuxx-completes` on
-`PATH`.
+`exit` ends it; nothing in your normal shell changes. (`-d` skips the global rc files and the
+temporary `HOME` has no `.zshrc`, so `-f` isn't needed.)
 
 A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugin.zsh` and
 `fuxx-autocomplete.plugin.zsh`). It holds no ranking, parsing or command knowledge.
