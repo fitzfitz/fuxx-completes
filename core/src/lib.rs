@@ -3,6 +3,10 @@
 //! The shared engine behind `fuxx-autosuggestions` and `fuxx-autocomplete`. See
 //! `docs/design.md`.
 //!
+//! Implemented so far (M0): the wire format 1 protocol types (`protocol`), the zsh history parser
+//! (`zsh_history`), the history index with ranking for a prefix (`history`) and re-reading the
+//! history file when it changes (`history_file`).
+//!
 //! What goes here:
 //!
 //! - **History:** reading past commands (read-only) and the commands an adapter reports

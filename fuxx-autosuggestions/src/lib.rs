@@ -3,6 +3,9 @@
 //! Grey ghost text that completes the command you are typing from your past commands.
 //! See `docs/design.md`.
 //!
+//! Implemented so far (M0): `suggestion()`, which picks the text to show after the typed buffer
+//! from the core's history index.
+//!
 //! What goes here:
 //!
 //! - Turning the core's ranked history into **one** suggestion for the current line.

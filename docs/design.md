@@ -826,6 +826,11 @@ over the host channel is later, in both repos.
   and stay off; we can't fix it.
 - **The OSC number is our own pick.** A clash is made harmless by the namespace field, but a host
   or multiplexer may still mishandle unknown sequences; hence opt-in only (§5.5).
+- **`setopt shglob` and zsh's own hook helper.** Under `shglob`, zsh 5.9's `add-zle-hook-widget`
+  dispatcher prints "No such widget `1:…'" at every prompt for any plugin that uses it. We keep
+  the hook helpers (AGENTS.md says to use them) and revisit this in M1's coexistence work.
+- **zsh 5.3.x leaks the adapter's pipe fds.** Close-on-exec works from zsh 5.4, so on 5.3.x the
+  adapter's pipe descriptors are inherited by programs the user runs (harmless, but there). §5.5.
 - **One maintainer with AI help.** Time is the limit.
 - **Start small.** Autosuggestions in zsh first; a short spec list; no feature before it's needed.
 - Shell limits are real: bash and fish will never match zsh here (§6).

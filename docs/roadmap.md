@@ -5,11 +5,11 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M0** (in progress).
+**Current milestone: M0** (built; waiting for the user's check in a real terminal).
 
 | | Milestone | Status |
 | --- | --- | --- |
-| M0 | Core + history + zsh adapter | 🟨 |
+| M0 | Core + history + zsh adapter | 🟨 built, waiting for the user's check in a real terminal |
 | M1 | Autosuggestions: context file and coexistence | ⬜ |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
@@ -38,6 +38,14 @@ Newest first. Add an entry whenever a task is ready.
   zsh accept, partial-accept and clear widgets; End and ⌥→ bound only if free; vi mode (`emacs`/`viins` keymaps only).
   zsh command reports (`zshaddhistory`/`preexec` hooks, one prompt late by the user's decision, filters per §5.8) and the history re-read tested end to end.
   zsh matrix on 5.3.1, 5.8.1 and 5.9 (`scripts/build-zsh.sh`, `scripts/test-zsh-matrix.sh`); 5.3.x has no working close-on-exec, so the adapter uses plain fds there.
+  M0 is built and reviewed (Tasks 1–9); `cargo test --workspace` and the zsh matrix pass. The user
+  decided reports go one prompt later (option b, §5.8). The AI's calls along the way: wire format 1
+  instead of JSON; named pipes in a private temp folder and a ready handshake; a dead or hung core
+  is handled (2 s) without signalling a stale pid; the 1000-character and `0x1F`/`0x1E` buffer
+  limits; the binary found through `FUXX_COMPLETES_BIN`, then `PATH`; history growth trusted only
+  on the same device and inode, else a full re-read; End and ⌥→ bound only if free, in `emacs` and
+  `viins` only; plain fds on zsh 5.3.x; the matrix script with zsh 5.3.1, 5.8.1 and 5.9. Waiting
+  for the user's check in real terminals (Task 10 Step 1); M0 is not marked done until then.
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links
   these crates; it installs fuxx-completes as a plugin. `design.md` §2, §4, §8, §9 and §15 updated:

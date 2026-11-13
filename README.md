@@ -3,9 +3,9 @@
 Ghost-text suggestions and an as-you-type completion menu for zsh, bash and fish, from one Rust
 engine that doesn't rely on any shell's completion system.
 
-> **Status: pre-alpha, design stage. Nothing to install yet.** There is no working code in this
-> repo, only the design ([`docs/design.md`](docs/design.md)), the roadmap and an empty Cargo
-> workspace. Building starts after [fuxx](https://github.com/fitzfitz/fuxx-cli)'s v0.5.0 release.
+> **Status: pre-alpha: the zsh ghost text is built from source (M0) and waiting for a check in a
+> real terminal; nothing to install yet.** The design is in [`docs/design.md`](docs/design.md), the
+> progress in [`docs/roadmap.md`](docs/roadmap.md). The menu and bash and fish are not built.
 
 ## The two libraries
 
@@ -74,10 +74,10 @@ late); typing itself never waits, in any shell.
   (draws only)   (draws only)    (draws only)    (draw their own)    (draws a nicer menu)
        \              |              /               |                  |
         +---- fuxx-completes binary ----------------+                  |
-              (local protocol; proposal: line-delimited JSON)           |
+              (local protocol, wire format 1)                                |
                       |                                                 |
         +-------------+-------------------------------------------------+
-        v                    Rust crates (linked directly by fuxx)
+        v      Rust crates (linked by the binary and by embedders)
   fuxx-autosuggestions        fuxx-autocomplete
         \                        /
          +-- fuxx-completes-core +
@@ -118,10 +118,11 @@ THIRD_PARTY_NOTICES.md     licenses of imported data
 ## How fuxx uses it
 
 [fuxx](https://github.com/fitzfitz/fuxx-cli), a GPU terminal app for running AI coding agents,
-links the crates directly, draws its own nicer menu, and gets one switch per library in
-Preferences. The shell plugin passes it the line you're typing over the terminal (an OSC sequence,
-only when the terminal asks for it with `FUXX_COMPLETES_HOST=1`), and any terminal app can do the
-same. fuxx's side is planned in fuxx's own roadmap.
+installs fuxx-completes as a fuxx plugin, with one On/Off switch for the whole plugin
+([`docs/design.md`](docs/design.md) §8). It no longer links the crates. Later, the shell plugin can
+pass fuxx the line you're typing over the terminal (an OSC sequence, only when the terminal asks
+for it with `FUXX_COMPLETES_HOST=1`) so fuxx can draw a nicer menu, and any terminal app can do the
+same. fuxx's side is tracked in fuxx's own roadmap.
 
 ## Credits and prior art
 

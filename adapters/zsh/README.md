@@ -1,7 +1,23 @@
 # zsh adapter
 
-Not built yet. Planned for M0 (ghost text), M2 (host channel) and M6 (menu). Design:
-`docs/design.md` §5.5–§5.9 and §6. Needs zsh 5.3 or later.
+Built in M0 (waiting for a check in a real terminal): `fuxx-autosuggestions.plugin.zsh` shows grey
+ghost text from your history, from a `fuxx-completes serve` process. → or ⌃E accepts all of it,
+Esc f takes a word, End and ⌥→ do the same where you haven't bound them, and vi mode works. A
+command you run is reported to the core and suggested from the prompt after the next one ("one
+prompt later"). Needs zsh 5.3 or later. Still planned: M2 (host channel), M6 (menu). Design:
+`docs/design.md` §5.5–§5.9 and §6.
+
+Try it by hand, from source, in a throwaway shell:
+
+```
+cargo build
+export FUXX_COMPLETES_BIN=<repo>/target/debug/fuxx-completes
+source <repo>/adapters/zsh/fuxx-autosuggestions.plugin.zsh
+```
+
+(`<repo>` is this checkout. To use your own history, leave `HISTFILE` as it is; to try it safely,
+point `HISTFILE` at a copy.) Without `FUXX_COMPLETES_BIN` the plugin looks for `fuxx-completes` on
+`PATH`.
 
 A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugin.zsh` and
 `fuxx-autocomplete.plugin.zsh`). It holds no ranking, parsing or command knowledge.
