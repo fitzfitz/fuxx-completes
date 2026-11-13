@@ -40,7 +40,9 @@
   is-at-least 5.9 && _FUXX_AS_MEMO=1
   local fd
   # zsh/system is optional: without sysopen or its cloexec option we open pipes with plain `exec`.
-  if zmodload zsh/system 2>/dev/null && sysopen -r -o cloexec -u fd /dev/null 2>/dev/null; then
+  # Below 5.4 `sysopen -o cloexec -u fd` is accepted but ineffective (zsh moves the descriptor and
+  # drops the flag; fixed 2017-05-23, 5.4): checked on 5.3.1, so there we use the plain path too.
+  if is-at-least 5.4 && zmodload zsh/system 2>/dev/null && sysopen -r -o cloexec -u fd /dev/null 2>/dev/null; then
     { exec {fd}<&- } 2>/dev/null
     _FUXX_AS_CLOEXEC=1
   fi
