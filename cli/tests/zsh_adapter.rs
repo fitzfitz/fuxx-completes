@@ -929,3 +929,51 @@ fn no_histfile_session_commands_still_suggested() {
     z.send("echo h");
     z.wait_state(|s| s.postdisplay == "i");
 }
+
+#[test]
+fn history_ignore_is_matched_under_kshglob() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "setopt kshglob; HISTORY_IGNORE='@(echo secret)*'".into(),
+        ..Default::default()
+    });
+    z.run("echo shown");
+    z.run("echo secret1");
+    z.run("true");
+    assert_suggestion_stays(&mut z, "echo s", "hown");
+}
+
+#[test]
+fn plugin_loads_without_parse_error_under_shglob() {
+    // Ghost text only appears if `_fuxx_as_precmd` was defined and started the core. (zsh's own
+    // add-zle-hook-widget dispatcher prints "No such widget" on every prompt under SH_GLOB, which
+    // is zsh's, not ours; so this test types no command and looks only for the parse error.)
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "setopt shglob".into(),
+        ..git_history()
+    });
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    let screen = printable(&z.screen_now()).to_lowercase();
+    assert!(!screen.contains("parse error"), "screen: {screen:?}");
+}
+
+#[test]
+fn invalid_history_ignore_prints_nothing_and_reports_nothing() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "HISTORY_IGNORE='('".into(),
+        core_script: Some(RECORDER),
+        ..Default::default()
+    });
+    let home = z.home().to_path_buf();
+    z.run("echo one");
+    z.run("true");
+    z.run("true");
+    std::thread::sleep(Duration::from_millis(300));
+    let screen = printable(&z.screen_now()).to_lowercase();
+    assert!(!screen.contains("bad pattern"), "screen: {screen:?}");
+    assert!(
+        !read_wire(&home).lines().any(|l| l.starts_with("ran")),
+        "wire: {:?}",
+        read_wire(&home)
+    );
+}

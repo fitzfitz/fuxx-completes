@@ -435,7 +435,12 @@ _fuxx_as_preexec() {
 _fuxx_as_precmd() {
   local -i st=$?
   local ign_space=${options[histignorespace]-off} no_store=${options[histnostore]-off}
-  local ext_glob=${options[extendedglob]-off}
+  # Every option that changes how a pattern is read; HISTORY_IGNORE is matched under the user's.
+  local -a pat_opts=()
+  local o
+  for o in kshglob shglob extendedglob nocasematch nocaseglob globstarshort; do
+    [[ ${options[$o]-off} == on ]] && pat_opts+=( $o )
+  done
   emulate -L zsh
   if [[ -z $_FUXX_AS_STATE ]]; then
     _fuxx_as_start
@@ -458,11 +463,15 @@ _fuxx_as_precmd() {
   E=${history[$n]-}
   [[ -n $E ]] || return 0
   [[ $ign_space == on && $noted == ' '* ]] && return 0
-  [[ $no_store == on && $E == (history|'fc -l')* ]] && return 0
-  # HISTORY_IGNORE only filters what zsh writes to the file, so it is checked here.
+  [[ $no_store == on && ( $E == history* || $E == 'fc -l'* ) ]] && return 0
+  # HISTORY_IGNORE only filters what zsh writes to the file, so it is checked here, with the
+  # options zsh itself compiles the pattern under (kshglob and shglob change what it means). Only
+  # a clean "no match" lets the command through: a bad pattern is silent and means don't report.
   if [[ -n ${HISTORY_IGNORE-} ]]; then
-    [[ $ext_glob == on ]] && setopt extendedglob
-    [[ $E == ${~HISTORY_IGNORE} ]] && return 0
+    local -i rc
+    (( $#pat_opts )) && setopt $pat_opts
+    { [[ $E == ${~HISTORY_IGNORE} ]]; rc=$? } 2>/dev/null
+    (( rc == 1 )) || return 0
   fi
   (( $#E > 1000 )) && return 0
   [[ $E == *[$'\x1f\x1e']* ]] && return 0   # the wire can't carry them
