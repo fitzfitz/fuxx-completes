@@ -534,7 +534,13 @@ Honest about what each shell allows.
   a widget made after the first prompt (oh-my-zsh redefining one on `source ~/.zshrc`, plugins
   loaded late by zinit turbo or zsh-defer, a `zle -N` typed at the prompt) is wrapped, and one the
   user redefined is wrapped again around its new definition. A widget already running one of our
-  functions is left alone, so re-sourcing never double-wraps. It compares the strings in
+  functions is left alone, so re-sourcing never double-wraps. Every wrap is a new generation with
+  its own names (`fuxx-as-orig-N-<widget>` and `_fuxx_as_bound_N_<widget>`, zsh-autosuggestions'
+  scheme), and older generations are never redefined: when another plugin (zsh-syntax-highlighting
+  after `source ~/.zshrc`, or loaded late) wraps our wrapper and we wrap it again, the plugin still
+  calls the generation it saved, which calls the original that existed then. With one shared name
+  per widget that chain called itself until "maximum nested function level reached" on every key
+  (fixed in M0's final review). It compares the strings in
   `$widgets` only, with no subshell: about 0.25 ms per prompt on zsh 5.3.1, 5.8.1 and 5.9
   (measured with 291 widgets). Without this a stale ghost text could stay unstyled after, for
   example, ↑ through an `up-line-or-beginning-search` defined after the first prompt, and → would

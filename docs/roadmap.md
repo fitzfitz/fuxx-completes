@@ -46,6 +46,10 @@ Newest first. Add an entry whenever a task is ready.
   on the same device and inode, else a full re-read; End and ⌥→ bound only if free, in `emacs` and
   `viins` only; plain fds on zsh 5.3.x; the matrix script with zsh 5.3.1, 5.8.1 and 5.9. Waiting
   for the user's check in real terminals (Task 10 Step 1); M0 is not marked done until then.
+  Final review Critical fixed: each widget wrap now uses fresh generation names
+  (`fuxx-as-orig-N-<widget>`), so a zsh-syntax-highlighting-style plugin that wraps our wrappers
+  (loaded late, or after `source ~/.zshrc`) no longer makes every key recurse until FUNCNEST;
+  tested with a fake highlighting plugin loaded after, re-sourced and loaded before ours.
   Final review fixes: widgets are wrapped at every prompt (not only the first); writes to the core never block (non-blocking fd on zsh 5.9+, byte count below); the core starts from `/` and not niced; the spare `resp` reader stays until `ready`; the core drops suggestions over 1000 characters; the history stamp is taken after the read; README try-it copy is private and removed; build-zsh.sh never keeps a half install; design wording updated.
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links

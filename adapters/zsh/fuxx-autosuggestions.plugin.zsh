@@ -42,6 +42,8 @@
   typeset -g _FUXX_AS_NOTED='' _FUXX_AS_CMD_PWD=''
   typeset -g _FUXX_AS_PEND_EVENT='' _FUXX_AS_PEND_ENTRY='' _FUXX_AS_PEND_PWD=''
   typeset -g _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
+  # How many times each widget has been wrapped: each wrap saves the original under a fresh name.
+  typeset -gA _FUXX_AS_WRAPS
   is-at-least 5.9 && _FUXX_AS_MEMO=1
   local fd
   # zsh/system is optional: without sysopen or its options we open pipes with plain `exec`.
@@ -331,7 +333,7 @@ _fuxx_as_w_modify() {
   # Only without `memo=`: with it our entry is found by tag, and taking it off would draw the ghost
   # text unstyled whenever the widget redraws (isearch, completion lists, `zle -R`).
   (( _FUXX_AS_MEMO )) || _fuxx_as_unhighlight
-  zle fuxx-as-orig-$orig -- "$@"
+  zle $orig -- "$@"
   ret=$?
   if [[ $BUFFER != "$_FUXX_AS_LAST_BUFFER" ]]; then
     _fuxx_as_clear
@@ -358,7 +360,7 @@ _fuxx_as_w_accept() {
   fi
   BUFFER+=$POSTDISPLAY
   _fuxx_as_clear
-  zle fuxx-as-orig-$orig -- "$@"
+  zle $orig -- "$@"
   ret=$?
   # The original may have left vicmd (vi-add-eol), so the keymap is asked again.
   if [[ $KEYMAP == vicmd ]]; then CURSOR=$(( $#BUFFER - 1 )); else CURSOR=$#BUFFER; fi
@@ -381,7 +383,7 @@ _fuxx_as_w_partial() {
   # Our entry comes off in every version: the text is about to grow under it.
   _fuxx_as_unhighlight
   BUFFER+=$POSTDISPLAY
-  zle fuxx-as-orig-$orig -- "$@"
+  zle $orig -- "$@"
   ret=$?
   loc=$CURSOR
   [[ $KEYMAP == vicmd ]] && loc+=1   # in vicmd the cursor is ON a character, so it is that one too
@@ -403,7 +405,7 @@ _fuxx_as_w_clear() {
   shift
   local -i ret
   _fuxx_as_clear
-  zle fuxx-as-orig-$orig -- "$@"
+  zle $orig -- "$@"
   ret=$?
   _FUXX_AS_LAST_BUFFER=$BUFFER
   return $ret
@@ -436,11 +438,17 @@ _fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the s
 # already ours is left alone, a new one is wrapped, and one the user redefined since (its current
 # definition isn't one of our `_fuxx_as_bound_*` functions) is wrapped again around its new
 # definition. Each widget gets its own small function that names the original, so a widget that
-# another widget calls with `zle name` finds its original without relying on $WIDGET. Cheap by
-# design: no subshell, one pass over the names, and only strings are compared.
+# another widget calls with `zle name` finds its original without relying on $WIDGET. Every wrap
+# is a new generation N with its own names, `fuxx-as-orig-N-<w>` and `_fuxx_as_bound_N_<w>`
+# (zsh-autosuggestions' scheme), and older ones are never redefined: another plugin that wrapped
+# us (zsh-syntax-highlighting after `source ~/.zshrc`) keeps calling the generation it saved, which
+# calls the original that existed then, never our newer wrapper around that plugin (with one
+# shared name that loop recursed until FUNCNEST). Cheap by design: no subshell, one pass over the
+# names, and only strings are compared.
 _fuxx_as_wrap_widgets() {
   emulate -L zsh
-  local w fn
+  local w fn orig
+  local -i n
   # zsh-autosuggestions' default lists; every other widget gets the plain `modify` wrapper.
   local -a accept=( forward-char end-of-line vi-forward-char vi-end-of-line vi-add-eol )
   local -a partial=( forward-word emacs-forward-word vi-forward-word vi-forward-word-end
@@ -456,13 +464,16 @@ _fuxx_as_wrap_widgets() {
   local -a ours=( ${(k)widgets[(R)user:_fuxx_as_bound_*]} )
   todo=( ${todo:|ours} )
   for w in $todo; do
-    zle -A $w fuxx-as-orig-$w 2>/dev/null || continue
+    n=$(( ${_FUXX_AS_WRAPS[$w]-0} + 1 ))
+    orig=fuxx-as-orig-$n-$w
+    zle -A $w $orig 2>/dev/null || continue
+    _FUXX_AS_WRAPS[$w]=$n
     fn=modify
     (( ${accept[(Ie)$w]} )) && fn=accept
     (( ${partial[(Ie)$w]} )) && fn=partial
     (( ${clear[(Ie)$w]} )) && fn=clear
-    functions[_fuxx_as_bound_$w]="emulate -L zsh; _fuxx_as_w_$fn ${(q)w} \"\$@\""
-    zle -N $w _fuxx_as_bound_$w 2>/dev/null
+    functions[_fuxx_as_bound_${n}_$w]="emulate -L zsh; _fuxx_as_w_$fn ${(q)orig} \"\$@\""
+    zle -N $w _fuxx_as_bound_${n}_$w 2>/dev/null
   done
   return 0
 }

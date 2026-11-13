@@ -1014,11 +1014,11 @@ fn widget_made_after_the_first_prompt_gets_wrapped_once() {
     let mut z = ZshHarness::start(git_history());
     z.run("my-w() { zle backward-delete-char }; zle -N my-w");
     z.run("source ~/.zshrc"); // re-sourcing must not wrap again
-    z.run("print -r -- $widgets[my-w] $widgets[fuxx-as-orig-my-w] $widgets[fuxx-as-orig-forward-char] $widgets[fuxx-as-orig-up-line-or-history] >| $HOME/w");
+    z.run("print -r -- $widgets[my-w] $widgets[fuxx-as-orig-1-my-w] ${+widgets[fuxx-as-orig-2-my-w]} $widgets[fuxx-as-orig-1-forward-char] ${+widgets[fuxx-as-orig-2-forward-char]} $widgets[fuxx-as-orig-1-up-line-or-history] >| $HOME/w");
     let w = std::fs::read_to_string(z.home().join("w")).unwrap();
     assert_eq!(
         w.trim(),
-        "user:_fuxx_as_bound_my-w user:my-w builtin builtin",
+        "user:_fuxx_as_bound_1_my-w user:my-w 0 builtin 0 builtin",
         "widgets: {w:?}"
     );
 }
@@ -1112,4 +1112,88 @@ fn the_spare_response_reader_is_closed_once_ready_arrives() {
     z.run("print -r -- \"[$_FUXX_AS_SPARE_FD]\" >| $HOME/spare");
     let spare = std::fs::read_to_string(z.home().join("spare")).unwrap();
     assert_eq!(spare.trim(), "[]");
+}
+
+// ---- Another plugin that wraps widgets, zsh-syntax-highlighting style ----
+
+/// `fakehl_load` wraps a few widgets the way zsh-syntax-highlighting does: a fresh `orig-…` name
+/// per load, a `user:` widget copied by its function, a builtin called as `.name`, a widget that
+/// is already its own left alone. Its wrapper appends `x` to `$HOME/hl-marker` and calls the saved
+/// widget, so the test can see it still runs.
+const FAKE_HL: &str = r#"
+fakehl_load() {
+  local w prefix=orig-fakehl$(( ++_FAKEHL_GEN ))
+  for w in self-insert forward-char end-of-line backward-delete-char accept-line; do
+    case ${widgets[$w]-} in
+      user:_fakehl_widget_*) continue ;;
+      user:*)
+        zle -N $prefix-$w ${widgets[$w]#*:}
+        functions[_fakehl_widget_$prefix-$w]="_fakehl_call $prefix-$w -- \"\$@\"" ;;
+      builtin)
+        functions[_fakehl_widget_$prefix-$w]="_fakehl_call .$w -- \"\$@\"" ;;
+      *) continue ;;
+    esac
+    zle -N $w _fakehl_widget_$prefix-$w
+  done
+}
+_fakehl_call() { print -rn -- x >> $HOME/hl-marker; builtin zle "$@" }
+"#;
+
+/// Several prompts and keys after the other plugin has wrapped us: no recursion, ghost text,
+/// accept, Enter, and the other plugin's wrapper still runs.
+fn assert_works_with_fake_hl(z: &mut ZshHarness) {
+    z.run("true");
+    z.run("true");
+    let _ = std::fs::remove_file(z.home().join("hl-marker"));
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x1b[C"); // → accepts
+    let s = z.wait_state(|s| s.buffer == "git push origin main");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    z.send("\x15");
+    z.wait_state(|s| s.buffer.is_empty());
+    z.run("print -r -- done-$(( 40 + 2 ))");
+    let screen = printable(&z.screen_now());
+    assert!(screen.contains("done-42"), "Enter didn't run: {screen:?}");
+    let lower = screen.to_lowercase();
+    for bad in ["nested", "error", "not found"] {
+        assert!(!lower.contains(bad), "{bad:?} on screen: {screen:?}");
+    }
+    let marker = std::fs::read_to_string(z.home().join("hl-marker")).unwrap_or_default();
+    assert!(
+        marker.len() >= 5,
+        "other plugin's wrapper didn't run: {marker:?}"
+    );
+}
+
+#[test]
+fn a_plugin_that_wraps_us_after_the_first_prompt_does_not_recurse() {
+    // zinit turbo / zsh-defer style: loaded at a later prompt, after our first wrap.
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: FAKE_HL.into(),
+        ..git_history()
+    });
+    z.run("fakehl_load");
+    assert_works_with_fake_hl(&mut z);
+}
+
+#[test]
+fn a_plugin_that_wraps_us_survives_sourcing_zshrc_again() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: format!("{FAKE_HL}\nfakehl_load"),
+        ..git_history()
+    });
+    z.run("source ~/.zshrc");
+    assert_works_with_fake_hl(&mut z);
+    z.run("source ~/.zshrc");
+    assert_works_with_fake_hl(&mut z);
+}
+
+#[test]
+fn a_plugin_that_wraps_widgets_before_us_still_works() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: format!("{FAKE_HL}\nfakehl_load"),
+        ..git_history()
+    });
+    assert_works_with_fake_hl(&mut z);
 }
