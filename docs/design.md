@@ -604,12 +604,19 @@ Honest about what each shell allows.
   not at the widget's name, so a Tab rebound later is covered by the next `precmd`'s wrap, and an
   unbound Tab stays unbound. With ghost text showing and the cursor at the end of the line (as for
   → and `^E`), Tab accepts the whole suggestion and the original widget does not run: no
-  completion, no list. Otherwise (no ghost text, the cursor moved left, a request still in flight,
+  completion, no list (a list an earlier completion left on screen is cleared too). To complete
+  instead, press Esc first or move the cursor. Otherwise (no ghost text, the cursor moved left, a request still in flight,
   right after an accept) the original runs as before, and the ghost text then **stays off until
   the next edit**, whether or not the completion changed the buffer: a list may be on screen, and
   the next Tab must go on completing (`auto_menu` cycling, `menu-select`) instead of accepting a
   suggestion that came back (AI's call on the user's "edge cases" request). The answer to a request
-  still in flight is dropped. Inside `menu-select` zsh's complist reads the keys itself, so Tab and
+  still in flight is dropped. Every other completion widget does the same (fix round 1): a
+  `completion:` widget (all of them after `compinit`) or one of zsh's builtin completion widgets
+  (`complete-word`, `reverse-menu-complete` on Shift-Tab, `menu-complete`, `list-choices`,
+  `delete-char-or-list`, ...) runs with the ghost text off and leaves it off until the next edit,
+  so Shift-Tab or a ⌃Space bound to `complete-word` in the middle of a menu never brings back a
+  suggestion that the next Tab would accept. (So ⌃D deleting a character mid-line also shows no new
+  suggestion until the next edit.) Inside `menu-select` zsh's complist reads the keys itself, so Tab and
   Esc there are zsh's own.
 - **Esc (the user's decision, 2026-11-13).** Esc clears a completion list below the prompt
   (`zle -R -c`, checked on 5.3.1, 5.8.1 and 5.9) and hides the ghost text until the next edit (a
@@ -629,7 +636,10 @@ Honest about what each shell allows.
     falls back to the `^[` binding and zsh would type its tail into the line, so the Esc widget
     reads and drops the bytes already waiting (after `[` up to the final byte, after `O` one more;
     `read -t 0`, never waiting for a key not yet typed). Such keys now do nothing, where zsh alone
-    typed part of some of them (`~`, `;5C`).
+    typed part of some of them (`~`, `;5C`). Any other character waiting is a key of its own pressed
+    within `KEYTIMEOUT` (another Esc starting ↑ or a bracketed paste, é, a letter Esc doesn't bind)
+    and is handed back untouched with `zle -U` (fix round 1: it was dropped, so Esc then ↑ typed
+    `[A` and Esc then a paste lost the paste's bracketing).
   - **⌃R.** zsh alone waits after Esc in an incremental search for the rest of a sequence; with
     our `^[` the search ends on the line found once `KEYTIMEOUT` passes, as Esc does in bash.
 - **Host mode:** with `FUXX_COMPLETES_HOST=1`, the same wrapped widgets forward the buffer over the

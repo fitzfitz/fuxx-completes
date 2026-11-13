@@ -40,16 +40,19 @@ A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugi
   and `forward-word` accepts up to the next word. In stock zsh that's → and `^E`, and `Esc f`.
   End (`^[[F`, `^[[4~`) and ⌥→ (`^[[1;3C`) are bound by us **only if unbound**; a user's binding is
   never replaced.
-- **Tab** (2026-11-13): while ghost text shows and the cursor is at the end, Tab accepts all of it
-  and no completion runs. Otherwise the widget Tab is bound to runs as before (zsh's completion,
+- **Tab** (2026-11-13): with grey text showing at the end of the line, Tab accepts it; to
+  complete instead, press Esc first (or move the cursor). While ghost text shows and the cursor is
+  at the end, Tab accepts all of it, no completion runs, and a list left on screen is cleared. Otherwise the widget Tab is bound to runs as before (zsh's completion,
   fzf's `fzf-completion`, fzf-tab, ...), and the ghost text stays off until you edit again, so a
-  second Tab goes on completing. Tab itself is never rebound: its widget is wrapped like the others.
+  second Tab goes on completing. Other completion keys (Shift-Tab, a ⌃Space bound to
+  `complete-word`) keep it off the same way. Tab itself is never rebound: its widget is wrapped like
+  the others.
 - **Esc** (2026-11-13): clears a completion list and hides the ghost text until the next edit. In
   emacs mode a bare `^[` is bound **only if unbound**; zsh then waits `KEYTIMEOUT` (default 0.4 s)
   after Esc to tell it from Esc-prefixed keys, so it acts 0.4 s after the press, and Esc, a pause,
   then `f` is no longer `forward-word`. Keys sent as one sequence (⌥ as Meta, arrows, function
-  keys, paste) are unaffected; unbound sequences such as ⌃→ do nothing instead of typing their
-  tail. In ⌃R, Esc ends the search on the line found. In vi mode Esc still enters command mode and
+  keys, paste) are unaffected, and so is a key pressed right after Esc (↑, a paste, é); unbound
+  sequences such as ⌃→ do nothing instead of typing their tail. In ⌃R, Esc ends the search on the line found. In vi mode Esc still enters command mode and
   clears both on the way (another key bound to `vi-cmd-mode`, such as `jk`, keeps the ghost text).
   `KEYTIMEOUT` and your options are never changed. Design §6.
 - **vi mode** is supported: the vi accept and partial-accept widgets are wrapped as

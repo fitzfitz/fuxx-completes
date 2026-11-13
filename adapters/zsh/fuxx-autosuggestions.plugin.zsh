@@ -21,6 +21,11 @@
   is-at-least 5.3 2>/dev/null || return 1
   zmodload zsh/datetime zsh/parameter zsh/zleparameter 2>/dev/null || return 1
   zmodload -F zsh/files b:zf_rm b:zf_rmdir b:zf_mkdir 2>/dev/null || return 1
+  # zsh's builtin completion widgets (complist's menu-select too); compinit makes them `completion:`.
+  # Set on every load (it holds no state), so a newer copy sourced into a running shell has it.
+  typeset -ga _FUXX_AS_COMPLETERS=( complete-word delete-char-or-list expand-or-complete
+    expand-or-complete-prefix list-choices menu-complete menu-expand-or-complete
+    reverse-menu-complete accept-and-menu-complete list-expand menu-select )
   (( $+_FUXX_AS_STATE )) && return 0
   # State. '' until the first prompt, then `on` or `off`.
   typeset -g _FUXX_AS_STATE=''
@@ -352,7 +357,9 @@ _fuxx_as_dismiss() {
 # arrows, bracketed paste) still runs as before. A sequence that is not bound (⌃→ `^[[1;5C`, F1
 # `^[OP`) now falls back to this binding with its tail left to be read as typed text, so the bytes
 # already waiting are read and dropped here: after `[` up to the final byte (@ to ~), after `O` one
-# more, anything else (a second Esc) on its own. `read -t 0` never waits for a key not yet typed.
+# more. Anything else is a key of its own typed within KEYTIMEOUT (a second Esc starting ↑ or a
+# paste, é, a letter Esc doesn't bind) and is handed back with `zle -U`, untouched. `read -k`
+# reads a whole character, and `read -t 0` never waits for a key not yet typed.
 _fuxx_as_widget_escape() {
   emulate -L zsh
   local c
@@ -363,6 +370,8 @@ _fuxx_as_widget_escape() {
       done
     elif [[ $c == O ]]; then
       read -k 1 -t 0.05 c 2>/dev/null
+    else
+      zle -U -- "$c"
     fi
   fi
   _fuxx_as_dismiss
@@ -392,6 +401,14 @@ _fuxx_as_w_modify() {
   # vicmd is left as it was. Esc into vi command mode also clears the list and the ghost text.
   if [[ $KEYS == $'\t' && $KEYMAP != vicmd ]]; then
     _fuxx_as_tab $orig "$@"
+    return
+  fi
+  # Any other completion widget (Shift-Tab's reverse-menu-complete, a ⌃Space bound to
+  # complete-word, compinit's `completion:` widgets) leaves the ghost text off as Tab does, so a
+  # suggestion that came back never takes the next Tab out of the menu.
+  local v=${widgets[$orig]-}
+  if [[ $v == completion:* ]] || { [[ $v == builtin ]] && (( ${_FUXX_AS_COMPLETERS[(Ie)$self]} )) }; then
+    _fuxx_as_complete $orig "$@"
     return
   fi
   local _fuxx_as_inside=$self
@@ -435,11 +452,21 @@ _fuxx_as_tab() {
   local -i ret
   if [[ -n $POSTDISPLAY && $CURSOR -eq $#BUFFER ]]; then
     BUFFER+=$POSTDISPLAY
-    _fuxx_as_hide
+    _fuxx_as_dismiss   # a list from an earlier completion may still be on screen
     CURSOR=$#BUFFER
     _FUXX_AS_LAST_BUFFER=$BUFFER
     return 0
   fi
+  _fuxx_as_complete $orig "$@"
+}
+
+# _fuxx_as_complete <original widget> [args]: runs a completion widget with the ghost text off, and
+# keeps it off until the next edit (see _fuxx_as_tab).
+_fuxx_as_complete() {
+  emulate -L zsh
+  local orig=$1
+  shift
+  local -i ret
   local _fuxx_as_inside=${orig#fuxx-as-orig-<->-}
   _fuxx_as_hide
   zle $orig -- "$@"

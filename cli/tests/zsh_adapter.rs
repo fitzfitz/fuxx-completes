@@ -1775,6 +1775,7 @@ fn tab_tab_tab(rc: &str) -> (ZshHarness, String) {
     for _ in 0..4 {
         z.send("\t");
         std::thread::sleep(Duration::from_millis(400));
+        z.screen_now(); // read the output, or a full pty stalls the shell's next draw
     }
     let after = z.screen_now()[mark..].to_string();
     (z, after)
@@ -1923,25 +1924,48 @@ fn esc_clears_a_completion_list() {
     assert_eq!(s.buffer, "cd alpha", "{s:?}");
 }
 
-#[test]
-fn esc_with_a_list_and_a_ghost_clears_both() {
+/// "cd al" with the ghost text "pha2/deep", Esc, Tab (the prefix "cd alpha"), Tab (the list), then
+/// "2": the list stays on screen and the ghost text "/deep" comes back for "cd alpha2".
+fn list_and_ghost() -> ZshHarness {
     let mut z = ZshHarness::start(ZshOpts {
         rc_before: DIRS.into(),
         history: vec!["cd alpha2/deep"],
         ..Default::default()
     });
     type_until_ghost(&mut z, "cd al", "pha2/deep");
+    esc(&mut z);
     let mark = z.screen_now().len();
-    z.send("\x04"); // ⌃D at the end: list the choices; the ghost text comes back after
-    assert!(printable(&output_after(&mut z, mark, 400)).contains("alpha3/"));
-    z.wait_state(|s| s.postdisplay == "pha2/deep");
+    z.send("\t");
+    std::thread::sleep(Duration::from_millis(300));
+    z.send("\t");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(printable(&z.screen_now()[mark..]).contains("alpha3/"));
+    z.send("2");
+    z.wait_state(|s| s.buffer == "cd alpha2" && s.postdisplay == "/deep");
+    z
+}
+
+#[test]
+fn esc_with_a_list_and_a_ghost_clears_both() {
+    let mut z = list_and_ghost();
     let mark = z.screen_now().len();
     esc(&mut z);
     let after = output_after(&mut z, mark, 150);
     assert!(after.contains("\x1b[J"), "list not erased: {after:?}");
     let s = z.wait_state(|s| s.postdisplay.is_empty());
     assert!(s.region_highlight.is_empty(), "{s:?}");
-    assert_eq!(s.buffer, "cd al", "{s:?}");
+    assert_eq!(s.buffer, "cd alpha2", "{s:?}");
+}
+
+#[test]
+fn tab_accepting_with_a_list_on_screen_clears_the_list() {
+    let mut z = list_and_ghost();
+    let mark = z.screen_now().len();
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer == "cd alpha2/deep");
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    let after = z.screen_now()[mark..].to_string();
+    assert!(after.contains("\x1b[J"), "list not erased: {after:?}");
 }
 
 #[test]
@@ -2183,4 +2207,101 @@ fn keytimeout_is_left_alone() {
     z.run("print -r -- $KEYTIMEOUT >| $HOME/kt");
     let kt = std::fs::read_to_string(z.home().join("kt")).unwrap();
     assert_eq!(kt.trim(), "37");
+}
+
+// ---- Fix round 1 (review of the Tab/Esc change) ----
+
+/// Esc, then (60 ms later, inside KEYTIMEOUT=40, as a separate write) `key`, on the line "zz".
+fn esc_then(key: &str) -> common::LineState {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "KEYTIMEOUT=40".into(),
+        ..git_history()
+    });
+    z.send("zz");
+    z.wait_state(|s| s.buffer == "zz");
+    z.send("\x1b");
+    std::thread::sleep(Duration::from_millis(60));
+    z.send(key);
+    std::thread::sleep(Duration::from_millis(700));
+    let s = z.state();
+    let screen = printable(&z.screen_now()).to_lowercase();
+    assert!(
+        !screen.contains("not found") && !screen.contains("error"),
+        "{key:?}: {screen:?}"
+    );
+    s
+}
+
+#[test]
+fn a_key_right_after_esc_is_not_lost() {
+    let s = esc_then("\x1b[A"); // ↑
+    assert_eq!(s.buffer, "git push origin main", "↑: {s:?}");
+    let s = esc_then("\x1b[200~X\nY\x1b[201~"); // a paste with a newline: inserted, not run
+    assert_eq!(s.buffer, "zzX\nY", "paste: {s:?}");
+    let s = esc_then("é");
+    assert_eq!(s.buffer, "zzé", "é: {s:?}");
+    let s = esc_then("j"); // Esc j is bound to nothing: the j is typed
+    assert_eq!(s.buffer, "zzj", "j: {s:?}");
+}
+
+#[test]
+fn esc_then_an_unbound_sequence_or_another_esc_does_nothing() {
+    for key in ["\x1b[1;5C", "\x1b"] {
+        let s = esc_then(key);
+        assert_eq!((s.buffer.as_str(), s.cursor), ("zz", 2), "{key:?}: {s:?}");
+    }
+}
+
+/// "cd al" then `keys` (400 ms apart, no state() in between), with the plugin on (the ghost
+/// "pha1/x" hidden by Esc first) or off; the buffer at the end.
+fn menu_keys(on: bool, compinit: bool, keys: &[&str]) -> String {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: DIRS.into(),
+        rc_after: format!(
+            "{}\nbindkey '^[[Z' reverse-menu-complete\nbindkey '^@' complete-word",
+            if compinit { COMPINIT } else { "" }
+        ),
+        history: vec!["cd alpha1/x"],
+        core_bin: if on {
+            None
+        } else {
+            Some(PathBuf::from("/nonexistent"))
+        },
+        ..Default::default()
+    });
+    if on {
+        type_until_ghost(&mut z, "cd al", "pha1/x");
+        esc(&mut z);
+        z.wait_state(|s| s.postdisplay.is_empty());
+    } else {
+        z.send("cd al");
+        z.wait_state(|s| s.buffer == "cd al");
+    }
+    for k in keys {
+        z.send(k);
+        std::thread::sleep(Duration::from_millis(400));
+        z.screen_now(); // read the output, or a full pty stalls the shell's next draw
+    }
+    z.state().buffer
+}
+
+#[test]
+fn other_completion_keys_keep_the_ghost_off_as_tab_does() {
+    let shift_tab = ["\t", "\t", "\t", "\t", "\x1b[Z", "\t"];
+    let ctrl_space = ["\t", "\t", "\t", "\t", "\t", "\x00", "\t"];
+    // With compinit the widgets are `completion:` ones; without, zsh's builtins.
+    for compinit in [true, false] {
+        for keys in [&shift_tab[..], &ctrl_space[..]] {
+            let plain = menu_keys(false, compinit, keys);
+            assert!(
+                plain.starts_with("cd alpha") && !plain.ends_with('x'),
+                "{plain:?}"
+            );
+            assert_eq!(
+                menu_keys(true, compinit, keys),
+                plain,
+                "{compinit} {keys:?}"
+            );
+        }
+    }
 }

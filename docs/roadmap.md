@@ -28,6 +28,23 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-13** — **Tab and Esc, fix round 1 (an independent review with real-zsh pty
+  experiments).** (1) The Esc widget dropped any character after Esc that wasn't the tail of a
+  sequence: Esc then ↑ typed `[A`, Esc then a paste with a newline lost its bracketing and ran the
+  first line, Esc then é lost the é. Now such a character is handed back with `zle -U`; unbound
+  sequence tails are still dropped, double Esc still does nothing. (2) Other completion keys
+  (Shift-Tab's `reverse-menu-complete`, a ⌃Space bound to `complete-word`) asked again and brought
+  the ghost text back mid-menu, so the next Tab accepted it ("cd alpha1/x" where zsh gives
+  "cd alpha2/"): every completion widget (`completion:` values, or zsh's builtin completion
+  widgets) now leaves the ghost text off until the next edit, as Tab does. (3) Tab accepting while
+  an earlier list is on screen clears the list. (4) README: to complete instead of accepting,
+  press Esc first. `design.md` §6 updated. Tests first, each seen failing: a key right after Esc
+  (↑, paste with a newline, é, a letter), Esc then ⌃→ or another Esc, Shift-Tab and ⌃Space against
+  plain zsh with and without compinit, Tab-accept clears a list; the Esc-with-list-and-ghost test
+  now gets its list from Tab (⌃D now keeps the ghost text off). The menu tests read the pty
+  between keys (an unread pty stalled zsh's next draw and hid the bug). 105 adapter tests on zsh
+  5.3.1, 5.8.1 and 5.9.
+
 - **2026-11-13** — **Tab and Esc (the user's decision, after v0.0.2: "hit tab when
   fuxx-suggestions appeared, still showing the list of things inside the dir … a simple esc hit
   to lose them … Make it smooth", then "do 1"; and "ensure we cover all edge cases").** `design.md`
