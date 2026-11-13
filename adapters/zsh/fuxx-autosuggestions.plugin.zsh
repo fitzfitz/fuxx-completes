@@ -32,6 +32,11 @@
   typeset -g _FUXX_AS_HL=''      # the exact highlight string we added (used below zsh 5.9)
   typeset -g _FUXX_AS_MEMO=0     # 1 when region_highlight accepts `memo=` (zsh 5.9+)
   typeset -g _FUXX_AS_CLOEXEC=0  # 1 when `sysopen -o cloexec` works on this zsh
+  # Command reports (§5.8): the line zshaddhistory saw, where the running command started, and the
+  # one command held back until the next prompt (its event number, history text, cwd, status, time).
+  typeset -g _FUXX_AS_NOTED='' _FUXX_AS_CMD_PWD=''
+  typeset -g _FUXX_AS_PEND_EVENT='' _FUXX_AS_PEND_ENTRY='' _FUXX_AS_PEND_PWD=''
+  typeset -g _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
   is-at-least 5.9 && _FUXX_AS_MEMO=1
   local fd
   # zsh/system is optional: without sysopen or its cloexec option we open pipes with plain `exec`.
@@ -408,10 +413,61 @@ _fuxx_as_wrap_widgets() {
   return 0
 }
 
-_fuxx_as_precmd() {
+# Notes the line zsh is about to consider for history. Always returns 0: this hook never decides
+# what zsh keeps (a nonzero status would make zsh drop the line, or skip other hooks' say).
+_fuxx_as_addhistory() {
   emulate -L zsh
-  [[ -z $_FUXX_AS_STATE ]] || return 0
-  _fuxx_as_start
+  _FUXX_AS_NOTED=${1%$'\n'}
+  return 0
+}
+
+_fuxx_as_preexec() {
+  emulate -L zsh
+  _FUXX_AS_CMD_PWD=$PWD
+  return 0
+}
+
+# Reports each command zsh kept, one prompt late (design §5.8). A line zsh won't keep stays in
+# $history at its event number until the next command is entered, then that command takes the same
+# number. So at each prompt where a line was entered, the pending command (event p) was kept only
+# if the newest event n is beyond p and still holds the same text; the new command then becomes
+# pending. `$?` and the options are read before `emulate -L zsh` (which resets the options).
+_fuxx_as_precmd() {
+  local -i st=$?
+  local ign_space=${options[histignorespace]-off} no_store=${options[histnostore]-off}
+  local ext_glob=${options[extendedglob]-off}
+  emulate -L zsh
+  if [[ -z $_FUXX_AS_STATE ]]; then
+    _fuxx_as_start
+    return 0
+  fi
+  [[ -n $_FUXX_AS_NOTED ]] || return 0
+  local noted=$_FUXX_AS_NOTED E
+  local -i n=$(( HISTCMD - 1 )) p
+  _FUXX_AS_NOTED=''
+  [[ $_FUXX_AS_STATE == on ]] || return 0
+  if [[ -n $_FUXX_AS_PEND_EVENT ]]; then
+    p=$_FUXX_AS_PEND_EVENT
+    if (( n > p )) && [[ ${history[$p]-} == "$_FUXX_AS_PEND_ENTRY" ]]; then
+      _fuxx_as_send ran "$_FUXX_AS_PEND_PWD" "$_FUXX_AS_PEND_STATUS" "$_FUXX_AS_PEND_TIME" "$_FUXX_AS_PEND_ENTRY"
+    fi
+    _FUXX_AS_PEND_EVENT='' _FUXX_AS_PEND_ENTRY='' _FUXX_AS_PEND_PWD=''
+    _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
+  fi
+  # Report E, the entry as zsh stored it (HIST_REDUCE_BLANKS etc.), so it matches the file.
+  E=${history[$n]-}
+  [[ -n $E ]] || return 0
+  [[ $ign_space == on && $noted == ' '* ]] && return 0
+  [[ $no_store == on && $E == (history|'fc -l')* ]] && return 0
+  # HISTORY_IGNORE only filters what zsh writes to the file, so it is checked here.
+  if [[ -n ${HISTORY_IGNORE-} ]]; then
+    [[ $ext_glob == on ]] && setopt extendedglob
+    [[ $E == ${~HISTORY_IGNORE} ]] && return 0
+  fi
+  (( $#E > 1000 )) && return 0
+  [[ $E == *[$'\x1f\x1e']* ]] && return 0   # the wire can't carry them
+  _FUXX_AS_PEND_EVENT=$n _FUXX_AS_PEND_ENTRY=$E _FUXX_AS_PEND_PWD=$_FUXX_AS_CMD_PWD
+  _FUXX_AS_PEND_STATUS=$st _FUXX_AS_PEND_TIME=$EPOCHSECONDS
   return 0
 }
 
@@ -423,4 +479,6 @@ _fuxx_as_zshexit() {
 }
 
 add-zsh-hook precmd _fuxx_as_precmd
+add-zsh-hook preexec _fuxx_as_preexec
+add-zsh-hook zshaddhistory _fuxx_as_addhistory
 add-zsh-hook zshexit _fuxx_as_zshexit

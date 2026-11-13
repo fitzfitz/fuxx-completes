@@ -451,7 +451,13 @@ The core suggests only commands the shell itself kept, after the shell's own fil
   once zsh has dropped such lines. The cost, accepted: the command just run isn't suggested until
   another runs, and a session's last command is never reported (memory only). The working
   directory is the one captured at `preexec`, the exit status and time those of the command
-  itself. The exact check is verified against zsh's docs in M0.
+  itself. The check (verified on zsh 5.9, 2026-11-13): a line zsh won't keep lingers at its event
+  number until the next command is entered, and that command then takes the same number. So at each
+  prompt where a line was entered, the pending command (event `p`) is reported only if the newest
+  event `n` is beyond `p` and `$history[p]` is still the same text; the new command then becomes
+  pending unless it starts with a space under `HIST_IGNORE_SPACE`, is `history`/`fc -l` under
+  `HIST_NO_STORE`, matches `HISTORY_IGNORE` (which only filters the file, so the adapter checks it
+  itself) or is over 1000 characters. When in doubt it doesn't report.
 - **bash:** a function added to `PROMPT_COMMAND` (appended, not replacing) runs `history 1` and
   reports the entry only if its history number is new since the last prompt. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working

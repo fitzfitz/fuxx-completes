@@ -719,3 +719,213 @@ fn tab_ctrl_r_ctrl_t_are_not_bound_by_us() {
     assert!(before.contains("\"^I\""), "empty dump: {before:?}");
     assert_eq!(before, after);
 }
+
+// ---- Task 8: command reports (§5.8) and the history re-read ----
+// Reports are one prompt late, so a test that expects a command to be suggested runs one more
+// command (`run("true")`) after it.
+
+/// Records the wire. It keeps a copy of its stdout (the answer pipe) open on fd 3: with stdout
+/// redirected away the shell would see end-of-file on the answer pipe, take the core for dead
+/// and stop, which is right for a dead core but not what these tests are about.
+const RECORDER: &str = r#"exec 3>&1; exec cat > "$HOME/wire.log""#;
+
+/// Types `typed`, waits for the ghost text to be `want`, lets any late report land, and checks
+/// it is still `want` (a hidden line wrongly reported would replace it).
+fn assert_suggestion_stays(z: &mut ZshHarness, typed: &str, want: &str) {
+    z.send(typed);
+    z.wait_state(|s| s.postdisplay == want);
+    std::thread::sleep(Duration::from_millis(300));
+    z.send("\x7f");
+    z.send(&typed[typed.len() - 1..]);
+    std::thread::sleep(Duration::from_millis(100));
+    let s = z.wait_state(|s| s.postdisplay == want);
+    assert_eq!(s.postdisplay, want, "{s:?}");
+}
+
+#[test]
+fn command_run_in_session_is_suggested() {
+    let mut z = ZshHarness::start(ZshOpts::default());
+    z.run("echo one");
+    z.run("true");
+    z.send("echo o");
+    z.wait_state(|s| s.postdisplay == "ne");
+}
+
+#[test]
+fn report_waits_for_the_next_command() {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(RECORDER),
+        ..Default::default()
+    });
+    let home = z.home().to_path_buf();
+    z.run("echo one");
+    std::thread::sleep(Duration::from_secs(1));
+    assert!(
+        !read_wire(&home).lines().any(|l| l.starts_with("ran")),
+        "{:?}",
+        read_wire(&home)
+    );
+    z.run("true");
+    assert!(
+        poll(Duration::from_secs(3), || read_wire(&home).lines().any(
+            |l| l.starts_with("ran") && l.ends_with(&format!("{US}echo one"))
+        )),
+        "wire: {:?}",
+        read_wire(&home)
+    );
+    assert!(!read_wire(&home)
+        .lines()
+        .any(|l| l.starts_with("ran") && l.ends_with(&format!("{US}true"))));
+}
+
+#[test]
+fn space_led_command_is_not_suggested() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "setopt histignorespace".into(),
+        ..Default::default()
+    });
+    z.run("echo shown");
+    z.run(" echo secret");
+    z.run("true");
+    assert_suggestion_stays(&mut z, "echo s", "hown");
+}
+
+#[test]
+fn history_ignore_match_is_not_suggested() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "HISTORY_IGNORE='echo secret*'".into(),
+        ..Default::default()
+    });
+    z.run("echo shown");
+    z.run("echo secret1");
+    z.run("true");
+    assert_suggestion_stays(&mut z, "echo s", "hown");
+}
+
+#[test]
+fn line_rejected_by_another_zshaddhistory_hook_is_not_suggested() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "_t_rej() { [[ $1 != 'echo secret'* ]] }; add-zsh-hook zshaddhistory _t_rej"
+            .into(),
+        ..Default::default()
+    });
+    z.run("echo shown");
+    z.run("echo secret1");
+    z.run("true");
+    assert_suggestion_stays(&mut z, "echo s", "hown");
+}
+
+#[test]
+fn alias_with_leading_space_is_not_suggested() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "setopt histignorespace".into(),
+        rc_after: "alias sp=' echo hidden'".into(),
+        ..Default::default()
+    });
+    z.run("sx=1");
+    z.run("sp");
+    z.run("true");
+    assert_suggestion_stays(&mut z, "s", "x=1");
+}
+
+#[test]
+fn repeated_hidden_line_is_not_suggested() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "setopt histignorespace".into(),
+        ..Default::default()
+    });
+    z.run("echo shown");
+    z.run(" echo secret");
+    z.run(" echo secret");
+    z.run("true");
+    assert_suggestion_stays(&mut z, "echo s", "hown");
+}
+
+#[test]
+fn reports_exit_status_and_start_cwd() {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(RECORDER),
+        ..Default::default()
+    });
+    let home = z.home().to_path_buf();
+    z.run("mkdir sub; cd sub");
+    z.run("false");
+    z.run("true");
+    let want = format!("ran{US}{}/sub{US}1{US}", home.display());
+    assert!(
+        poll(Duration::from_secs(3), || read_wire(&home).lines().any(
+            |l| {
+                l.strip_prefix(&want).is_some_and(|rest| {
+                    rest.strip_suffix(&format!("{US}false"))
+                        .is_some_and(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
+                })
+            }
+        )),
+        "wire: {:?}",
+        read_wire(&home)
+    );
+}
+
+#[test]
+fn our_hook_never_rejects_a_line() {
+    let mut z = ZshHarness::start(ZshOpts::default());
+    z.run("echo kept");
+    z.run("fc -ln -1 >| $HOME/fc");
+    let got = std::fs::read_to_string(z.home().join("fc")).unwrap();
+    assert_eq!(got.trim(), "echo kept");
+}
+
+#[test]
+fn history_file_appended_by_another_shell_is_seen() {
+    let mut z = ZshHarness::start(git_history());
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x15");
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .open(z.histfile())
+        .unwrap();
+    std::io::Write::write_all(&mut f, b"git commit -m wip\n").unwrap();
+    drop(f);
+    z.send("git c");
+    z.wait_state(|s| s.postdisplay == "ommit -m wip");
+}
+
+#[test]
+fn history_file_rewritten_without_a_line_drops_it() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["rm -rf build", "ls"],
+        ..Default::default()
+    });
+    z.send("rm");
+    z.wait_state(|s| s.postdisplay == " -rf build");
+    z.send("\x15");
+    let tmp = z.home().join("hist.tmp");
+    std::fs::write(&tmp, "ls\n").unwrap();
+    std::fs::rename(&tmp, z.histfile()).unwrap();
+    z.send("rm");
+    let end = Instant::now() + Duration::from_secs(3);
+    loop {
+        // Each retype is a fresh request.
+        let s = z.state();
+        if s.postdisplay.is_empty() && s.buffer == "rm" {
+            break;
+        }
+        assert!(Instant::now() < end, "still suggested: {s:?}");
+        std::thread::sleep(Duration::from_millis(100));
+        z.send("\x7f");
+        z.send("m");
+    }
+}
+
+#[test]
+fn no_histfile_session_commands_still_suggested() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "unset HISTFILE".into(),
+        ..Default::default()
+    });
+    z.run("echo hi");
+    z.run("true");
+    z.send("echo h");
+    z.wait_state(|s| s.postdisplay == "i");
+}
