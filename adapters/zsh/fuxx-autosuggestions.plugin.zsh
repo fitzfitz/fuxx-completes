@@ -19,7 +19,7 @@
   [[ -o interactive ]] || return 1
   autoload -Uz is-at-least add-zsh-hook add-zle-hook-widget 2>/dev/null
   is-at-least 5.3 2>/dev/null || return 1
-  zmodload zsh/datetime zsh/parameter zsh/zleparameter zsh/system 2>/dev/null || return 1
+  zmodload zsh/datetime zsh/parameter zsh/zleparameter 2>/dev/null || return 1
   zmodload -F zsh/files b:zf_rm b:zf_rmdir b:zf_mkdir 2>/dev/null || return 1
   (( $+_FUXX_AS_STATE )) && return 0
   # State. '' until the first prompt, then `on` or `off`.
@@ -34,7 +34,8 @@
   typeset -g _FUXX_AS_CLOEXEC=0  # 1 when `sysopen -o cloexec` works on this zsh
   is-at-least 5.9 && _FUXX_AS_MEMO=1
   local fd
-  if sysopen -r -o cloexec -u fd /dev/null 2>/dev/null; then
+  # zsh/system is optional: without sysopen or its cloexec option we open pipes with plain `exec`.
+  if zmodload zsh/system 2>/dev/null && sysopen -r -o cloexec -u fd /dev/null 2>/dev/null; then
     { exec {fd}<&- } 2>/dev/null
     _FUXX_AS_CLOEXEC=1
   fi
@@ -266,14 +267,16 @@ _fuxx_as_w_modify() {
   local orig=$1
   shift
   local -i ret
-  _fuxx_as_unhighlight
+  # Only without `memo=`: with it our entry is found by tag, and taking it off would draw the ghost
+  # text unstyled whenever the widget redraws (isearch, completion lists, `zle -R`).
+  (( _FUXX_AS_MEMO )) || _fuxx_as_unhighlight
   zle fuxx-as-orig-$orig -- "$@"
   ret=$?
   if [[ $BUFFER != "$_FUXX_AS_LAST_BUFFER" ]]; then
     _fuxx_as_clear
     _FUXX_AS_LAST_BUFFER=$BUFFER
     _fuxx_as_request
-  else
+  elif (( ! _FUXX_AS_MEMO )); then
     _fuxx_as_highlight
   fi
   return $ret
@@ -286,6 +289,9 @@ _fuxx_as_line_init() {
 _fuxx_as_line_finish() {   # ghost text never stays in the scrollback
   emulate -L zsh
   _fuxx_as_clear
+  # Forget the request in flight: a handler doesn't run while the command does, so by the next
+  # prompt it would look hung (and be killed). Its late answer is dropped as stale by id.
+  _FUXX_AS_INFLIGHT_ID='' _FUXX_AS_INFLIGHT_SINCE=0 _FUXX_AS_INFLIGHT_BUFFER=''
 }
 
 # Runs once, at the first precmd, so it sees every widget the user's rc and other plugins made.

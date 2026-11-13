@@ -457,3 +457,76 @@ fn a_failed_start_ends_off_stops_the_core_and_leaves_nothing() {
         "{screen:?}"
     );
 }
+
+#[test]
+fn ghost_text_keeps_its_style_while_a_widget_redraws() {
+    if !zsh_at_least("5.9") {
+        return; // below 5.9 the entry is deliberately taken off while a widget runs
+    }
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after:
+            "my-dump() { zle -R; print -r -- \"${(pj:\\x1e:)region_highlight}\" >| $HOME/inner }\n\
+                   zle -N my-dump\n\
+                   bindkey '^X3' my-dump"
+                .into(),
+        ..git_history()
+    });
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x183");
+    let inner = z.home().join("inner");
+    assert!(poll(Duration::from_secs(3), || inner.exists()));
+    let seen = std::fs::read_to_string(&inner).unwrap();
+    assert!(
+        seen.contains(MEMO),
+        "our entry was gone inside the widget: {seen:?}"
+    );
+}
+
+#[test]
+fn a_request_left_in_flight_by_a_slow_command_does_not_kill_the_core() {
+    // The stub answers 2.5 s after each request; the command outlasts the 2 s hang limit.
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(
+            r#"US=$(printf '\037'); echo $$ > "$HOME/core.pid"
+IFS= read -r hello; printf 'ready%s1\n' "$US"
+while IFS=$US read -r kind id rest; do sleep 2.5; printf 'suggestion%s%s%s\n' "$US" "$id" "$US"; done"#,
+        ),
+        ..Default::default()
+    });
+    let pidfile = z.home().join("core.pid");
+    assert!(poll(Duration::from_secs(3), || pidfile.exists()));
+    let pid: u32 = std::fs::read_to_string(&pidfile)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    z.send("e");
+    z.wait_state(|s| s.buffer == "e");
+    z.send("\x15"); // the request for "e" stays in flight (the stub is still sleeping)
+    z.run("sleep 2.3"); // Enter with that request in flight; the command outlasts 2 s
+    z.send("a"); // first key at the next prompt
+    z.wait_state(|s| s.buffer == "a");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(alive(pid), "the healthy core was killed");
+    let s = z.state();
+    assert_eq!(s.core_pid, Some(pid));
+    let screen = printable(&z.screen_now()).to_lowercase();
+    assert!(!screen.contains("error"), "{screen:?}");
+}
+
+#[test]
+fn without_zsh_system_pipes_still_work() {
+    // zmodload refuses zsh/system, as on a zsh built without it: plain `exec {fd}` is used.
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "zmodload() { [[ $1 == zsh/system ]] && return 1; builtin zmodload \"$@\" }"
+            .into(),
+        ..git_history()
+    });
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x15");
+    z.run("print -r -- $_FUXX_AS_CLOEXEC >| $HOME/cx");
+    let cx = std::fs::read_to_string(z.home().join("cx")).unwrap();
+    assert_eq!(cx.trim(), "0");
+}
