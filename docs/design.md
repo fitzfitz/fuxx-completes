@@ -546,10 +546,16 @@ Honest about what each shell allows.
     zsh-syntax-highlighting after `source ~/.zshrc`; seen through the widget names its function
     uses, and checked again whenever the function's body changes) is not wrapped again, so a
     plugin that re-wraps at every `precmd`, as zsh-autosuggestions does, can't grow the chain.
-    Setting a widget back to a definition we wrapped before (oh-my-zsh does
-    `zle -N self-insert url-quote-magic` on every source) uses that generation again; only new
-    definitions count toward a cap of 20 generations per widget, which catches a plugin that makes
-    a fresh wrapper at every prompt and hides the name. Other plugins' saved originals (`orig-*`,
+    Setting a widget back to a `user:` or `completion:` definition we wrapped before (oh-my-zsh
+    does `zle -N self-insert url-quote-magic` on every source) uses that generation again; a
+    builtin's value is only `builtin`, so `zle -A .end-of-line forward-char` always gets a new
+    generation rather than being undone. The cap is 20 of our generations per widget that some
+    widget still runs (its value is one of our wrappers, because a plugin saved it), not 20 wraps
+    ever: after `source ~/.zshrc` sets a widget back, the old generations are named by nothing and
+    don't count, so oh-my-zsh plus a highlighter that wraps under a fresh name on each load can be
+    re-sourced any number of times. A plugin that saves each of our wrappers under a fresh name at
+    every prompt and hides that it calls us keeps them all named, hits the cap, and that
+    definition is then left alone until it changes. Other plugins' saved originals (`orig-*`,
     `*-orig-*`) are never wrapped, or two such plugins would make new widgets at every prompt.
   - When another plugin's wrapper puts our wrapper of a widget inside another of ours for the same
     widget, only the outermost acts and the inner one just runs its original, so a key is handled

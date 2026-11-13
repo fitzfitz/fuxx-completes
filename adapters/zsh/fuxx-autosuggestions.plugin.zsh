@@ -389,7 +389,7 @@ _fuxx_as_w_accept() {
 # text, otherwise the buffer is put back. The rest of the suggestion is still right, so no request.
 _fuxx_as_w_partial() {
   emulate -L zsh
-  local orig=$1 saved=$BUFFER
+  local orig=$1 saved=$BUFFER sugg=$POSTDISPLAY
   shift
   local self=${orig#fuxx-as-orig-<->-}
   if [[ ${_fuxx_as_inside-} == "$self" ]]; then zle $orig -- "$@"; return; fi
@@ -399,9 +399,12 @@ _fuxx_as_w_partial() {
     return
   fi
   local _fuxx_as_inside=$self
-  # Our entry comes off in every version: the text is about to grow under it.
-  _fuxx_as_unhighlight
-  BUFFER+=$POSTDISPLAY
+  # As accept does: the suggestion moves into the buffer and the ghost text (with our entry) goes,
+  # so an original that calls another partial widget (`my-fw() { zle emacs-forward-word }`) finds
+  # nothing to append again; it also finds the buffer already seen, so it asks the core nothing.
+  BUFFER+=$sugg
+  _fuxx_as_clear
+  _FUXX_AS_LAST_BUFFER=$BUFFER
   zle $orig -- "$@"
   ret=$?
   loc=$CURSOR
@@ -411,6 +414,7 @@ _fuxx_as_w_partial() {
     BUFFER=${BUFFER[1,loc]}
   else
     BUFFER=$saved
+    POSTDISPLAY=$sugg
   fi
   _fuxx_as_highlight
   _FUXX_AS_LAST_BUFFER=$BUFFER
@@ -469,13 +473,16 @@ _fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the s
 # for it (another plugin wrapped us) is left alone: wrapping it again would add a layer at every
 # prompt when that plugin also re-wraps at every precmd (zsh-autosuggestions does), and would
 # grow the chain until FUNCNEST. A plugin that names our wrapper in a way we can't see is caught
-# by a cap of 20 generations per widget; setting a widget back to a definition we wrapped before
-# (oh-my-zsh on every `source ~/.zshrc`) uses that generation again and doesn't count. Cheap by design: no subshell, one pass over the names, and
-# only strings are compared.
+# by a cap of 20 of our generations per widget that some widget still runs (a lifetime count ran
+# out after ~20 `source ~/.zshrc` with oh-my-zsh plus a highlighter that wraps under a fresh name
+# per load); setting a widget back to a `user:`/`completion:` definition we wrapped before
+# (oh-my-zsh on every `source ~/.zshrc`) uses that generation again. Cheap by design: no
+# subshell, one pass over the names, and only strings are compared.
 _fuxx_as_wrap_widgets() {
   emulate -L zsh
   local w v key gk fn orig
-  local -i n
+  local -i n named
+  local -a live
   # zsh-autosuggestions' default lists; every other widget gets the plain `modify` wrapper.
   local -a accept=( forward-char end-of-line vi-forward-char vi-end-of-line vi-add-eol )
   local -a partial=( forward-word emacs-forward-word vi-forward-word vi-forward-word-end
@@ -503,16 +510,32 @@ _fuxx_as_wrap_widgets() {
       _FUXX_AS_UNDER[$w]=$key
       continue
     fi
-    # A definition wrapped before is still held by that generation's saved original.
+    # A definition wrapped before is still held by that generation's saved original. Only a
+    # `user:` or `completion:` value names its definition: a builtin's is just `builtin`, the same
+    # after `zle -A .end-of-line forward-char` as before, so a builtin always gets a new generation.
     gk="$w $v"
-    n=${_FUXX_AS_GEN[$gk]-0}
+    # (No `(a|b)` patterns in this file: it is parsed under the user's options, shglob included.)
+    named=0
+    [[ $v == user:* || $v == completion:* ]] && named=1
+    n=0
+    (( named )) && n=${_FUXX_AS_GEN[$gk]-0}
     if (( ! n )); then
+      # The cap counts our generations of this widget that some widget still runs (its value is
+      # our `_fuxx_as_bound_N_<w>`: a plugin saved it), not every wrap ever made. Once `source
+      # ~/.zshrc` sets the widget back, the old generations are named by nothing and don't count;
+      # a plugin that saves each of our wrappers under a fresh name at every prompt, where we can't
+      # see that it calls us, keeps them all named and is stopped at 20. That definition is then
+      # left alone until it changes.
+      live=( ${(u)${(M)${(v)widgets}:#user:_fuxx_as_bound_<->_${(b)w}}} )
+      if (( $#live >= 20 )); then
+        [[ $v == builtin ]] || _FUXX_AS_UNDER[$w]=$key
+        continue
+      fi
       n=$(( ${_FUXX_AS_WRAPS[$w]-0} + 1 ))
-      (( n > 20 )) && continue
       orig=fuxx-as-orig-$n-$w
       zle -A $w $orig 2>/dev/null || continue
       _FUXX_AS_WRAPS[$w]=$n
-      _FUXX_AS_GEN[$gk]=$n
+      (( named )) && _FUXX_AS_GEN[$gk]=$n
       fn=modify
       (( ${accept[(Ie)$w]} )) && fn=accept
       (( ${partial[(Ie)$w]} )) && fn=partial

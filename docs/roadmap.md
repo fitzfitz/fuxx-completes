@@ -60,6 +60,13 @@ Newest first. Add an entry whenever a task is ready.
   definition we wrapped before reuses that generation, so re-sourcing an oh-my-zsh rc no longer
   reaches the 20-generation cap and silently ends suggestions; the "still calls us" memo includes
   the function's body.
+  Third re-review fixes: the cap of 20 now counts only our generations of a widget that some
+  widget still runs, not every wrap ever made, so oh-my-zsh plus a highlighter that wraps under a
+  fresh name on each load can be re-sourced any number of times (25 tested) and keep ghost text; a
+  plugin that hides that it calls us is still stopped at 20. Partial accept clears the ghost text
+  before running the original (an original that calls another partial widget no longer appends
+  the suggestion twice), and a builtin widget re-aliased with `zle -A` is no longer undone by
+  reusing an old generation.
   Final review fixes: widgets are wrapped at every prompt (not only the first); writes to the core never block (non-blocking fd on zsh 5.9+, byte count below); the core starts from `/` and not niced; the spare `resp` reader stays until `ready`; the core drops suggestions over 1000 characters; the history stamp is taken after the read; README try-it copy is private and removed; build-zsh.sh never keeps a half install; design wording updated.
 
 - **2026-11-13** — fuxx gained plugins (fuxx note 76, approved by the user). fuxx no longer links

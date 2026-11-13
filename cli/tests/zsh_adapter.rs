@@ -1481,3 +1481,59 @@ fn a_widget_function_redefined_to_stop_calling_us_is_wrapped_again() {
     let s = z.wait_state(|s| s.postdisplay == "ush origin main");
     assert_eq!(s.buffer, "git p");
 }
+
+#[test]
+fn an_rc_with_a_fresh_name_highlighter_sourced_many_times_keeps_suggestions() {
+    // oh-my-zsh sets self-insert back to url-quote-magic on every source, then a highlighter
+    // wraps it under a fresh name: each source shows us a definition we never saw before.
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: format!(
+            "autoload -Uz url-quote-magic; zle -N self-insert url-quote-magic\n{FAKE_HL}\nfakehl_load"
+        ),
+        ..git_history()
+    });
+    for _ in 0..25 {
+        z.run("source ~/.zshrc");
+    }
+    assert_works_with_fake_hl(&mut z);
+    assert_no_errors_on_screen(&mut z);
+}
+
+#[test]
+fn a_partial_widget_whose_original_calls_another_partial_widget_appends_once() {
+    let rc = "my-fw() { zle emacs-forward-word }; zle -N forward-word my-fw";
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: rc.into(),
+        ..git_history()
+    });
+    z.send("git push origin m");
+    z.wait_state(|s| s.postdisplay == "ain");
+    z.send("\x1bf");
+    let s = z.wait_state(|s| s.buffer != "git push origin m");
+    assert_fully_accepted(&s);
+    z.send("\x15");
+    z.wait_state(|s| s.buffer.is_empty());
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x1bf");
+    let s = z.wait_state(|s| s.buffer != "git p");
+    assert_eq!(s.buffer, "git push", "{s:?}");
+    assert_eq!(s.postdisplay, " origin main", "{s:?}");
+    assert_one_entry_of_ours(&s);
+}
+
+#[test]
+fn a_builtin_widget_aliased_to_another_builtin_keeps_the_new_behaviour() {
+    let mut z = ZshHarness::start(git_history());
+    z.run("zle -A .end-of-line forward-char");
+    z.run("true");
+    z.send("git pu");
+    z.wait_state(|s| s.postdisplay == "sh origin main");
+    z.send("\x01"); // ⌃A: cursor to 0
+    z.wait_state(|s| s.cursor == 0);
+    z.send("\x1b[C"); // forward-char, now end-of-line: mid-buffer it only moves
+    let s = z.wait_state(|s| s.cursor != 0);
+    assert_eq!(s.cursor, 6, "{s:?}");
+    assert_eq!(s.buffer, "git pu", "{s:?}");
+    assert_eq!(s.postdisplay, "sh origin main", "{s:?}");
+}
