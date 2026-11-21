@@ -5,12 +5,12 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M1** (M0 done 2026-11-21; the M1 plan is written, waiting for the user's review).
+**Current milestone: M1** (built and reviewed on branch `m1-context-file-coexistence`; waiting for the user's check in a real terminal).
 
 | | Milestone | Status |
 | --- | --- | --- |
 | M0 | Core + history + zsh adapter | ✅ done 2026-11-21 (the user's check: "close m0, all good") |
-| M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | 🟨 planned ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md)), waiting for the user's review |
+| M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | 🟨 built and reviewed ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md)), waiting for the user's check in a real terminal |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ⬜ |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
@@ -41,7 +41,12 @@ Newest first. Add an entry whenever a task is ready.
   the key before the folder. `Cargo.lock` committed with `blake3`. Taken to the user: whether a
   command stopped with ⌃C (status 130/143) should count as failed. Found on the way, not ours:
   in the pty harness, with `setopt shglob` a typed line doesn't run even with the plugin off, so
-  the `shglob` test runs zsh as a process. Deferred minors are listed in the M1 note below. 127
+  the `shglob` test runs zsh as a process. Deferred (minor): a rename racing a growth read can double-count
+  a file until the next replacement; an own file stuck over the cap on a full or read-only disk
+  restarts a compaction at every answer; keying a 100,000-line history (~8 ms) runs on the serve
+  thread when a full re-read lands; a torn line also loses the record appended after it; the
+  pending-report helper relies on precmd's `emulate`; follow-on candidates are looked up before
+  de-duplication. 127
   adapter tests on zsh 5.3.1, 5.8.1 and 5.9; the workspace passes; release benchmark p95 39 µs.
 
 - **2026-11-21** — **M1 Task 6: `forget` and `doctor`.** The binary takes `serve`, `forget` and
