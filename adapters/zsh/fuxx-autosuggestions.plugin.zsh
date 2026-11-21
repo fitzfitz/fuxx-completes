@@ -10,6 +10,12 @@
 # Config, read at use and never required:
 #   FUXX_COMPLETES_BIN                      the core binary (default: `fuxx-completes` on PATH)
 #   FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE    default fg=8
+#   FUXX_AUTOSUGGESTIONS_FORCE=1            stay on beside zsh-autosuggestions (never in Warp)
+#   FUXX_PLUGIN_DATA                        set by fuxx while it sources us: our data folder
+#
+# Only one copy runs in a shell (design §8): a second copy sourced from another path (fuxx's
+# plugin and a line in .zshrc) stops before defining anything. The first copy's path is passed
+# in as $1 below.
 
 # Load-time logic lives in an anonymous function: `emulate -L zsh` at the top of a sourced file
 # would change the user's options for the whole shell. State is created only if it doesn't exist,
@@ -21,14 +27,24 @@
   is-at-least 5.3 2>/dev/null || return 1
   zmodload zsh/datetime zsh/parameter zsh/zleparameter 2>/dev/null || return 1
   zmodload -F zsh/files b:zf_rm b:zf_rmdir b:zf_mkdir 2>/dev/null || return 1
+  if (( $+_FUXX_AS_FILE )) && [[ $_FUXX_AS_FILE != "$1" ]]; then
+    (( ${_FUXX_AS_SECOND[(Ie)$1]} )) || _FUXX_AS_SECOND+=( "$1" )
+    return 1
+  fi
   # zsh's builtin completion widgets (complist's menu-select too); compinit makes them `completion:`.
   # Set on every load (it holds no state), so a newer copy sourced into a running shell has it.
   typeset -ga _FUXX_AS_COMPLETERS=( complete-word delete-char-or-list expand-or-complete
     expand-or-complete-prefix list-choices menu-complete menu-expand-or-complete
     reverse-menu-complete accept-and-menu-complete list-expand menu-select )
   (( $+_FUXX_AS_STATE )) && return 0
-  # State. '' until the first prompt, then `on` or `off`.
-  typeset -g _FUXX_AS_STATE=''
+  # State. '' until the first prompt, then `on` or `off`; why it is off (design §7).
+  typeset -g _FUXX_AS_STATE='' _FUXX_AS_WHY=''
+  # Which copy runs, other copies that stayed off, and the data folder fuxx named while it
+  # sourced us (it unsets the variable afterwards, design §8).
+  typeset -g _FUXX_AS_FILE=$1 _FUXX_AS_DATA=${FUXX_PLUGIN_DATA-}
+  typeset -ga _FUXX_AS_SECOND=()
+  # "<keymap> <key>" -> `bound` or `kept:<widget>` for the keys we bind only when free.
+  typeset -gA _FUXX_AS_KEYS
   typeset -g _FUXX_AS_PID=''
   typeset -g _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD=''
   typeset -g _FUXX_AS_SPARE_FD=''  # read-write holder on `resp` until `ready` (see _fuxx_as_start)
@@ -74,7 +90,7 @@
     fi
   fi
   return 0
-} || return 0
+} "${${(%):-%x}:A}" || return 0
 
 _fuxx_as_unlink_pipes() {
   emulate -L zsh
@@ -127,15 +143,15 @@ _fuxx_as_start() {
   setopt nobgnice   # emulate -L turns BG_NICE on, which would run the core niced
   local bin=${FUXX_COMPLETES_BIN:-${commands[fuxx-completes]-}} dir rs='' ok=1
   if [[ -z $bin || ! -x $bin || -d $bin ]]; then
-    _FUXX_AS_STATE=off
+    _FUXX_AS_STATE=off _FUXX_AS_WHY=no-binary
     return 0
   fi
   dir=${TMPDIR:-/tmp}/fuxx-completes.$$.$RANDOM
-  zf_mkdir -m 700 $dir 2>/dev/null || { _FUXX_AS_STATE=off; return 0 }
+  zf_mkdir -m 700 $dir 2>/dev/null || { _FUXX_AS_STATE=off _FUXX_AS_WHY=start-failed; return 0 }
   _FUXX_AS_DIR=$dir
   if ! command mkfifo -m 600 $dir/req $dir/resp 2>/dev/null; then
     _fuxx_as_unlink_pipes
-    _FUXX_AS_STATE=off
+    _FUXX_AS_STATE=off _FUXX_AS_WHY=start-failed
     return 0
   fi
   # Any failure below falls through to the cleanup after the block (never `return` from inside).
@@ -145,8 +161,11 @@ _fuxx_as_start() {
     if (( ok )); then
       # The core must not inherit our spare descriptors, or it would hold its own pipe ends open.
       # It starts from `/`, so it never keeps the shell's folder busy (hello and suggest carry the
-      # cwd); `exec` keeps the subshell's pid, so $! is the core's.
-      ( { builtin cd -q / } 2>/dev/null; exec "$bin" serve <$dir/req >$dir/resp 2>/dev/null {_FUXX_AS_KEEPFD}>&- {rs}>&- ) &!
+      # cwd); `exec` keeps the subshell's pid, so $! is the core's. It gets the data folder fuxx
+      # named while sourcing us, or none (design §8).
+      ( { builtin cd -q / } 2>/dev/null
+        if [[ -n $_FUXX_AS_DATA ]]; then export FUXX_PLUGIN_DATA=$_FUXX_AS_DATA; else unset FUXX_PLUGIN_DATA; fi
+        exec "$bin" serve <$dir/req >$dir/resp 2>/dev/null {_FUXX_AS_KEEPFD}>&- {rs}>&- ) &!
       _FUXX_AS_PID=$!
       _fuxx_as_open w $dir/req && _FUXX_AS_WFD=$REPLY || ok=0
     fi
@@ -154,11 +173,11 @@ _fuxx_as_start() {
   } 2>/dev/null
   # A plain function, not `-w`, so it also gets the error argument (`hup`, ...).
   if (( ! ok )) || ! zle -F $_FUXX_AS_RFD _fuxx_as_on_response 2>/dev/null; then
-    _fuxx_as_stop kill
+    _fuxx_as_stop kill start-failed
     return 0
   fi
   if ! _fuxx_as_send hello 1 zsh "$ZSH_VERSION" zsh "${HISTFILE:+${HISTFILE:a}}" autosuggestions; then
-    _fuxx_as_stop kill
+    _fuxx_as_stop kill write-failed
     return 0
   fi
   _fuxx_as_wrap_widgets
@@ -166,6 +185,7 @@ _fuxx_as_start() {
   _FUXX_AS_STATE=on
 }
 
+# The second argument, when given, is why (shown by `doctor`, design §7).
 # `_fuxx_as_stop kill`: the core may still be alive (hung, wrong protocol, shell exit), so end it.
 # `_fuxx_as_stop` with anything else: the core is already gone (EOF or read error), and its pid
 # may belong to another process by now, so it is never signalled.
@@ -187,6 +207,7 @@ _fuxx_as_stop() {
   _FUXX_AS_INFLIGHT_ID=''
   _FUXX_AS_UNREAD=0 _FUXX_AS_SINCE_SUGGEST=0
   _FUXX_AS_STATE=off
+  [[ -n ${2-} ]] && _FUXX_AS_WHY=$2
   # Inside a handler the line's variables only exist in a widget; elsewhere clear directly.
   zle fuxx-as-clear 2>/dev/null || _fuxx_as_clear
   return 0
@@ -231,7 +252,7 @@ _fuxx_as_request() {
   if [[ -n $_FUXX_AS_INFLIGHT_ID ]]; then
     # The answer handler re-sends when the buffer moved on; a core silent for 2 s is hung.
     if (( EPOCHREALTIME - _FUXX_AS_INFLIGHT_SINCE > 2 )); then
-      _fuxx_as_stop kill
+      _fuxx_as_stop kill hung
     fi
     return 0
   fi
@@ -251,7 +272,7 @@ _fuxx_as_request() {
      && [[ $_FUXX_AS_CDABLE != on ]]; then
     f+=( "${(pj:\n:)cdpath}" )
   fi
-  _fuxx_as_send "${f[@]}" || _fuxx_as_stop kill
+  _fuxx_as_send "${f[@]}" || _fuxx_as_stop kill write-failed
   return 0
 }
 
@@ -261,7 +282,7 @@ _fuxx_as_on_response() {
   local fd=$1 err=${2-} line nl=$'\n' rs=$'\x1e'
   local -a f
   if [[ -n $err ]] || ! IFS= read -r -u $fd line 2>/dev/null; then
-    _fuxx_as_stop gone
+    _fuxx_as_stop gone exited
     return 0
   fi
   f=( "${(@ps:\x1f:)line}" )
@@ -269,7 +290,7 @@ _fuxx_as_on_response() {
     ready)
       _fuxx_as_unlink_pipes
       _fuxx_as_close_spare
-      [[ $f[2] == 1 ]] || _fuxx_as_stop kill
+      [[ $f[2] == 1 ]] || _fuxx_as_stop kill protocol
       ;;
     suggestion)
       [[ $f[2] == $_FUXX_AS_INFLIGHT_ID && -n $_FUXX_AS_INFLIGHT_ID ]] || return 0   # stale: drop
@@ -584,8 +605,13 @@ _fuxx_as_w_clear() {
 # _fuxx_as_bind_if_free <keymap> <sequence> <widget>: binds only a key nothing else has bound.
 _fuxx_as_bind_if_free() {
   emulate -L zsh
-  [[ $(bindkey -M $1 -- $2 2>/dev/null) == *' undefined-key' ]] || return 0
-  bindkey -M $1 -- $2 $3 2>/dev/null
+  local cur=$(bindkey -M $1 -- $2 2>/dev/null) k="$1 $2"
+  if [[ $cur == *' undefined-key' ]]; then
+    bindkey -M $1 -- $2 $3 2>/dev/null
+    _FUXX_AS_KEYS[$k]=bound
+  else
+    _FUXX_AS_KEYS[$k]=kept:${cur##* }
+  fi
   return 0
 }
 
@@ -765,6 +791,18 @@ _fuxx_as_precmd() {
     [[ ${options[$o]-off} == on ]] && pat_opts+=( $o )
   done
   emulate -L zsh
+  # Coexistence (design §9): checked at every prompt, so a plugin loaded late stops us too.
+  if [[ $_FUXX_AS_STATE != off ]]; then
+    _fuxx_as_conflict
+    if [[ -n $REPLY ]]; then
+      if [[ $_FUXX_AS_STATE == on ]]; then
+        _fuxx_as_stop kill $REPLY
+      else
+        _FUXX_AS_STATE=off _FUXX_AS_WHY=$REPLY
+      fi
+      return 0
+    fi
+  fi
   if [[ -z $_FUXX_AS_STATE ]]; then
     _fuxx_as_start
     return 0
@@ -779,17 +817,32 @@ _fuxx_as_precmd() {
     p=$_FUXX_AS_PEND_EVENT
     if (( n > p )) && [[ ${history[$p]-} == "$_FUXX_AS_PEND_ENTRY" ]]; then
       _fuxx_as_send ran "$_FUXX_AS_PEND_PWD" "$_FUXX_AS_PEND_STATUS" "$_FUXX_AS_PEND_TIME" "$_FUXX_AS_PEND_ENTRY" \
-        || _fuxx_as_stop kill
+        || _fuxx_as_stop kill write-failed
     fi
     _FUXX_AS_PEND_EVENT='' _FUXX_AS_PEND_ENTRY='' _FUXX_AS_PEND_PWD=''
     _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
     [[ $_FUXX_AS_STATE == on ]] || return 0
   fi
+  # The core learns the command just run (`prev`, design §5.5) as soon as it is pending; a line
+  # the filters drop leaves it unknown.
+  if _fuxx_as_take_pending; then
+    _fuxx_as_send prev "$_FUXX_AS_PEND_ENTRY" || _fuxx_as_stop kill write-failed
+  else
+    _fuxx_as_send prev '' || _fuxx_as_stop kill write-failed
+  fi
+  return 0
+}
+
+# Called from precmd only (it reads precmd's locals: st, noted, n, ign_space, no_store,
+# pat_opts): makes the line just entered the pending report when zsh will keep it. Returns 0
+# when it did.
+_fuxx_as_take_pending() {
+  local E
   # Report E, the entry as zsh stored it (HIST_REDUCE_BLANKS etc.), so it matches the file.
   E=${history[$n]-}
-  [[ -n $E ]] || return 0
-  [[ $ign_space == on && $noted == ' '* ]] && return 0
-  [[ $no_store == on && ( $E == history* || $E == 'fc -l'* ) ]] && return 0
+  [[ -n $E ]] || return 1
+  [[ $ign_space == on && $noted == ' '* ]] && return 1
+  [[ $no_store == on && ( $E == history* || $E == 'fc -l'* ) ]] && return 1
   # HISTORY_IGNORE only filters what zsh writes to the file, so it is checked here, with the
   # options zsh itself compiles the pattern under (kshglob and shglob change what it means). Only
   # a clean "no match" lets the command through: a bad pattern is silent and means don't report.
@@ -797,13 +850,43 @@ _fuxx_as_precmd() {
     local -i rc
     (( $#pat_opts )) && setopt $pat_opts
     { [[ $E == ${~HISTORY_IGNORE} ]]; rc=$? } 2>/dev/null
-    (( rc == 1 )) || return 0
+    (( rc == 1 )) || return 1
   fi
-  (( $#E > 1000 )) && return 0
-  [[ $E == *[$'\x1f\x1e']* ]] && return 0   # the wire can't carry them
+  (( $#E > 1000 )) && return 1
+  [[ $E == *[$'\x1f\x1e']* ]] && return 1   # the wire can't carry them
   _FUXX_AS_PEND_EVENT=$n _FUXX_AS_PEND_ENTRY=$E _FUXX_AS_PEND_PWD=$_FUXX_AS_CMD_PWD
   _FUXX_AS_PEND_STATUS=$st _FUXX_AS_PEND_TIME=$EPOCHSECONDS
   return 0
+}
+
+# Sets REPLY to why we must stay off in this shell (design §9), or '': Warp replaces the line
+# editor, and zsh-autosuggestions draws its own ghost text (unless FUXX_AUTOSUGGESTIONS_FORCE=1).
+_fuxx_as_conflict() {
+  emulate -L zsh
+  REPLY=''
+  if [[ ${TERM_PROGRAM-} == WarpTerminal ]]; then
+    REPLY=conflict:warp
+  elif (( $+functions[_zsh_autosuggest_start] )) && [[ ${FUXX_AUTOSUGGESTIONS_FORCE-} != 1 ]]; then
+    REPLY=conflict:zsh-autosuggestions
+  fi
+}
+
+# What this shell knows for `doctor` (design §7), one `name=value` per line.
+_fuxx_as_facts() {
+  local shglob=${options[shglob]-off}
+  emulate -L zsh
+  local k
+  print -r -- shell=zsh
+  print -r -- version=$ZSH_VERSION
+  print -r -- state=${_FUXX_AS_STATE:-starting}
+  print -r -- why=${_FUXX_AS_WHY-}
+  print -r -- file=${_FUXX_AS_FILE-}
+  for k in "${(@)_FUXX_AS_SECOND}"; do print -r -- second=$k; done
+  print -r -- data=${_FUXX_AS_DATA-}
+  for k in "${(@ko)_FUXX_AS_KEYS}"; do print -r -- "key=$k $_FUXX_AS_KEYS[$k]"; done
+  print -r -- shglob=$shglob
+  print -r -- histfile=${HISTFILE:+${HISTFILE:a}}
+  print -r -- force=${FUXX_AUTOSUGGESTIONS_FORCE:-0}
 }
 
 _fuxx_as_zshexit() {

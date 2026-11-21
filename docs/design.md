@@ -898,7 +898,13 @@ no longer links the crates.
   it only while sourcing).
 - **Double-load guard (AI's call, 2026-11-13):** the adapter sets a marker when it loads; a second
   copy in the same shell (fuxx's plugin plus a line in the user's `.zshrc`) sees it and stays off,
-  shown by `doctor`. One copy runs.
+  shown by `doctor`. One copy runs. **How (AI's call, M1):** the marker is the first copy's
+  resolved file path; a copy sourced from another path is noted (for `doctor`) and stops before
+  it defines any function, so it can't replace the first copy's; sourcing the same path again
+  (`source ~/.zshrc`) works as before.
+- **Data handed to the core (AI's call, M1):** the adapter starts the core with
+  `FUXX_PLUGIN_DATA` set to its own copy of the variable (or unset), so the core finds the same
+  folder after fuxx has unset it.
 - **Later, not now:** fuxx drawing a nicer menu itself through the host channel (§5.5,
   `FUXX_COMPLETES_HOST=1`). It needs M2 and M6 here and a drawing API in fuxx's plugin format that
   format 1 doesn't have. This repo still ships the adapter side of the host channel (M2) and keeps
@@ -923,7 +929,11 @@ the line.
 
 Detection runs at the first `precmd` (zsh) or first prompt, after the user's rc file has loaded
 everything. Staying off is silent at the prompt and shown by `doctor`. A user can force ours on
-(not in Warp, where our widgets would never run).
+(not in Warp, where our widgets would never run). **Settled in M1 (AI's calls):** the zsh adapter
+checks at every `precmd` (two variable lookups), so a plugin loaded after the first prompt
+(zinit turbo, zsh-defer) stops a running core too; zsh-autosuggestions is seen through its
+`_zsh_autosuggest_start` function; `FUXX_AUTOSUGGESTIONS_FORCE=1` overrides that one check and
+never Warp's. Once off, the adapter stays off for that shell.
 
 ## 10. Prior art
 

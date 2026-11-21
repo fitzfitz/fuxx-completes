@@ -2450,3 +2450,250 @@ fn cd_down_into_the_current_folder_ranks_above_a_newer_cd_up() {
     z.wait_state(|s| s.buffer.is_empty());
     type_until_ghost(&mut z, "cd .", "./..");
 }
+
+// ---- M1: coexistence, the data folder, `prev`, shell facts ----
+
+/// Runs `print -r -- <expr>` at the prompt and returns what it printed.
+fn var(z: &mut ZshHarness, expr: &str) -> String {
+    let out = z.home().join("var.out");
+    let _ = std::fs::remove_file(&out);
+    z.run(&format!("print -r -- {expr} >| $HOME/var.out"));
+    std::fs::read_to_string(&out)
+        .unwrap()
+        .trim_end_matches('\n')
+        .to_string()
+}
+
+fn plugin_path() -> PathBuf {
+    std::fs::canonicalize(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../adapters/zsh/fuxx-autosuggestions.plugin.zsh"),
+    )
+    .unwrap()
+}
+
+/// The lines of every context file under `root/context`.
+fn context_lines(root: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root.join("context")) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for e in entries.flatten() {
+        let name = e.file_name().into_string().unwrap();
+        if name.len() == 32 {
+            let text = std::fs::read_to_string(e.path()).unwrap();
+            out.extend(text.lines().map(str::to_string));
+        }
+    }
+    out
+}
+
+#[test]
+fn second_copy_stays_off_and_first_keeps_working() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = std::fs::canonicalize(dir.path())
+        .unwrap()
+        .join("copy.plugin.zsh");
+    let text = std::fs::read_to_string(plugin_path()).unwrap();
+    let marked = text.replacen(
+        "_fuxx_as_start() {\n",
+        "_fuxx_as_start() {\n  : second-copy-marker\n",
+        1,
+    );
+    assert_ne!(marked, text);
+    std::fs::write(&copy, marked).unwrap();
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: format!("source '{}'", copy.display()),
+        ..git_history()
+    });
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+    z.send("\x15");
+    assert_eq!(
+        var(&mut z, "\"${_FUXX_AS_SECOND[1]}\""),
+        copy.display().to_string()
+    );
+    assert_eq!(
+        var(&mut z, "\"$_FUXX_AS_FILE\""),
+        plugin_path().display().to_string()
+    );
+    assert!(!var(&mut z, "\"${functions[_fuxx_as_start]}\"").contains("second-copy-marker"));
+}
+
+#[test]
+fn zsh_autosuggestions_present_keeps_us_off() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "_zsh_autosuggest_start() { }".into(),
+        ..git_history()
+    });
+    z.send("git p");
+    std::thread::sleep(Duration::from_millis(300));
+    let s = z.state();
+    assert_eq!(s.postdisplay, "", "{s:?}");
+    assert_eq!(s.core_pid, None, "{s:?}");
+    z.send("\x15");
+    assert_eq!(
+        var(&mut z, "\"$_FUXX_AS_WHY\""),
+        "conflict:zsh-autosuggestions"
+    );
+}
+
+#[test]
+fn zsh_autosuggestions_with_force_keeps_us_on() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "_zsh_autosuggest_start() { }; FUXX_AUTOSUGGESTIONS_FORCE=1".into(),
+        ..git_history()
+    });
+    z.send("git p");
+    z.wait_state(|s| s.postdisplay == "ush origin main");
+}
+
+#[test]
+fn zsh_autosuggestions_loaded_later_stops_us() {
+    let mut z = ZshHarness::start(git_history());
+    let pid = z.wait_state(|s| s.core_pid.is_some()).core_pid.unwrap();
+    z.run("_zsh_autosuggest_start() { }");
+    assert!(
+        poll(Duration::from_secs(3), || !alive(pid)),
+        "core still running"
+    );
+    assert_eq!(
+        var(&mut z, "\"$_FUXX_AS_WHY\""),
+        "conflict:zsh-autosuggestions"
+    );
+    z.send("git p");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(z.state().postdisplay, "");
+}
+
+#[test]
+fn warp_keeps_us_off_even_when_forced() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "export TERM_PROGRAM=WarpTerminal; FUXX_AUTOSUGGESTIONS_FORCE=1".into(),
+        ..git_history()
+    });
+    assert_eq!(z.state().core_pid, None);
+    assert_eq!(var(&mut z, "\"$_FUXX_AS_WHY\""), "conflict:warp");
+}
+
+#[test]
+fn plugin_data_folder_is_used() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "export FUXX_PLUGIN_DATA=$HOME/pdata".into(),
+        rc_after: "unset FUXX_PLUGIN_DATA".into(),
+        ..Default::default()
+    });
+    let home = z.home().to_path_buf();
+    z.run("make x");
+    z.run("true");
+    assert!(
+        poll(Duration::from_secs(3), || !context_lines(
+            &home.join("pdata")
+        )
+        .is_empty()),
+        "no record under FUXX_PLUGIN_DATA"
+    );
+    assert!(!home.join(".local/share/fuxx-completes").exists());
+    assert_eq!(
+        var(&mut z, "\"$_FUXX_AS_DATA\""),
+        home.join("pdata").display().to_string()
+    );
+}
+
+#[test]
+fn leading_space_command_never_makes_a_record() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "setopt histignorespace".into(),
+        ..Default::default()
+    });
+    let root = z.home().join(".local/share/fuxx-completes");
+    z.run(" secret-cmd");
+    z.run("true");
+    z.run("true");
+    assert!(poll(Duration::from_secs(3), || context_lines(&root).len() == 1));
+    std::thread::sleep(Duration::from_millis(300));
+    let lines = context_lines(&root);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let secret = fuxx_completes_core::context::secret::Secret::load(&root)
+        .unwrap()
+        .unwrap();
+    for hidden in [" secret-cmd", "secret-cmd"] {
+        let key = secret.key_of(hidden).to_hex();
+        assert!(
+            !lines.iter().any(|l| l.contains(&key)),
+            "{hidden:?} recorded"
+        );
+    }
+    assert!(lines.iter().all(|l| !l.contains("secret")));
+}
+
+#[test]
+fn prev_is_sent_for_the_pending_command() {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(RECORDER),
+        rc_before: "setopt histignorespace".into(),
+        ..Default::default()
+    });
+    let home = z.home().to_path_buf();
+    z.run("git add .");
+    assert!(
+        poll(Duration::from_secs(3), || read_wire(&home)
+            .lines()
+            .any(|l| l == format!("prev{US}git add ."))),
+        "{:?}",
+        read_wire(&home)
+    );
+    // A line the shell won't keep: the previous command is unknown.
+    z.run(" hidden");
+    assert!(
+        poll(Duration::from_secs(3), || read_wire(&home)
+            .lines()
+            .any(|l| l == format!("prev{US}"))),
+        "{:?}",
+        read_wire(&home)
+    );
+    assert!(!read_wire(&home).contains("hidden"));
+}
+
+#[test]
+fn fzf_style_bindings_keep_working() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "fzf-history-widget() { typeset -g _hist=1 }; zle -N fzf-history-widget\n\
+                    fzf-completion() { typeset -g _comp=1 }; zle -N fzf-completion"
+            .into(),
+        rc_after: "bindkey '^R' fzf-history-widget; bindkey '^I' fzf-completion".into(),
+        ..Default::default()
+    });
+    z.run("true");
+    z.send("\x12");
+    std::thread::sleep(Duration::from_millis(100));
+    z.send("x\t");
+    std::thread::sleep(Duration::from_millis(100));
+    z.send("\x15");
+    assert_eq!(var(&mut z, "\"${_hist-}${_comp-}\""), "11");
+}
+
+#[test]
+fn facts_list_bound_and_kept_keys() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "bindkey -e; bindkey '^[[F' beginning-of-line".into(),
+        ..Default::default()
+    });
+    z.run("_fuxx_as_facts >| $HOME/facts");
+    let facts = std::fs::read_to_string(z.home().join("facts")).unwrap();
+    let lines: Vec<&str> = facts.lines().collect();
+    for want in [
+        "shell=zsh",
+        "state=on",
+        "key=emacs ^[[F kept:beginning-of-line",
+        "key=emacs ^[[4~ bound",
+        "shglob=off",
+        "force=0",
+    ] {
+        assert!(lines.contains(&want), "{want:?} not in {facts}");
+    }
+    assert!(
+        lines.contains(&format!("file={}", plugin_path().display()).as_str()),
+        "{facts}"
+    );
+}

@@ -29,6 +29,20 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **M1 Task 5: the zsh adapter.** The double-load guard (the first copy's path;
+  another copy stops before defining anything), Warp and zsh-autosuggestions checked at every
+  `precmd` (`FUXX_AUTOSUGGESTIONS_FORCE=1` overrides only the latter; a running core is
+  stopped), the core started with the adapter's copy of `FUXX_PLUGIN_DATA`, `prev` sent at
+  each prompt (the pending command, or empty when the line won't be kept), why the adapter is
+  off (`_FUXX_AS_WHY`), which free keys were bound or kept, and `_fuxx_as_facts` for `doctor`.
+  `design.md` §8, §9. Tests first; seen failing: a second copy, zsh-autosuggestions present and
+  loaded later, Warp even when forced, the plugin data folder, `prev` both ways, the facts.
+  Passing from the start (guards of existing behaviour): fzf-style ⌃R and Tab widgets still run,
+  a leading-space command makes no record, forcing on beside zsh-autosuggestions. One bug on the
+  way (systematic debugging, reproduced by hand): an assoc subscript with a space
+  (`_FUXX_AS_KEYS[$1 $2]`) is a "bad pattern" that stopped start-up; now keyed through one
+  variable. 123 adapter tests on zsh 5.3.1, 5.8.1 and 5.9.
+
 - **2026-11-21** — **M1 Task 4: context in the session.** `Session::new(data, home)` (tests
   pass temp folders; only `main` reads the environment): `hello` opens the context store and
   keys the history, `ran` records (the secret made on first use) and pairs successors, the new
