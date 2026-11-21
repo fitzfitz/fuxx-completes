@@ -29,6 +29,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **v0.0.6 test release (the user's call: "publish it"), before the M1 check.**
+  Like v0.0.1–v0.0.5: `fuxx-plugin-macos-arm64.zip` (Apple Silicon, zsh), installed through
+  fuxx's Settings → Plugins. Tagged on the M1 branch; `main` stays at the last checked state
+  until the user's check. Release size settings added (the user's "size and speed first"; same
+  behaviour): `strip`, `lto`, one codegen unit, no `panic = "abort"` (a panicking worker must not
+  end the core). The binary went from 763 KB (M1 without them) to 491 KB, below v0.0.5's 513 KB;
+  benchmark p95 34 µs. M1b's 150 KB limit is measured from this binary.
+
 - **2026-11-21** — **M1 whole-branch review and its fix pass.** One fresh reviewer (Opus) on the
   whole branch: ready with fixes; no Critical. Fixed, each with a test seen failing first:
   (1) a `forget` missed when the new key reuses the old inode (ext4): the key's bytes are now
