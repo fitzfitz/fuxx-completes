@@ -141,6 +141,24 @@ fn target(command: &str) -> Target {
     Target::Dir(arg)
 }
 
+/// The first simple command's command word, after `NAME=value` assignments and leading
+/// `builtin`/`command` words; `None` when there is none or it is quoted.
+pub fn command_word(command: &str) -> Option<String> {
+    let (words, _) = first_simple_command(command);
+    let mut words = words.into_iter().peekable();
+    while words.peek().is_some_and(|w| w.assign) {
+        words.next();
+    }
+    while words
+        .peek()
+        .is_some_and(|w| w.plain && (w.value == "builtin" || w.value == "command"))
+    {
+        words.next();
+    }
+    let cmd = words.next()?;
+    cmd.plain.then_some(cmd.value)
+}
+
 fn is_name(s: &str) -> bool {
     let mut chars = s.chars();
     chars
@@ -756,5 +774,19 @@ mod tests {
             cdpath: Some(&[]),
         };
         assert!(!certainly_missing("cd surely-not-here-zz", &place));
+    }
+
+    #[test]
+    fn command_word_skips_assignments_builtin_and_command() {
+        assert_eq!(command_word("cd x"), Some("cd".into()));
+        assert_eq!(
+            command_word("FOO=1 BAR=2 builtin command pushd y"),
+            Some("pushd".into())
+        );
+        assert_eq!(command_word("  open . && ls"), Some("open".into()));
+        assert_eq!(command_word("git status; cd x"), Some("git".into()));
+        assert_eq!(command_word("'cd' x"), None);
+        assert_eq!(command_word(""), None);
+        assert_eq!(command_word("FOO=1"), None);
     }
 }

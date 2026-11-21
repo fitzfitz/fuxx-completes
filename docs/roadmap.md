@@ -29,6 +29,21 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **M1 Task 3: the ranking order.** `core/src/rank.rs`: `Ranking` (tallies, cwd,
+  previous command, session successors), `Successors` (consecutive `ran` pairs, at most 10,000),
+  the lazy `Ranked` order (tier 1 ran successfully here: follows-previous, then runs here with no
+  boost for `cd`/`pushd`/`open`, then newest run here, then recency; tier 2 newest first with
+  follows-previous first; tier 3 failed only, last) and M0's `walk` moved here unchanged.
+  `History` keys every entry under the secret and finds a key's text without a scan;
+  `cd_target::command_word`; `suggestion()` takes a `&Ranking` and walks the ranked order.
+  `design.md` §5.4. Tests first, seen failing (missing items): with no context the order is M0's,
+  ran-here beats newer, frequency and its ties, no boost for `cd`/`pushd`/`open` (and for
+  `builtin cd`, `FOO=1 pushd`), failed-only last (here, elsewhere, mixed), follows-previous
+  first (and without a secret), successors bounded, clearing the secret restores M0's order,
+  session records keyed, the walk unchanged, and through `suggestion()` a held tier-1 `cd ..`
+  gives way to a `cd` down here while a tier-1 `cd` to a missing folder is passed over. The
+  workspace passes.
+
 - **2026-11-21** — **M1 Task 2: reading, tallying and compacting the context files.**
   `ContextIndex` (tallies per folder and over all folders: successes, failures, newest time) and
   `ContextStore` (opens a data folder, reads every context file, reads growth and new files at

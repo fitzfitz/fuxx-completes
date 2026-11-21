@@ -1,8 +1,13 @@
 //! The in-memory history index: entries read from the shell's history file plus the commands
-//! the adapter reported this session.
+//! the adapter reported this session. With a secret (the context file's, §5.7) every entry also
+//! has its key, so context records can be matched to the text they came from.
 
+use crate::context::secret::Secret;
+use crate::context::Key;
+use crate::rank::{walk, Ranked, Ranking};
+use std::collections::HashMap;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// How many distinct candidates `latest_with_prefix_except` may reject before it gives up.
 pub const MAX_SKIPPED: usize = 50;
@@ -42,12 +47,27 @@ impl FromStr for HistoryFormat {
     }
 }
 
+/// Where a key's text is: its newest file entry, and how many session records hold it (with
+/// the sequence number of the newest).
+#[derive(Debug, Default, Clone, Copy)]
+struct Slot {
+    file_newest: Option<usize>,
+    session_count: u32,
+    session_seq: u64,
+}
+
 /// Past commands, oldest first. `file` holds what the shell wrote to its history file;
 /// `session` holds commands reported by the adapter that the file doesn't hold yet.
 #[derive(Debug, Default)]
 pub struct History {
     file: Vec<String>,
     session: Vec<String>,
+    secret: Option<Secret>,
+    /// With a secret: one key per file entry and per session record, in the same order.
+    file_keys: Vec<Key>,
+    session_keys: Vec<Key>,
+    slots: HashMap<Key, Slot>,
+    next_seq: u64,
 }
 
 impl History {
@@ -58,12 +78,7 @@ impl History {
     /// Most recent entry starting with `prefix`: session records newest-first, then file
     /// entries newest-first. Plain byte-prefix match, case-sensitive.
     pub fn latest_with_prefix(&self, prefix: &str) -> Option<&str> {
-        self.session
-            .iter()
-            .rev()
-            .chain(self.file.iter().rev())
-            .map(String::as_str)
-            .find(|entry| entry.starts_with(prefix))
+        self.newest_first().find(|entry| entry.starts_with(prefix))
     }
 
     /// Like `latest_with_prefix`, but walks past candidates that `skip` rejects. Each distinct
@@ -94,13 +109,8 @@ impl History {
         })
     }
 
-    /// The best entry starting with `prefix`, walking matches newest-first (session records,
-    /// then file entries) and asking `judge` about each distinct one once: the first `Best` or
-    /// `Plain` one ends the walk (a `Plain` one gives way to a newer held one); the newest `Hold`
-    /// one is kept aside; `Skip` ones are passed over. After `MAX_SKIPPED` distinct candidates
-    /// passed over (skipped or held), or once `CHECK_BUDGET` has passed, the walk stops with the
-    /// held candidate; with none held, the bound gives `None` and the budget gives the next
-    /// candidate unchecked (`docs/design.md` §3, §5.4).
+    /// The best entry starting with `prefix` in recency order (session records, then file
+    /// entries, newest first); see `rank::walk` for what `judge` decides.
     pub fn best_with_prefix(
         &self,
         prefix: &str,
@@ -114,42 +124,39 @@ impl History {
         &self,
         prefix: &str,
         budget: Duration,
-        mut judge: impl FnMut(&str) -> Verdict,
+        judge: impl FnMut(&str) -> Verdict,
     ) -> Option<&str> {
-        let start = Instant::now();
-        let mut passed: Vec<&str> = Vec::new();
-        let mut held: Option<&str> = None;
-        for entry in self
-            .session
-            .iter()
-            .rev()
-            .chain(self.file.iter().rev())
-            .map(String::as_str)
-            .filter(|entry| entry.starts_with(prefix))
-        {
-            if passed.contains(&entry) {
-                continue;
-            }
-            if start.elapsed() >= budget {
-                return held.or(Some(entry));
-            }
-            match judge(entry) {
-                Verdict::Best => return Some(entry),
-                Verdict::Plain => return held.or(Some(entry)),
-                Verdict::Hold => {
-                    held.get_or_insert(entry);
-                }
-                Verdict::Skip => {}
-            }
-            passed.push(entry);
-            if passed.len() >= MAX_SKIPPED {
-                return held;
-            }
-        }
-        held
+        walk(
+            self.newest_first().filter(|e| e.starts_with(prefix)),
+            budget,
+            judge,
+        )
+    }
+
+    /// Distinct entries starting with `prefix`, in the ranking order of `docs/design.md` §5.4.
+    pub fn ranked_with_prefix<'a, 'r>(
+        &'a self,
+        prefix: &str,
+        ranking: &Ranking<'r>,
+    ) -> Ranked<'a, 'r> {
+        Ranked::new(self, prefix, *ranking)
+    }
+
+    /// Gives every entry its key under `secret`, or drops all keys (`None`).
+    pub fn set_secret(&mut self, secret: Option<&Secret>) {
+        self.secret = secret.cloned();
+        self.rekey();
     }
 
     pub fn record_session(&mut self, command: String) {
+        if let Some(s) = &self.secret {
+            let key = s.key_of(&command);
+            self.session_keys.push(key);
+            self.next_seq += 1;
+            let slot = self.slots.entry(key).or_default();
+            slot.session_count += 1;
+            slot.session_seq = self.next_seq;
+        }
         self.session.push(command);
     }
 
@@ -158,7 +165,14 @@ impl History {
         for entry in &entries {
             self.retire_session_record(entry);
         }
-        self.file.extend(entries);
+        for entry in entries {
+            if let Some(s) = &self.secret {
+                let key = s.key_of(&entry);
+                self.file_keys.push(key);
+                self.slots.entry(key).or_default().file_newest = Some(self.file.len());
+            }
+            self.file.push(entry);
+        }
     }
 
     /// A full re-read: replaces the file entries; each new entry removes one equal session record.
@@ -167,12 +181,123 @@ impl History {
             self.retire_session_record(entry);
         }
         self.file = entries;
+        self.rekey();
+    }
+
+    /// The keys of every entry held (empty without a secret).
+    pub fn keys(&self) -> impl Iterator<Item = Key> + '_ {
+        self.slots.keys().copied()
+    }
+
+    /// True when entries carry keys (a secret is set).
+    pub fn is_keyed(&self) -> bool {
+        self.secret.is_some()
+    }
+
+    /// Session records newest first, then file entries newest first.
+    pub(crate) fn newest_first(&self) -> impl Iterator<Item = &str> {
+        self.session
+            .iter()
+            .rev()
+            .chain(self.file.iter().rev())
+            .map(String::as_str)
+    }
+
+    /// `newest_first` with each entry's key (`None` without a secret).
+    pub(crate) fn newest_first_keyed(&self) -> impl Iterator<Item = (&str, Option<Key>)> {
+        let keyed = self.secret.is_some();
+        let session = self
+            .session
+            .iter()
+            .enumerate()
+            .rev()
+            .map(move |(i, e)| (e.as_str(), keyed.then(|| self.session_keys[i])));
+        let file = self
+            .file
+            .iter()
+            .enumerate()
+            .rev()
+            .map(move |(i, e)| (e.as_str(), keyed.then(|| self.file_keys[i])));
+        session.chain(file)
+    }
+
+    /// The text of `key`, if an entry holds it.
+    pub(crate) fn text_for(&self, key: Key) -> Option<&str> {
+        let slot = self.slots.get(&key)?;
+        if let Some(i) = slot.file_newest {
+            return Some(&self.file[i]);
+        }
+        let i = self.session_keys.iter().rposition(|k| *k == key)?;
+        Some(&self.session[i])
+    }
+
+    /// How new `key`'s newest entry is: larger is newer, and every session record is newer than
+    /// every file entry (the recency order of `newest_first`).
+    pub(crate) fn recency(&self, key: Key) -> (bool, u64) {
+        match self.slots.get(&key) {
+            Some(s) if s.session_count > 0 => (true, s.session_seq),
+            Some(s) => (false, s.file_newest.map_or(0, |i| i as u64)),
+            None => (false, 0),
+        }
+    }
+
+    /// The entry equal to `text`, if one is held.
+    pub(crate) fn find(&self, text: &str) -> Option<&str> {
+        if let Some(e) = self.session.iter().rev().find(|e| *e == text) {
+            return Some(e);
+        }
+        match &self.secret {
+            Some(s) => self.text_for(s.key_of(text)).filter(|e| *e == text),
+            None => self
+                .file
+                .iter()
+                .rev()
+                .find(|e| *e == text)
+                .map(String::as_str),
+        }
+    }
+
+    /// The key of `text` under the secret, if there is one.
+    pub(crate) fn key_of(&self, text: &str) -> Option<Key> {
+        self.secret.as_ref().map(|s| s.key_of(text))
+    }
+
+    /// Recomputes every key and slot from scratch (or clears them without a secret).
+    fn rekey(&mut self) {
+        self.file_keys.clear();
+        self.session_keys.clear();
+        self.slots.clear();
+        let Some(s) = &self.secret else {
+            return;
+        };
+        for (i, entry) in self.file.iter().enumerate() {
+            let key = s.key_of(entry);
+            self.file_keys.push(key);
+            self.slots.entry(key).or_default().file_newest = Some(i);
+        }
+        for entry in &self.session {
+            let key = s.key_of(entry);
+            self.session_keys.push(key);
+            self.next_seq += 1;
+            let slot = self.slots.entry(key).or_default();
+            slot.session_count += 1;
+            slot.session_seq = self.next_seq;
+        }
     }
 
     /// The file now holds `entry`, so drop the oldest equal session record, if any.
     fn retire_session_record(&mut self, entry: &str) {
         if let Some(i) = self.session.iter().position(|s| s == entry) {
             self.session.remove(i);
+            if self.secret.is_some() {
+                let key = self.session_keys.remove(i);
+                if let Some(slot) = self.slots.get_mut(&key) {
+                    slot.session_count -= 1;
+                    if slot.session_count == 0 && slot.file_newest.is_none() {
+                        self.slots.remove(&key);
+                    }
+                }
+            }
         }
     }
 

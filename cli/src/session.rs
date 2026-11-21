@@ -62,11 +62,13 @@ impl Session {
                     home: self.home.as_deref(),
                     cdpath: cdpath.as_deref(),
                 };
-                let text = fuxx_autosuggestions::suggestion(&self.history, &buffer, &place)
-                    .filter(|t| {
-                        t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
-                    })
-                    .map(str::to_owned);
+                let ranking = fuxx_autosuggestions::Ranking::none(&cwd);
+                let text =
+                    fuxx_autosuggestions::suggestion(&self.history, &buffer, &place, &ranking)
+                        .filter(|t| {
+                            t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
+                        })
+                        .map(str::to_owned);
                 Some(Response::Suggestion { id, text })
             }
             Request::Ran { command, .. } => {

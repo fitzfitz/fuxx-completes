@@ -316,8 +316,17 @@ working directory and whether it succeeded (from the context file, so across she
 and the command that ran just before (from this session's records in memory; the context file has
 no session field, §5.7), and **how many times it ran successfully in this folder** (M1, the user's
 decision 2026-11-21; `cd`, `pushd` and `open` get no frequency boost, judged by the first simple
-command's word after `builtin`/`command` and `NAME=value`). The weights are the builder's choice;
-ranking must be deterministic for a given history and context, so it can be tested. A command
+command's word after `builtin`/`command` and `NAME=value`). The order (**AI's call, M1**; deterministic for a given history and context, so it can be
+tested): for each distinct match, count its records **in the cwd exactly** (successes and
+failures) and everywhere. **Tier 1** has a success in the cwd; **tier 3** is "failed only" (no
+success in the cwd but a failure there, or no record in the cwd and only failures elsewhere);
+**tier 2** is everything else, every match without records included. Tiers in order; within a
+tier, a command that followed the previous command in this session comes first; within tier 1,
+then more successes in the cwd (a `cd`, `pushd` or `open` counts as 1, so it gets no frequency
+boost), then the newest record in the cwd; then the old recency order (session records newest
+first, then file entries newest first). The `cd` walk below then runs over this order instead of
+plain recency. With no context (no secret, no records, the previous command unknown) the order
+is exactly the old one. A command
 missing from the history the core holds is never suggested (§5.8), with one stated exception:
 project candidates, below.
 

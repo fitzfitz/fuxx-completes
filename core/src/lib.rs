@@ -29,4 +29,5 @@ pub mod context;
 pub mod history;
 pub mod history_file;
 pub mod protocol;
+pub mod rank;
 pub mod zsh_history;
