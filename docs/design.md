@@ -576,9 +576,20 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
   once the shell has written the file, leaves no trace), and the oldest records go first past the
   cap. The cap (a few MB) and the record encoding are the builder's choice. A command a shell has
   saved only in memory and not yet written may lose its records to a compaction by another
-  session; that costs ranking, never privacy.
+  session; that costs ranking, never privacy. **Settled in M1 (AI's calls):** the cap is 4 MiB a
+  file; a compaction that has to trim goes down to 3 MiB, so the next one isn't one append away;
+  a compaction that would remove nothing leaves the file alone. It runs on a worker thread.
 - **Concurrent writers.** Records are appended with `O_APPEND`, one small write each; compaction
-  writes a new file under an advisory lock and renames it into place. Details in the M1 plan.
+  writes a new file under an advisory lock and renames it into place. **Settled in M1 (AI's
+  calls):** a `context/<id>.lock` beside each file; an append takes it shared, a compaction
+  exclusive, both with `try_lock`, so **nobody waits**: a busy compaction is skipped, and a
+  record that can't be written yet stays pending in memory (at most 1,000; it already counts for
+  ranking) and is written at the next request. An append can never land in a file being replaced.
+- **Reading (AI's calls, M1).** Every file in `context/` is read when a core starts (none
+  without a secret: records only mean something under the key that made them), then checked
+  before each answer: what a file gained, and a new file, are read at once; a file replaced,
+  shrunk or removed starts a full re-read on a worker thread, and the old tallies serve until it
+  is swapped in. A secret another core made is picked up the same way.
 - **Wiped with one command.** `fuxx-completes forget` deletes the context files and the secret.
   Every running core sees the files are gone (it checks before using them) and drops its
   in-memory context too.

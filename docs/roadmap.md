@@ -29,6 +29,19 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **M1 Task 2: reading, tallying and compacting the context files.**
+  `ContextIndex` (tallies per folder and over all folders: successes, failures, newest time) and
+  `ContextStore` (opens a data folder, reads every context file, reads growth and new files at
+  each refresh, re-reads in the background when a file is replaced, picks up or drops the
+  secret, keeps unwritable records pending) and `compact` (4 MiB cap, trim to 3 MiB, under an
+  exclusive try-lock, temp file renamed into place). `design.md` §5.7. Tests first, seen failing
+  (missing items): every file read, no secret no records, growth inline, a new file and a new
+  secret, a renamed file re-read in the background, junk and torn lines, records without a history
+  file, the secret made on first record, a busy append kept pending then written once, compaction
+  drops unknown keys and trims the oldest, skips when locked, leaves a clean file alone, two
+  writers appending 4,000 records while a compactor loops lose none and tear none, a 16 MiB file
+  compacted in the background. 29 context tests; the workspace passes.
+
 - **2026-11-21** — **M1 Task 1: context records.** `core/src/context/`: the data folder
   (`FUXX_PLUGIN_DATA`, then `XDG_DATA_HOME`, then `HOME`), the secret (`blake3` 1.8.7 keyed,
   `pure`; 32 bytes from `/dev/urandom`, hard-linked into place, `0600` in a `0700` folder), the

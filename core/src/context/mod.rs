@@ -5,6 +5,7 @@
 //! the folder it ran in, its exit code and the time. Never the command text. It lives in the data
 //! folder (`data_dir`), is read by every core and wiped by `fuxx-completes forget`.
 
+pub mod index;
 pub mod record;
 pub mod secret;
 pub mod store;
