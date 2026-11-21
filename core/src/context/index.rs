@@ -13,11 +13,15 @@ pub struct Tally {
     pub last_time: i64,
 }
 
+/// Exit statuses that count as neither a success nor a failure (the user's decision,
+/// 2026-11-21): 130, stopped with ⌃C (a dev server, `tail -f`), and 143, ended with SIGTERM.
+pub const NEUTRAL_STATUSES: [i32; 2] = [130, 143];
+
 impl Tally {
     fn add(&mut self, r: &Record) {
         if r.status == 0 {
             self.ok = self.ok.saturating_add(1);
-        } else {
+        } else if !NEUTRAL_STATUSES.contains(&r.status) {
             self.failed = self.failed.saturating_add(1);
         }
         self.last_time = self.last_time.max(r.time);
@@ -107,5 +111,28 @@ mod tests {
         );
         assert_eq!(ix.anywhere(Key(3)), None);
         assert!(ix.in_folder(Path::new("/r")).is_none());
+    }
+
+    /// The user's decision (2026-11-21): a command stopped with ⌃C (130) or killed (143) is
+    /// neither a success nor a failure; the record still says it ran here, and when.
+    #[test]
+    fn interrupted_or_killed_is_neutral() {
+        let mut ix = ContextIndex::default();
+        ix.add(&rec(1, "/p", 130, 7));
+        ix.add(&rec(1, "/p", 143, 9));
+        assert_eq!(
+            ix.anywhere(Key(1)),
+            Some(Tally {
+                ok: 0,
+                failed: 0,
+                last_time: 9
+            })
+        );
+        ix.add(&rec(1, "/p", 129, 10));
+        assert_eq!(
+            ix.anywhere(Key(1)).unwrap().failed,
+            1,
+            "other signals still count as failed"
+        );
     }
 }

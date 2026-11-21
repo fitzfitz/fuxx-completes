@@ -220,6 +220,10 @@ arrive.
   "does fuxx-complete saves most run command (except for cd or open)?"; it didn't, and they said
   "yes I want it". How often a command ran successfully in this folder is a ranking factor in M1;
   `cd`, `pushd` and `open` get no such boost. §5.4.
+- **A command stopped with ⌃C is neutral (decided 2026-11-21).** Asked whether `npm run dev` and
+  the like, stopped with ⌃C, should count as failed (they ranked last), the user said
+  "neutral": exit status 130 (⌃C) and 143 (SIGTERM) count as neither a success nor a failure.
+  The record still says the command ran in that folder, and when. §5.4.
 - **Project knowledge (decided 2026-11-21).** The user: "what about it learns from the project
   folder? we will have a mapping library on fuxx completes … for node projects, uv projects, cargo
   projects, c++ project, vb projects, flutter project, android project, macos project … always pay
@@ -323,7 +327,8 @@ no session field, §5.7; the adapter names it with `prev`, because `ran` comes o
 decision 2026-11-21; `cd`, `pushd` and `open` get no frequency boost, judged by the first simple
 command's word after `builtin`/`command` and `NAME=value`). The order (**AI's call, M1**; deterministic for a given history and context, so it can be
 tested): for each distinct match, count its records **in the cwd exactly** (successes and
-failures) and everywhere. **Tier 1** has a success in the cwd; **tier 3** is "failed only" (no
+failures; exit status 130, ⌃C, and 143, SIGTERM, count as neither, the user's decision) and
+everywhere. **Tier 1** has a success in the cwd; **tier 3** is "failed only" (no
 success in the cwd but a failure there, or no record in the cwd and only failures elsewhere);
 **tier 2** is everything else, every match without records included. Tiers in order; within a
 tier, a command that followed the previous command in this session comes first; within tier 1,

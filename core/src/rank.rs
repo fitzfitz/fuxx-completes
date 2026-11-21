@@ -475,4 +475,20 @@ mod tests {
             Some("ls")
         );
     }
+
+    #[test]
+    fn a_dev_server_stopped_with_ctrl_c_is_not_failed_only() {
+        let recs = [("npm run dev", "/p", 130, 5), ("npm run dev", "/p", 130, 6)];
+        let (h, ix) = setup(&["npm run dev", "npm run build"], &recs);
+        // Neutral: it ranks like a command with no records (newest first), not last.
+        assert_eq!(
+            order(&h, "npm run ", &at(&ix, "/p")),
+            ["npm run build", "npm run dev"]
+        );
+        let (h, ix) = setup(&["npm run build", "npm run dev"], &recs);
+        assert_eq!(
+            order(&h, "npm run ", &at(&ix, "/p")),
+            ["npm run dev", "npm run build"]
+        );
+    }
 }

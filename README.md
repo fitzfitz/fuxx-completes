@@ -25,7 +25,7 @@ take a binding of yours. vi mode works too.
 Which command it offers: one you ran successfully in this folder comes first, the more often the
 better (except `cd`, `pushd` and `open`, which rank only by where they ran); then the one that
 usually follows the command you just ran; then the newest. Commands that only ever failed come
-last.
+last; stopping one with ⌃C doesn't count as failing.
 
 If zsh-autosuggestions is loaded too, ours stays off (`FUXX_AUTOSUGGESTIONS_FORCE=1` turns it on
 anyway). In Warp it always stays off: Warp replaces the shell's line editor. Two copies of the
