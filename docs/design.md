@@ -541,21 +541,32 @@ never calls one.
 The user decided on 2026-11-09 that context data lives in a small local file. This section is how.
 
 - **Where.** `$XDG_DATA_HOME/fuxx-completes/`, default `~/.local/share/fuxx-completes/`, on macOS
-  too. The folder is mode `0700`, the files `0600`.
+  too. The folder is mode `0700`, the files `0600`. **The rule (AI's call, M1):**
+  `$FUXX_PLUGIN_DATA` itself when set (§8), else `$XDG_DATA_HOME/fuxx-completes`, else
+  `$HOME/.local/share/fuxx-completes`; a value that is empty or not absolute counts as unset.
 - **What a record holds.** A key, the folder the command ran in, its exit code, and the time (Unix
   seconds). Nothing else: no command text, no arguments, no environment, no session id.
 - **The key (AI's call).** A keyed hash of the exact command text as the shell saved it (zsh's
   metafied bytes decoded, multi-line commands joined with `\n`): HMAC-SHA-256 or BLAKE3's keyed
   mode (the crate is checked through Context7 in M1), truncated to 128 bits. The secret is 32
-  random bytes in a `key` file beside the records, created on first write. To use a record, the
+  random bytes in a `key` file beside the records, created on first write. **Settled in M1:**
+  BLAKE3's keyed mode (`blake3` 1.8.7, the `pure` feature: no C or assembly), the first 16 bytes
+  as a big-endian number; the 32 bytes come from `/dev/urandom` and are written to a temporary
+  file that is hard-linked into place, so two cores racing to create the key either win or read
+  a complete file. To use a record, the
   core hashes the commands it read from the shell's own history file and looks the keys up; a
   record whose command isn't in history can't be turned back into text and is never shown. Why
   keyed: a plain hash of short commands (`ls`, `git status`) could be reversed with a public
   table. Honest limit: someone who can read both files can still test guesses. The hash keeps the
   text out of the file; the file permissions protect the rest. The folder names are stored as
   they are, because ranking needs them.
+- **The record line (AI's call, M1).** `1 <32 hex key> <status> <time> <folder>` and a LF. In the
+  folder, bytes `0x00`–`0x1F`, `0x7F` and `%` are written `%XX`, so a line never holds a raw LF
+  and a torn write damages only its own line; a line that doesn't decode (a torn tail, junk, a
+  later version) is skipped.
 - **One file per history file.** Records go to `context/<id>` where `<id>` is the keyed hash of
-  the history file's path. A core only ever rewrites the file for its own history. It reads all
+  the history file's path (32 hex digits). A core with no history file writes no records: they
+  could never be matched after a restart (AI's call, M1). A core only ever rewrites the file for its own history. It reads all
   of them, so a command run in bash ranks in zsh too, when the same text is in zsh's history.
 - **Honours "don't save this".** Only commands the shell itself saved are reported (§5.8), so a
   command with a leading space, matched by `HISTIGNORE` or run in fish's private mode never
@@ -853,8 +864,8 @@ no longer links the crates.
   the user's `.zshrc`, with `FUXX_PLUGIN_DIR` and `FUXX_PLUGIN_DATA` set while it is sourced. The
   adapter starts `serve` and draws ghost text as it does in any terminal. fuxx's On/Off switch
   covers the whole plugin; finer settings stay the adapter's shell variables (§7).
-- **Data:** when `FUXX_PLUGIN_DATA` is set, the context file (§5.7) lives there instead of
-  `$XDG_DATA_HOME/fuxx-completes/`, so uninstalling the plugin from fuxx removes it. A copy installed
+- **Data:** when `FUXX_PLUGIN_DATA` is set, the context file (§5.7) lives there (the folder
+  itself: `context/` and `key` directly inside it) instead of `$XDG_DATA_HOME/fuxx-completes/`, so uninstalling the plugin from fuxx removes it. A copy installed
   for other terminals keeps its own data. The adapter keeps its own copy of the variable (fuxx sets
   it only while sourcing).
 - **Double-load guard (AI's call, 2026-11-13):** the adapter sets a marker when it loads; a second

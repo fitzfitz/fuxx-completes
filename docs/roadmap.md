@@ -29,6 +29,16 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **M1 Task 1: context records.** `core/src/context/`: the data folder
+  (`FUXX_PLUGIN_DATA`, then `XDG_DATA_HOME`, then `HOME`), the secret (`blake3` 1.8.7 keyed,
+  `pure`; 32 bytes from `/dev/urandom`, hard-linked into place, `0600` in a `0700` folder), the
+  record line (`1 <key> <status> <time> <folder>`, folder %-escaped), `append` under a shared
+  try-lock, `own_file_id`, `forget`. `design.md` §5.7 and §8. Tests first, seen failing (missing
+  items): data-folder order, key file modes and racing creation, keyed hashes, odd folders
+  round-trip (spaces, `%`, LF, tab, non-UTF-8), bad lines skipped, the file never holds command
+  text, a held lock makes an append busy, `forget` removes only our files. 14 new tests; the
+  workspace passes.
+
 - **2026-11-21** — **M0 done; M1 planned.** The user checked M0 in a real terminal, having
   used it since the v0.0.1–v0.0.5 test releases: "close m0, all good". M0 is ✅. The M1 plan is
   written ([`plans/M1 Plan - Context File and Coexistence.md`](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md))

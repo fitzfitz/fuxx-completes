@@ -25,6 +25,7 @@
 //! zsh, bash or fish. It never sends history or command lines off the machine.
 
 pub mod cd_target;
+pub mod context;
 pub mod history;
 pub mod history_file;
 pub mod protocol;
