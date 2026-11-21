@@ -29,6 +29,20 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **M1 Task 4: context in the session.** `Session::new(data, home)` (tests
+  pass temp folders; only `main` reads the environment): `hello` opens the context store and
+  keys the history, `ran` records (the secret made on first use) and pairs successors, the new
+  `prev` message names the command just run, `suggest` refreshes the store (a `forget` seen
+  through the key file), the history file, and compacts its own file once the history loaded,
+  then ranks. `History::note_ran`: a `ran` the file already gained adds no session record
+  (§5.8's M1 fix). `serve_with`, `HistoryFile::has_loaded`. `design.md` §3, §5.4, §5.5, §5.7,
+  §5.8. Tests first, seen failing (missing items): `prev` both ways and empty, the retire rule
+  (two commands gained before their `ran`), context surviving a restart, `prev` driving the
+  order, `forget` while serving, an unwritable data folder still suggesting, the first full
+  read compacting. Benchmark (release): p50 22 µs, p95 29 µs, max 350 µs over 2,000 answers on
+  100,000 lines and 50,000 records; history loaded and keyed in 37 ms. The workspace passes,
+  the zsh adapter tests included.
+
 - **2026-11-21** — **M1 Task 3: the ranking order.** `core/src/rank.rs`: `Ranking` (tallies, cwd,
   previous command, session successors), `Successors` (consecutive `ran` pairs, at most 10,000),
   the lazy `Ranked` order (tier 1 ran successfully here: follows-previous, then runs here with no

@@ -48,6 +48,11 @@ pub enum Request {
         time: i64,
         command: String,
     },
+    /// The command just run, as the adapter will report it (after its filters); `None` when
+    /// unknown. No reply (`docs/design.md` §5.4, §5.5).
+    Prev {
+        command: Option<String>,
+    },
     Bye,
 }
 
@@ -80,6 +85,7 @@ pub fn decode_request(line: &[u8]) -> Result<Request, DecodeError> {
         b"hello" => decode_hello(&fields),
         b"suggest" => decode_suggest(&fields),
         b"ran" => decode_ran(&fields),
+        b"prev" => decode_prev(&fields),
         b"bye" if fields.len() == 1 => Ok(Request::Bye),
         b"bye" => Err(DecodeError::Malformed { id: None }),
         other => Err(unknown(other)),
@@ -155,6 +161,7 @@ pub fn encode_request(req: &Request) -> Vec<u8> {
             &time.to_string(),
             command,
         ]),
+        Request::Prev { command } => join(&["prev", command.as_deref().unwrap_or("")]),
         Request::Bye => join(&["bye"]),
     }
 }
@@ -280,6 +287,16 @@ fn decode_ran(fields: &[&[u8]]) -> Result<Request, DecodeError> {
         })
     };
     build().ok_or(bad)
+}
+
+fn decode_prev(fields: &[&[u8]]) -> Result<Request, DecodeError> {
+    let [_, command] = fields[..] else {
+        return Err(DecodeError::Malformed { id: None });
+    };
+    let command = field(command).ok_or(DecodeError::Malformed { id: None })?;
+    Ok(Request::Prev {
+        command: (!command.is_empty()).then_some(command),
+    })
 }
 
 fn unknown(kind: &[u8]) -> DecodeError {
@@ -631,5 +648,46 @@ mod tests {
             decode_response(b"items\x1f1"),
             Err(DecodeError::UnknownKind("items".into()))
         );
+    }
+
+    #[test]
+    fn prev_round_trips() {
+        let line = format!("prev{}git add .", '\u{1f}');
+        let req = decode_request(line.as_bytes()).unwrap();
+        assert_eq!(
+            req,
+            Request::Prev {
+                command: Some("git add .".into())
+            }
+        );
+        let mut enc = encode_request(&req);
+        assert_eq!(enc.pop(), Some(b'\n'));
+        assert_eq!(enc, line.as_bytes());
+        // A multi-line command travels with RS for its newlines.
+        let req = Request::Prev {
+            command: Some("for i\ndo x\ndone".into()),
+        };
+        let enc = encode_request(&req);
+        assert_eq!(decode_request(&enc[..enc.len() - 1]).unwrap(), req);
+    }
+
+    #[test]
+    fn empty_prev_is_unknown() {
+        let line = format!("prev{}", '\u{1f}');
+        assert_eq!(
+            decode_request(line.as_bytes()).unwrap(),
+            Request::Prev { command: None }
+        );
+        let enc = encode_request(&Request::Prev { command: None });
+        assert_eq!(enc, format!("prev{}\n", '\u{1f}').into_bytes());
+        assert!(decode_request(b"prev").is_err());
+    }
+
+    #[test]
+    fn an_unknown_kind_is_still_unknown() {
+        assert!(matches!(
+            decode_request(b"later\x1fx"),
+            Err(DecodeError::UnknownKind(_))
+        ));
     }
 }

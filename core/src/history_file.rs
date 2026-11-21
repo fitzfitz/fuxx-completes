@@ -56,6 +56,8 @@ pub struct HistoryFile {
     seen: Option<Stamp>,
     parser: ZshHistoryParser,
     reload: Option<JoinHandle<FullRead>>,
+    /// A full read was applied at least once.
+    loaded: bool,
 }
 
 impl HistoryFile {
@@ -86,9 +88,15 @@ impl HistoryFile {
             seen: None,
             parser: ZshHistoryParser::new(),
             reload: None,
+            loaded: false,
         };
         f.start_reload(hold);
         f
+    }
+
+    /// True once a full read was applied (the first one marks the history as loaded).
+    pub fn has_loaded(&self) -> bool {
+        self.loaded
     }
 
     pub fn is_reloading(&self) -> bool {
@@ -111,6 +119,7 @@ impl HistoryFile {
                 history.replace_file_entries(done.entries);
                 self.parser = done.parser;
                 self.seen = done.stamp;
+                self.loaded = true;
             } // a panicked reader leaves the old index; the stat below retries if needed
         }
 

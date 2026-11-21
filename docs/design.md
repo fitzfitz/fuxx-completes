@@ -108,7 +108,10 @@ These are targets for the builder to measure against, not measurements.
 | A generator (e.g. git branches) | runs off the typing path; default timeout 500 ms; cached |
 | Keystroke handling in the adapter | never waits for the core at all (async), except the bash explicit keys below |
 
-The 10 ms figure is there so the ghost text keeps up with a fast typist. If a request misses its
+The 10 ms figure is there so the ghost text keeps up with a fast typist. **Measured in M1**
+(`cli/tests/latency.rs`, release build, Apple Silicon, 2026-11-21): on a 100,000-line history
+with 50,000 context records over 200 folders, 2,000 suggestion answers took p50 22 µs, p95
+29 µs, max 350 µs; reading and keying the whole history took 37 ms, off the typing path. If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
@@ -314,7 +317,7 @@ Rules:
 recent history entry that starts with the typed text. Then, in later milestones, context: same
 working directory and whether it succeeded (from the context file, so across shells and restarts),
 and the command that ran just before (from this session's records in memory; the context file has
-no session field, §5.7), and **how many times it ran successfully in this folder** (M1, the user's
+no session field, §5.7; the adapter names it with `prev`, because `ran` comes one prompt late), and **how many times it ran successfully in this folder** (M1, the user's
 decision 2026-11-21; `cd`, `pushd` and `open` get no frequency boost, judged by the first simple
 command's word after `builtin`/`command` and `NAME=value`). The order (**AI's call, M1**; deterministic for a given history and context, so it can be
 tested): for each distinct match, count its records **in the cwd exactly** (successes and
@@ -417,6 +420,7 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   | adapter → core | `hello` | protocol (`1`), shell (`zsh`), shell version, history format (`zsh`), history path (absolute, may be empty), libraries (comma list: `autosuggestions`) |
   | adapter → core | `suggest` | id (u64), mode (`async`/`sync`), cursor (code points), cwd, buffer, then optionally cdpath (the shell's `cdpath` folders, one per line, so `RS` on the wire; empty = none) |
   | adapter → core | `ran` | cwd (where it started), exit status (i32), time (Unix seconds), command |
+  | adapter → core | `prev` | the command just run, as the adapter will report it (after its filters; empty = unknown). No reply. Added in M1 without a version bump: an older core ignores the unknown kind |
   | adapter → core | `bye` | none |
   | core → adapter | `ready` | protocol (`1`) |
   | core → adapter | `suggestion` | id, text after the buffer (empty = none) |
@@ -601,7 +605,9 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
   is swapped in. A secret another core made is picked up the same way.
 - **Wiped with one command.** `fuxx-completes forget` deletes the context files and the secret.
   Every running core sees the files are gone (it checks before using them) and drops its
-  in-memory context too.
+  in-memory context too. **How (AI's call, M1):** before each answer a core checks the `key`
+  file's device and inode; gone or replaced, it drops its secret, tallies, pending records and
+  the keys of its history, and the next record it writes makes a new secret.
 - **Never sent anywhere.** The core has no network code (§13). Tests point `XDG_DATA_HOME` at a
   temporary folder.
 
@@ -632,7 +638,9 @@ user typed, so they reveal nothing the shell was told not to keep.
   another `zshaddhistory` hook keeps in memory only (status 2) is reported and suggested for the
   session, like zsh's own in-memory history; and with `SHARE_HISTORY` or `INC_APPEND_HISTORY` the
   file already holds a command before its `ran` arrives, so that session record isn't retired and
-  can outrank newer file entries from other shells. That is ranking only, to be fixed in M1.
+  can outrank newer file entries from other shells. That is ranking only, to be fixed in M1. **Fixed in M1 (AI's call):** the core remembers the
+  last 1,000 file entries it read that no session record matched; a `ran` equal to one of them
+  is already in the file, so it uses that entry and adds no session record.
 - **bash:** a function added to `PROMPT_COMMAND` (appended, not replacing) runs `history 1` and
   reports the entry only if its history number is new since the last prompt. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working

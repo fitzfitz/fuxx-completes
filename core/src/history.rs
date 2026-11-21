@@ -5,7 +5,7 @@
 use crate::context::secret::Secret;
 use crate::context::Key;
 use crate::rank::{walk, Ranked, Ranking};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -68,7 +68,13 @@ pub struct History {
     session_keys: Vec<Key>,
     slots: HashMap<Key, Slot>,
     next_seq: u64,
+    /// File entries read that no session record matched yet: a `ran` equal to one of them
+    /// is already in the file (`SHARE_HISTORY`, `INC_APPEND_HISTORY`; design §5.8).
+    unmatched: VecDeque<String>,
 }
+
+/// How many unmatched file entries are remembered for `note_ran`.
+const MAX_UNMATCHED: usize = 1000;
 
 impl History {
     pub fn new() -> Self {
@@ -160,10 +166,26 @@ impl History {
         self.session.push(command);
     }
 
+    /// A command the adapter reported. If the file already gained it (a file entry no session
+    /// record matched yet), that entry is its record; otherwise it is a session record until the
+    /// file holds it.
+    pub fn note_ran(&mut self, command: String) {
+        if let Some(i) = self.unmatched.iter().position(|e| *e == command) {
+            self.unmatched.remove(i);
+        } else {
+            self.record_session(command);
+        }
+    }
+
     /// New entries read from the end of the file; each one removes one equal session record.
     pub fn append_file_entries(&mut self, entries: Vec<String>) {
         for entry in &entries {
-            self.retire_session_record(entry);
+            if !self.retire_session_record(entry) {
+                if self.unmatched.len() >= MAX_UNMATCHED {
+                    self.unmatched.pop_front();
+                }
+                self.unmatched.push_back(entry.clone());
+            }
         }
         for entry in entries {
             if let Some(s) = &self.secret {
@@ -178,7 +200,7 @@ impl History {
     /// A full re-read: replaces the file entries; each new entry removes one equal session record.
     pub fn replace_file_entries(&mut self, entries: Vec<String>) {
         for entry in &entries {
-            self.retire_session_record(entry);
+            let _ = self.retire_session_record(entry);
         }
         self.file = entries;
         self.rekey();
@@ -285,20 +307,22 @@ impl History {
         }
     }
 
-    /// The file now holds `entry`, so drop the oldest equal session record, if any.
-    fn retire_session_record(&mut self, entry: &str) {
-        if let Some(i) = self.session.iter().position(|s| s == entry) {
-            self.session.remove(i);
-            if self.secret.is_some() {
-                let key = self.session_keys.remove(i);
-                if let Some(slot) = self.slots.get_mut(&key) {
-                    slot.session_count -= 1;
-                    if slot.session_count == 0 && slot.file_newest.is_none() {
-                        self.slots.remove(&key);
-                    }
+    /// The file now holds `entry`, so drop the oldest equal session record, if any (true).
+    fn retire_session_record(&mut self, entry: &str) -> bool {
+        let Some(i) = self.session.iter().position(|s| s == entry) else {
+            return false;
+        };
+        self.session.remove(i);
+        if self.secret.is_some() {
+            let key = self.session_keys.remove(i);
+            if let Some(slot) = self.slots.get_mut(&key) {
+                slot.session_count -= 1;
+                if slot.session_count == 0 && slot.file_newest.is_none() {
+                    self.slots.remove(&key);
                 }
             }
         }
+        true
     }
 
     #[cfg(test)]
@@ -567,5 +591,33 @@ mod tests {
     fn format_parses_zsh_only() {
         assert_eq!("zsh".parse::<HistoryFormat>(), Ok(HistoryFormat::Zsh));
         assert!("bash".parse::<HistoryFormat>().is_err());
+    }
+
+    #[test]
+    fn ran_already_in_the_file_adds_no_session_record() {
+        let mut h = History::new();
+        h.append_file_entries(vec!["make".into()]);
+        h.note_ran("make".into());
+        assert_eq!(h.session_len(), 0);
+        // A newer entry another shell wrote wins, as it would in the file alone.
+        h.append_file_entries(vec!["make x".into()]);
+        assert_eq!(h.latest_with_prefix("make"), Some("make x"));
+        // Reports one prompt late: the file gained two commands before either `ran` came.
+        h.append_file_entries(vec!["a1".into(), "b1".into()]);
+        h.note_ran("a1".into());
+        h.note_ran("b1".into());
+        assert_eq!(h.session_len(), 0);
+    }
+
+    #[test]
+    fn ran_not_yet_in_the_file_is_a_session_record() {
+        let mut h = History::new();
+        h.note_ran("make".into());
+        assert_eq!(h.session_len(), 1);
+        // Each file entry matches one `ran` only.
+        h.append_file_entries(vec!["ls".into()]);
+        h.note_ran("ls".into());
+        h.note_ran("ls".into());
+        assert_eq!(h.session_len(), 2);
     }
 }

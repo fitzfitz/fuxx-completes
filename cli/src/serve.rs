@@ -4,11 +4,19 @@ use crate::session::Session;
 use fuxx_completes_core::protocol::{decode_request, encode_response, Request};
 use std::io::{BufRead, ErrorKind, Write};
 
+/// `serve_with` on a session set up from this process's environment.
+pub fn serve(input: impl BufRead, output: impl Write) -> std::io::Result<()> {
+    serve_with(Session::from_env(), input, output)
+}
+
 /// Reads LF-terminated lines until EOF or `bye`; writes and flushes each reply at once.
 /// Lines that don't decode (including invalid UTF-8) are skipped. A closed output pipe ends
 /// the loop quietly with `Ok`.
-pub fn serve(mut input: impl BufRead, mut output: impl Write) -> std::io::Result<()> {
-    let mut session = Session::new();
+pub fn serve_with(
+    mut session: Session,
+    mut input: impl BufRead,
+    mut output: impl Write,
+) -> std::io::Result<()> {
     let mut line = Vec::new();
     loop {
         line.clear();
@@ -51,7 +59,12 @@ mod tests {
     }
     fn run(input: &[u8]) -> String {
         let mut out = Vec::new();
-        serve(Cursor::new(input.to_vec()), &mut out).unwrap();
+        serve_with(
+            Session::new(None, None),
+            Cursor::new(input.to_vec()),
+            &mut out,
+        )
+        .unwrap();
         String::from_utf8(out).unwrap()
     }
 
