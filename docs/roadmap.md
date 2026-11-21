@@ -5,12 +5,13 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M0** (built; waiting for the user's check in a real terminal).
+**Current milestone: M1** (M0 done 2026-11-21; the M1 plan is written, waiting for the user's review).
 
 | | Milestone | Status |
 | --- | --- | --- |
-| M0 | Core + history + zsh adapter | 🟨 built, waiting for the user's check in a real terminal |
-| M1 | Autosuggestions: context file and coexistence | ⬜ |
+| M0 | Core + history + zsh adapter | ✅ done 2026-11-21 (the user's check: "close m0, all good") |
+| M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | 🟨 planned ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md)), waiting for the user's review |
+| M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ⬜ |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
@@ -27,6 +28,28 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-21** — **M0 done; M1 planned.** The user checked M0 in a real terminal, having
+  used it since the v0.0.1–v0.0.5 test releases: "close m0, all good". M0 is ✅. The M1 plan is
+  written ([`plans/M1 Plan - Context File and Coexistence.md`](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md))
+  and waits for the user's review before any code. M1b is planned once M1 is done.
+
+- **2026-11-21** — **Design: frequency ranking and project knowledge (docs only, nothing built;
+  saved to pick up later, the user's words: "this session is only to write plan and saved it to
+  pick up later").** The user asked whether the ghost text saves the commands run most (except
+  `cd` and `open`); it doesn't (newest match wins). Decided: how often a command ran successfully
+  in this folder becomes an M1 ranking factor, with no boost for `cd`, `pushd` and `open`. And a
+  new milestone **M1b, project knowledge**: the core detects project types from marker files
+  (node, uv, cargo, C++, VB.NET, flutter, android, macOS, plus about 25 more) through mapping data
+  and six built-in readers (approach 1 of 3), never running anything in the project. Order: this
+  folder's history, then the project's commands, then history from other folders (the user's
+  "history first", then "agreed" to this folder's history after the builder check found global
+  history would almost always hide the project's commands). Limits (AI's calls): 10 ms answers kept,
+  detection off the typing path with a 50 ms cap, files over 256 KB skipped, at most 150 KB added
+  to the binary. Spec:
+  [`superpowers/specs/2026-11-21-project-knowledge-design.md`](superpowers/specs/2026-11-21-project-knowledge-design.md);
+  `design.md` §2, §3, §4, §5.4, §5.8, §12, §15 updated. M0 still waits for the user's check; plans
+  for M1 and M1b are written when each is reached.
 
 - **2026-11-13** — **A `cd` down into the current folder ranks first (the user's decision, after
   v0.0.4).** The user's report: "now cd always suggest to ../.." (in `~/Kerja`, `../..` is the

@@ -1,7 +1,7 @@
 # fuxx-completes: design
 
-Status: **M0 is built** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh adapter),
-waiting for the user's check in a real terminal; M1 onward are design only. This document is the
+Status: **M0 is done** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh adapter;
+the user's check 2026-11-21); M1 is planned, M1b onward are design only. This document is the
 source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
@@ -55,6 +55,11 @@ The user wants one engine that:
    host terminal over the host channel of §5.5).
 6. fuxx installs fuxx-completes as a **fuxx plugin** and can switch it on or off (§8; changed
    2026-11-13, was "fuxx uses the core directly").
+7. **Project knowledge (added 2026-11-21, the user's decision).** The core knows what kind of
+   project a folder is (node, uv, cargo, C++, VB.NET, flutter, android, macOS and more) from our
+   own mappings, and the ghost text offers that project's usual commands when this folder's
+   history has no match. Speed and size come first. §5.4; full design in
+   `docs/superpowers/specs/2026-11-21-project-knowledge-design.md`.
 
 ### Non-goals (not planned)
 
@@ -65,6 +70,11 @@ The user wants one engine that:
 - Windows, PowerShell, nushell, or other shells beyond zsh, bash and fish.
 - Network access of any kind. See §13.
 - A general shell framework, prompt theme, or plugin manager.
+- Running anything in a project to learn about it (`gradle tasks`, `npm run`, `make -p`): project
+  knowledge only lists folders and reads small files (§5.4). User-written or downloaded project
+  mappings: only the ones we ship (added 2026-11-21).
+- A second helper program in another language for speed: the Rust core is the helper (AI's call,
+  2026-11-21).
 
 ### Anti-goals (must never happen)
 
@@ -100,6 +110,13 @@ These are targets for the builder to measure against, not measurements.
 
 The 10 ms figure is there so the ghost text keeps up with a fast typist. If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
+
+**Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
+candidates. Detecting a folder's projects runs on a worker thread with a 50 ms cap; the first
+request in a never-seen folder answers from history only while it runs, later ones use the
+in-memory cache (64 folders, least recently used dropped). Files over 256 KB are skipped. The
+whole feature adds at most **150 KB** to the release binary, measured before and after; mapping
+data is compiled in, and minimal hand-written readers are preferred over general parsers.
 
 ### bash explicit keys: a separate budget (AI's call)
 
@@ -194,6 +211,19 @@ arrive.
   group the order is unchanged, and a lower one is shown only when no "down here" one matches.
   Other commands are unaffected; folder-aware ranking for all commands stays M1. How it works:
   §5.4.
+- **Commands run most rank higher, except `cd` and `open` (decided 2026-11-21).** The user asked
+  "does fuxx-complete saves most run command (except for cd or open)?"; it didn't, and they said
+  "yes I want it". How often a command ran successfully in this folder is a ranking factor in M1;
+  `cd`, `pushd` and `open` get no such boost. §5.4.
+- **Project knowledge (decided 2026-11-21).** The user: "what about it learns from the project
+  folder? we will have a mapping library on fuxx completes … for node projects, uv projects, cargo
+  projects, c++ project, vb projects, flutter project, android project, macos project … always pay
+  more attention on performance for size and the fast suggestions is needed." Then, from the
+  options offered: **history first** (option (a)), meaning **this folder's history** ("agreed" to
+  the recommendation): this folder's history, then the project's commands, then history typed in
+  other folders. Built as **mapping data plus a few built-in readers** (approach 1). Milestone
+  M1b, after M1. §5.4, and the full design in
+  `docs/superpowers/specs/2026-11-21-project-knowledge-design.md`.
 - **License (AI's call):** MIT OR Apache-2.0, the Rust convention.
 - **Layout (AI's call):** a Cargo workspace (§12).
 
@@ -284,9 +314,33 @@ Rules:
 recent history entry that starts with the typed text. Then, in later milestones, context: same
 working directory and whether it succeeded (from the context file, so across shells and restarts),
 and the command that ran just before (from this session's records in memory; the context file has
-no session field, §5.7). The weights are the builder's choice; ranking must be deterministic for a
-given history and context, so it can be tested. A command missing from the history the core holds
-is never suggested (§5.8).
+no session field, §5.7), and **how many times it ran successfully in this folder** (M1, the user's
+decision 2026-11-21; `cd`, `pushd` and `open` get no frequency boost, judged by the first simple
+command's word after `builtin`/`command` and `NAME=value`). The weights are the builder's choice;
+ranking must be deterministic for a given history and context, so it can be tested. A command
+missing from the history the core holds is never suggested (§5.8), with one stated exception:
+project candidates, below.
+
+**Project knowledge (M1b, the user's decisions 2026-11-21).** The core detects the projects around
+the cwd: it walks up to the first folder holding `.git`, `$HOME` or `/` (at most 8 levels), and
+in each folder matches **one directory listing** against all marker names and patterns; every
+project found is kept, nearest first. What a project type means lives in mapping data under
+`projects/` (TOML compiled into static tables by `build.rs`): marker files, a short list of fixed
+commands, and which built-in reader pulls project-specific ones (`json_keys`, `toml_keys`,
+`make_targets`, `just_recipes`, `yaml_keys`, `file_names`), e.g. `package.json` scripts with the
+package manager chosen from the lockfile. Nothing in the project is ever run; an extracted name
+is used only if it is 1–100 characters of letters, digits and `-_.:/@+`. The order:
+
+1. History matches with a record **in this folder** (the cwd exactly; context file or this
+   session's reports) → the best one, ranked as above. Project commands are not consulted.
+2. Otherwise **project candidates** starting with the typed text: nearest project first, then the
+   mapping's fixed commands in order, then reader results in file order.
+3. Otherwise the rest of history as before (matches typed only in other folders).
+
+So `cargo tree` typed once elsewhere doesn't hide `cargo test` in a new Rust project, while
+`git st` there still finds `git status` from elsewhere. Once run, a project command is in this
+folder's history and ranks in step 1. The ecosystem list, the data format sketch and the readers'
+rules are in `docs/superpowers/specs/2026-11-21-project-knowledge-design.md`.
 
 **A `cd` to a folder that isn't there is passed over (the user's decision, 2026-11-13, §4).** The
 core walks the matches in rank order and skips one whose command is `cd` or `pushd` (after leading
@@ -523,6 +577,9 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
 ### 5.8 History semantics (AI's call)
 
 The core suggests only commands the shell itself kept, after the shell's own filtering.
+**One stated exception (2026-11-21):** project candidates (§5.4), shown only when this folder's
+history has no match. They come from the project's files and our mappings, never from what the
+user typed, so they reveal nothing the shell was told not to keep.
 
 - **zsh:** a `zshaddhistory` hook (added with `add-zsh-hook`, so others keep theirs) notes the
   line; the adapter reports it only if zsh actually kept it, with the filter respected: the line is
@@ -893,6 +950,7 @@ cli/                       the fuxx-completes binary (serve; later report, compl
 fuxx-autosuggestions/      the ghost-text library
 fuxx-autocomplete/         the menu library
 specs/                     command knowledge (our format; imported data marked)
+projects/                  project-type mappings (TOML, compiled in by core/build.rs; M1b)
 adapters/zsh|bash|fish/    thin shell plugins
 docs/design.md             this document
 docs/roadmap.md            milestones
@@ -964,7 +1022,8 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
 | | Milestone | Done when |
 | --- | --- | --- |
 | M0 | Core + history + zsh adapter | the binary serves suggestions from a zsh history file; the zsh plugin shows ghost text on zsh 5.3+ (`memo=` on 5.9+, exact-string fallback below); `forward-char`/`end-of-line` accept, `forward-word` accepts a word, vi-mode widgets wrapped; End and ⌥→ bound only if unbound; reports follow §5.8 and the history file is re-read on change; async; temp-HOME tests pass |
-| M1 | Autosuggestions: context file and coexistence | the context file of §5.7 (keyed records, pruning, `forget`); ranking uses cwd and exit status across shells and restarts, and the previous command in-session; conflicting plugins and Warp detected; `doctor`; latency benchmark meets §3; the context file under `FUXX_PLUGIN_DATA` when set, and the double-load guard (§8) |
+| M1 | Autosuggestions: context file and coexistence | the context file of §5.7 (keyed records, pruning, `forget`); ranking uses cwd, exit status and how often a command ran in this folder (no boost for `cd`, `pushd`, `open`) across shells and restarts, and the previous command in-session; conflicting plugins and Warp detected; `doctor`; latency benchmark meets §3; the context file under `FUXX_PLUGIN_DATA` when set, and the double-load guard (§8) |
+| M1b | Project knowledge | project detection, the in-memory cache and the six readers, with temp-folder tests; mapping data under `projects/` compiled in; every ecosystem in the design spec has a fixture folder and a test; the three-step order of §5.4 tested; latency within §3 on a cold and a warm folder; binary growth under 150 KB, measured from M1's binary |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
 | M3 | Release fuxx-autosuggestions | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |
