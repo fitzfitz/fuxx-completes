@@ -872,9 +872,10 @@ _fuxx_as_conflict() {
   fi
 }
 
-# What this shell knows for `doctor` (design §7), one `name=value` per line.
+# What this shell knows for `doctor` (design §7), one `name=value` per line. $1, when given, is
+# the user's SHGLOB as the caller saw it before its own `emulate`.
 _fuxx_as_facts() {
-  local shglob=${options[shglob]-off}
+  local shglob=${1:-${options[shglob]-off}}
   emulate -L zsh
   local k
   print -r -- shell=zsh
@@ -907,6 +908,7 @@ _fuxx_as_zshexit() {
   (( _FUXX_AS_OWN_FN || ! ( $+functions[fuxx-completes] || $+aliases[fuxx-completes] ) )) || return 0
   typeset -gi _FUXX_AS_OWN_FN=1
   fuxx-completes() {
+    local shglob=${options[shglob]-off}   # the user's, before emulate resets it
     emulate -L zsh
     local bin=${FUXX_COMPLETES_BIN:-${commands[fuxx-completes]-}}
     if [[ -z $bin ]]; then
@@ -915,7 +917,7 @@ _fuxx_as_zshexit() {
     fi
     if [[ $1 == doctor ]]; then
       shift
-      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" doctor --shell-facts "$(_fuxx_as_facts)" "$@"
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" doctor --shell-facts "$(_fuxx_as_facts $shglob)" "$@"
     else
       FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" "$@"
     fi

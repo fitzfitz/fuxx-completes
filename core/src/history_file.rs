@@ -38,6 +38,8 @@ struct FullRead {
     parser: ZshHistoryParser,
     /// `None` when the file could not be opened (missing = no entries).
     stamp: Option<Stamp>,
+    /// The whole file was read: opened, and read to its end without an error.
+    complete: bool,
 }
 
 /// Test hook: told when the read is finished, then holds the result back until released.
@@ -94,7 +96,7 @@ impl HistoryFile {
         f
     }
 
-    /// True once a full read was applied (the first one marks the history as loaded).
+    /// True once a complete full read was applied (a missing or unreadable file never counts).
     pub fn has_loaded(&self) -> bool {
         self.loaded
     }
@@ -119,7 +121,9 @@ impl HistoryFile {
                 history.replace_file_entries(done.entries);
                 self.parser = done.parser;
                 self.seen = done.stamp;
-                self.loaded = true;
+                // Only a complete read counts: compaction trusts it to hold every command, and
+                // a missing or unreadable file would make it delete every record.
+                self.loaded |= done.complete;
             } // a panicked reader leaves the old index; the stat below retries if needed
         }
 
@@ -201,8 +205,10 @@ fn read_everything(path: &PathBuf) -> FullRead {
             entries,
             parser,
             stamp: None,
+            complete: false,
         };
     };
+    let mut complete = true;
     let mut total = 0u64;
     let mut buf = vec![0u8; 64 * 1024];
     loop {
@@ -213,7 +219,10 @@ fn read_everything(path: &PathBuf) -> FullRead {
                 entries.extend(parser.feed(&buf[..n]));
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => break,
+            Err(_) => {
+                complete = false;
+                break;
+            }
         }
     }
     // Stat the open file after reading: same inode as what we read, and `len` is what we
@@ -222,6 +231,7 @@ fn read_everything(path: &PathBuf) -> FullRead {
     FullRead {
         entries,
         parser,
+        complete: complete && stamp.is_some(),
         stamp,
     }
 }

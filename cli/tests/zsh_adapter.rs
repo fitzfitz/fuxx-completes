@@ -2747,3 +2747,32 @@ fn existing_function_named_fuxx_completes_is_left_alone() {
         "mine\n"
     );
 }
+
+#[test]
+fn doctor_warns_when_shglob_is_on() {
+    // Through the `fuxx-completes` function in a real interactive zsh (no pty: under shglob the
+    // pty harness can't see commands run, with or without the plugin). `shglob` is set on its own
+    // line, so the doctor line is parsed and run with it on.
+    let home = tempfile::tempdir().unwrap();
+    let script = format!(
+        "source '{}'\n_fuxx_as_precmd\nsetopt shglob\nfuxx-completes doctor\n",
+        plugin_path().display()
+    );
+    let out = Command::new(common::zsh_path())
+        .args(["-f", "-i", "-c", &script])
+        .current_dir(home.path())
+        .env_clear()
+        .env("HOME", home.path())
+        .env("XDG_DATA_HOME", home.path().join("xdg"))
+        .env("PATH", "/usr/bin:/bin")
+        .env("FUXX_COMPLETES_BIN", env!("CARGO_BIN_EXE_fuxx-completes"))
+        .output()
+        .unwrap();
+    let doc = String::from_utf8_lossy(&out.stdout);
+    assert!(doc.contains("host mode"), "{doc}");
+    assert!(
+        doc.lines()
+            .any(|l| l.starts_with("warning      shglob is on")),
+        "{doc}"
+    );
+}

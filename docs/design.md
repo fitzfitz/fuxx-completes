@@ -110,8 +110,10 @@ These are targets for the builder to measure against, not measurements.
 
 The 10 ms figure is there so the ghost text keeps up with a fast typist. **Measured in M1**
 (`cli/tests/latency.rs`, release build, Apple Silicon, 2026-11-21): on a 100,000-line history
-with 50,000 context records over 200 folders, 2,000 suggestion answers took p50 22 µs, p95
-29 µs, max 350 µs; reading and keying the whole history took 37 ms, off the typing path. If a request misses its
+with 50,000 context records over 200 folders, 2,000 suggestion answers took p50 30 µs, p95
+39 µs, max 368 µs (after the review fixes, which read the key's 32 bytes per answer); reading
+and keying the whole history took 35 ms. Keying runs where a full re-read is applied, on the
+serve thread (about 8 ms for 100,000 entries); moving it to the reader is a known follow-up. If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
@@ -591,7 +593,9 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
   saved only in memory and not yet written may lose its records to a compaction by another
   session; that costs ranking, never privacy. **Settled in M1 (AI's calls):** the cap is 4 MiB a
   file; a compaction that has to trim goes down to 3 MiB, so the next one isn't one append away;
-  a compaction that would remove nothing leaves the file alone. It runs on a worker thread.
+  a compaction that would remove nothing leaves the file alone. It runs on a worker thread, and
+  only after a complete read of the history file: a missing or unreadable history would
+  otherwise make it delete every record (fix after the M1 review).
 - **Concurrent writers.** Records are appended with `O_APPEND`, one small write each; compaction
   writes a new file under an advisory lock and renames it into place. **Settled in M1 (AI's
   calls):** a `context/<id>.lock` beside each file; an append takes it shared, a compaction
@@ -605,9 +609,13 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
   is swapped in. A secret another core made is picked up the same way.
 - **Wiped with one command.** `fuxx-completes forget` deletes the context files and the secret.
   Every running core sees the files are gone (it checks before using them) and drops its
-  in-memory context too. **How (AI's call, M1):** before each answer a core checks the `key`
-  file's device and inode; gone or replaced, it drops its secret, tallies, pending records and
-  the keys of its history, and the next record it writes makes a new secret.
+  in-memory context too. **How (AI's call, M1):** before each answer, and before writing a record,
+  a core reads the `key` file's 32 bytes (the inode isn't enough: a new key may get the old one's
+  inode number, as on ext4); gone or different, it drops its secret, tallies, pending records
+  and the keys of its history, and the next record it writes makes a new secret. A command that
+  finished before the core noticed the `forget` is not recorded (the adapter reports one prompt
+  late). `forget` deletes the `key` first, then `context/`, so no core can append under the old
+  key while the folder goes (fixes after the M1 review).
 - **Never sent anywhere.** The core has no network code (§13). Tests point `XDG_DATA_HOME` at a
   temporary folder.
 
@@ -638,9 +646,11 @@ user typed, so they reveal nothing the shell was told not to keep.
   another `zshaddhistory` hook keeps in memory only (status 2) is reported and suggested for the
   session, like zsh's own in-memory history; and with `SHARE_HISTORY` or `INC_APPEND_HISTORY` the
   file already holds a command before its `ran` arrives, so that session record isn't retired and
-  can outrank newer file entries from other shells. That is ranking only, to be fixed in M1. **Fixed in M1 (AI's call):** the core remembers the
-  last 1,000 file entries it read that no session record matched; a `ran` equal to one of them
-  is already in the file, so it uses that entry and adds no session record.
+  can outrank newer file entries from other shells. That is ranking only, to be fixed in M1. **Fixed in M1 (AI's call):** a `ran` equal to a file
+  entry the core read since the `ran` before the previous one (and that no session record
+  matched) is already in the file, so it uses that entry and adds no session record. Older file
+  entries came from other shells and never absorb a report, so with zsh's default options the
+  command just run still ranks first (narrowed after the M1 review).
 - **bash:** a function added to `PROMPT_COMMAND` (appended, not replacing) runs `history 1` and
   reports the entry only if its history number is new since the last prompt. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working

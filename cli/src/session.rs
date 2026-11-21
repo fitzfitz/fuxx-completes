@@ -612,4 +612,30 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
+
+    #[test]
+    fn a_missing_history_file_never_triggers_compaction() {
+        let c = Ctx::new(&[]);
+        std::fs::remove_file(&c.hist).unwrap();
+        let secret = Secret::load_or_create(&c.root).unwrap();
+        let r = Record {
+            key: secret.key_of("kept"),
+            folder: c.p.clone(),
+            status: 0,
+            time: 1,
+        };
+        let own = c.own(&secret);
+        append(&c.root, &own, &[r]).unwrap();
+        let mut s = c.session();
+        for id in 0..40 {
+            s.handle(suggest_in(id, "k", &c.p, None));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let bytes = std::fs::read(c.root.join("context").join(&own)).unwrap();
+        assert_eq!(
+            bytes.iter().filter(|&&b| b == b'\n').count(),
+            1,
+            "the record was compacted away"
+        );
+    }
 }

@@ -29,6 +29,21 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **M1 whole-branch review and its fix pass.** One fresh reviewer (Opus) on the
+  whole branch: ready with fixes; no Critical. Fixed, each with a test seen failing first:
+  (1) a `forget` missed when the new key reuses the old inode (ext4): the key's bytes are now
+  compared; (2) the `SHARE_HISTORY` retire rule let old entries from other shells absorb this
+  shell's report, so the command just run no longer ranked first with zsh's defaults: only
+  entries read since the `ran` before the previous one count; (3) `doctor`'s `shglob` warning
+  could never fire (read under `emulate`): the function now reads the user's option first;
+  (4, regraded from Minor) a missing or unreadable history file let compaction delete every
+  record: only a complete read counts as loaded; (5, regraded from Minor) `forget` now removes
+  the key before the folder. `Cargo.lock` committed with `blake3`. Taken to the user: whether a
+  command stopped with ⌃C (status 130/143) should count as failed. Found on the way, not ours:
+  in the pty harness, with `setopt shglob` a typed line doesn't run even with the plugin off, so
+  the `shglob` test runs zsh as a process. Deferred minors are listed in the M1 note below. 127
+  adapter tests on zsh 5.3.1, 5.8.1 and 5.9; the workspace passes; release benchmark p95 39 µs.
+
 - **2026-11-21** — **M1 Task 6: `forget` and `doctor`.** The binary takes `serve`, `forget` and
   `doctor [--shell-facts <lines>]` (usage and exit 2 otherwise); `doctor::report` prints the
   facts in a fixed order; the zsh adapter's `fuxx-completes` function (only when the name is

@@ -74,13 +74,15 @@ pub(crate) fn open_lock(dir: &Path, id: &str) -> io::Result<fs::File> {
 /// Deletes `<root>/context/` (everything in it) and `<root>/key`; then, when asked, `root`
 /// itself if nothing else is left in it. True when something was removed.
 pub fn forget(root: &Path, remove_root_if_empty: bool) -> io::Result<bool> {
+    // The key first: once it is gone no core appends under it, so nothing can recreate a
+    // context file while the folder is being removed.
     let mut removed = false;
-    match fs::remove_dir_all(root.join(CONTEXT_DIR)) {
+    match fs::remove_file(root.join(SECRET_FILE)) {
         Ok(()) => removed = true,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
-    match fs::remove_file(root.join(SECRET_FILE)) {
+    match fs::remove_dir_all(root.join(CONTEXT_DIR)) {
         Ok(()) => removed = true,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
@@ -188,8 +190,6 @@ pub struct ContextStore {
     dir: DataDir,
     history_path: Option<PathBuf>,
     secret: Option<Secret>,
-    /// The key file's (device, inode) when the secret was loaded: `forget` changes or removes it.
-    key_stamp: Option<(u64, u64)>,
     own_id: Option<String>,
     files: HashMap<String, FileState>,
     /// What the files say.
@@ -211,7 +211,6 @@ impl ContextStore {
             dir,
             history_path,
             secret: None,
-            key_stamp: None,
             own_id: None,
             files: HashMap::new(),
             base: ContextIndex::default(),
@@ -332,18 +331,17 @@ impl ContextStore {
     }
 
     /// Loads a secret that appeared, or drops everything when the key file went or changed.
+    /// The key's bytes are compared, not its inode: a new key may reuse the old one's inode
+    /// number (ext4 does), and a missed `forget` would keep ranking with wiped records.
     fn check_secret(&mut self) {
-        let stamp = fs::metadata(self.dir.root.join(SECRET_FILE))
-            .ok()
-            .map(|m| (m.dev(), m.ino()));
-        if self.secret.is_some() && stamp != self.key_stamp {
+        let current = Secret::load(&self.dir.root).ok().flatten();
+        if self.secret.is_some() && current != self.secret {
             self.forgotten_at = Some(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_secs() as i64),
             );
             self.secret = None;
-            self.key_stamp = None;
             self.own_id = None;
             self.files.clear();
             self.base = ContextIndex::default();
@@ -351,14 +349,13 @@ impl ContextStore {
             self.pending.clear();
             self.rebuild = None;
         }
-        if self.secret.is_none() && stamp.is_some() {
-            if let Ok(Some(secret)) = Secret::load(&self.dir.root) {
+        if self.secret.is_none() {
+            if let Some(secret) = current {
                 self.own_id = self
                     .history_path
                     .as_deref()
                     .map(|p| own_file_id(&secret, p));
                 self.secret = Some(secret);
-                self.key_stamp = stamp;
             }
         }
     }
@@ -976,5 +973,35 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64
+    }
+
+    #[test]
+    fn forget_is_noticed_when_the_new_key_reuses_the_inode() {
+        let f = Fixture::new();
+        append(&f.root, &f.own(), &[f.rec("make", "/p", 0, 1)]).unwrap();
+        let mut s = f.open();
+        assert!(s.index().anywhere(f.key("make")).is_some());
+        // A forget from another shell, then a new key that got the old one's inode number (ext4
+        // may hand it out again): the running core must still notice.
+        std::fs::remove_dir_all(f.root.join("context")).unwrap();
+        std::fs::write(f.root.join("key"), [42u8; 32]).unwrap();
+        s.refresh();
+        assert!(s.secret() == Some(&Secret::from_bytes([42; 32])));
+        assert!(s.index().anywhere(f.key("make")).is_none());
+    }
+
+    #[test]
+    fn forget_removes_the_key_first() {
+        let f = Fixture::new();
+        append(&f.root, &f.own(), &[f.rec("make", "/p", 0, 1)]).unwrap();
+        let ctx = f.root.join("context");
+        std::fs::set_permissions(&ctx, std::os::unix::fs::PermissionsExt::from_mode(0o500))
+            .unwrap();
+        let res = forget(&f.root, false);
+        std::fs::set_permissions(&ctx, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+            .unwrap();
+        assert!(res.is_err());
+        // The key went first, so no core can append under it while the folder is removed.
+        assert!(!f.root.join("key").exists());
     }
 }

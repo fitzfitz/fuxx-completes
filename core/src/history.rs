@@ -68,9 +68,13 @@ pub struct History {
     session_keys: Vec<Key>,
     slots: HashMap<Key, Slot>,
     next_seq: u64,
-    /// File entries read that no session record matched yet: a `ran` equal to one of them
-    /// is already in the file (`SHARE_HISTORY`, `INC_APPEND_HISTORY`; design §5.8).
-    unmatched: VecDeque<String>,
+    /// File entries read that no session record matched yet, with the `ran` count when they
+    /// were read: a `ran` equal to one read since the `ran` before the previous one is already
+    /// in the file (`SHARE_HISTORY`, `INC_APPEND_HISTORY`; design §5.8). Older ones came from
+    /// other shells and never absorb a report.
+    unmatched: VecDeque<(String, u64)>,
+    /// How many `ran` reports were noted.
+    rans: u64,
 }
 
 /// How many unmatched file entries are remembered for `note_ran`.
@@ -170,11 +174,14 @@ impl History {
     /// record matched yet), that entry is its record; otherwise it is a session record until the
     /// file holds it.
     pub fn note_ran(&mut self, command: String) {
-        if let Some(i) = self.unmatched.iter().position(|e| *e == command) {
+        let since = self.rans.saturating_sub(1);
+        self.unmatched.retain(|(_, read_at)| *read_at >= since);
+        if let Some(i) = self.unmatched.iter().position(|(e, _)| *e == command) {
             self.unmatched.remove(i);
         } else {
             self.record_session(command);
         }
+        self.rans += 1;
     }
 
     /// New entries read from the end of the file; each one removes one equal session record.
@@ -184,7 +191,7 @@ impl History {
                 if self.unmatched.len() >= MAX_UNMATCHED {
                     self.unmatched.pop_front();
                 }
-                self.unmatched.push_back(entry.clone());
+                self.unmatched.push_back((entry.clone(), self.rans));
             }
         }
         for entry in entries {
@@ -619,5 +626,17 @@ mod tests {
         h.note_ran("ls".into());
         h.note_ran("ls".into());
         assert_eq!(h.session_len(), 2);
+    }
+
+    #[test]
+    fn an_old_file_entry_never_absorbs_a_ran() {
+        // zsh's defaults: growth comes from other shells exiting; their commands must not
+        // absorb this shell's report later on (the review's case).
+        let mut h = History::new();
+        h.append_file_entries(vec!["make test".into(), "make build".into()]);
+        h.note_ran("ls".into());
+        h.note_ran("pwd".into());
+        h.note_ran("make test".into());
+        assert_eq!(h.latest_with_prefix("make"), Some("make test"));
     }
 }
