@@ -199,6 +199,9 @@ pub struct ContextStore {
     pending: Vec<Record>,
     rebuild: Option<JoinHandle<Loaded>>,
     compaction: Option<JoinHandle<()>>,
+    /// When this core noticed a `forget` (Unix seconds): records of commands that finished by
+    /// then are dropped, so a report that arrives late can't outlive the wipe.
+    forgotten_at: Option<i64>,
 }
 
 impl ContextStore {
@@ -216,6 +219,7 @@ impl ContextStore {
             pending: Vec::new(),
             rebuild: None,
             compaction: None,
+            forgotten_at: None,
         };
         store.check_secret();
         if store.secret.is_some() {
@@ -271,6 +275,10 @@ impl ContextStore {
     /// A record that can't be written yet stays pending (and counts) until a later refresh.
     pub fn record(&mut self, command: &str, folder: &Path, status: i32, time: i64) {
         if self.history_path.is_none() {
+            return;
+        }
+        self.check_secret();
+        if self.forgotten_at.is_some_and(|t| time <= t) {
             return;
         }
         if self.secret.is_none() {
@@ -329,6 +337,11 @@ impl ContextStore {
             .ok()
             .map(|m| (m.dev(), m.ino()));
         if self.secret.is_some() && stamp != self.key_stamp {
+            self.forgotten_at = Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs() as i64),
+            );
             self.secret = None;
             self.key_stamp = None;
             self.own_id = None;
@@ -939,5 +952,29 @@ mod tests {
         assert!(s.own_file_len() > CAP);
         s.compact_in_background([f.key("a")].into());
         assert!(poll(|| s.own_file_len() <= TRIM_TO));
+    }
+
+    #[test]
+    fn record_after_forget_drops_commands_from_before_it() {
+        let f = Fixture::new();
+        let mut s = f.open();
+        s.record("before", Path::new("/p"), 0, 1);
+        assert!(forget(&f.root, false).unwrap());
+        // The adapter reports the command run before `forget` one prompt late.
+        s.record("ran-before-forget", Path::new("/p"), 0, now() - 1);
+        assert!(!f.root.join("context").exists(), "written after forget");
+        assert!(!f.root.join("key").exists());
+        // A command run after it is recorded, under a new secret.
+        s.record("after", Path::new("/p"), 0, now() + 5);
+        let secret = Secret::load(&f.root).unwrap().expect("a new secret");
+        assert!(secret != f.secret);
+        assert_eq!(f.lines(&own_file_id(&secret, Path::new(HIST))).len(), 1);
+    }
+
+    fn now() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
     }
 }

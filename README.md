@@ -22,6 +22,18 @@ take a binding of yours. vi mode works too.
                      grey: from your history
 ```
 
+Which command it offers: one you ran successfully in this folder comes first, the more often the
+better (except `cd`, `pushd` and `open`, which rank only by where they ran); then the one that
+usually follows the command you just ran; then the newest. Commands that only ever failed come
+last.
+
+If zsh-autosuggestions is loaded too, ours stays off (`FUXX_AUTOSUGGESTIONS_FORCE=1` turns it on
+anyway). In Warp it always stays off: Warp replaces the shell's line editor. Two copies of the
+plugin in one shell (fuxx's and one in your `.zshrc`): the first one runs.
+
+`fuxx-completes doctor` shows what is loaded, which keys were bound or left alone, why it is off
+if it is, and where the data is.
+
 ### fuxx-autocomplete
 
 A menu while you type: commands, subcommands, flags, arguments, git branches, files.
@@ -91,15 +103,16 @@ machine.
 ## Your data
 
 - Your history file is read, never written, and never copied.
-- The one file we keep is small: `~/.local/share/fuxx-completes/` (or under `$XDG_DATA_HOME`).
-  Per command it holds only the folder, the exit code and the time, under a keyed hash instead of
-  the command's text. That's what lets suggestions use the folder you're in, across shells and
-  restarts.
+- The one file we keep is small: `~/.local/share/fuxx-completes/` (or under `$XDG_DATA_HOME`;
+  inside fuxx, in fuxx's folder for the plugin, so uninstalling removes it). Per command it holds
+  only the folder, the exit code and the time, under a keyed hash instead of the command's text,
+  and the key is a random secret beside it. That's what lets suggestions use the folder you're
+  in, across shells and restarts. It stays under 4 MiB, and records of commands no longer in your
+  history are pruned.
 - Commands your shell was told not to keep (a leading space, `HISTIGNORE`, fish's private mode)
   never get a record and are never suggested.
-- Nothing is ever sent anywhere. `fuxx-completes forget` wipes the file.
-
-(Planned, like everything here.)
+- Nothing is ever sent anywhere. `fuxx-completes forget` wipes the file and the secret; shells
+  that are running notice and start over.
 
 ## Repo layout
 

@@ -2697,3 +2697,53 @@ fn facts_list_bound_and_kept_keys() {
         "{facts}"
     );
 }
+
+#[test]
+fn doctor_function_passes_shell_facts() {
+    let mut z = ZshHarness::start(ZshOpts::default());
+    z.run("fuxx-completes doctor >| $HOME/doc");
+    let doc = std::fs::read_to_string(z.home().join("doc")).unwrap();
+    assert!(doc.lines().any(|l| l == "state        on"), "{doc}");
+    assert!(
+        doc.lines().any(|l| l.starts_with("keys         emacs ")),
+        "{doc}"
+    );
+    assert!(
+        doc.lines().any(|l| l.starts_with("shell        zsh ")),
+        "{doc}"
+    );
+}
+
+#[test]
+fn forget_function_uses_the_plugin_data_folder() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "export FUXX_PLUGIN_DATA=$HOME/pdata".into(),
+        rc_after: "unset FUXX_PLUGIN_DATA".into(),
+        ..Default::default()
+    });
+    let home = z.home().to_path_buf();
+    z.run("make x");
+    z.run("true");
+    assert!(poll(Duration::from_secs(3), || !context_lines(
+        &home.join("pdata")
+    )
+    .is_empty()));
+    z.run("fuxx-completes forget >| $HOME/out");
+    let out = std::fs::read_to_string(home.join("out")).unwrap();
+    assert!(out.starts_with("Removed the context files in"), "{out}");
+    assert!(!home.join("pdata/context").exists());
+    assert!(home.join("pdata").exists());
+}
+
+#[test]
+fn existing_function_named_fuxx_completes_is_left_alone() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: "fuxx-completes() { print -r -- mine }".into(),
+        ..Default::default()
+    });
+    z.run("fuxx-completes doctor >| $HOME/out");
+    assert_eq!(
+        std::fs::read_to_string(z.home().join("out")).unwrap(),
+        "mine\n"
+    );
+}

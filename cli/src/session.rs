@@ -545,7 +545,17 @@ mod tests {
             text(s.handle(suggest_in(1, "make ", &c.p, None))),
             Some("build".into())
         );
-        s.handle(ran_in(&c.p, "make zzz"));
+        let later = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 5;
+        s.handle(Request::Ran {
+            cwd: c.p.clone(),
+            status: 0,
+            time: later,
+            command: "make zzz".into(),
+        });
         let new = Secret::load(&c.root).unwrap().expect("a new key");
         assert!(new != secret);
         let file = std::fs::read(c.root.join("context").join(c.own(&new))).unwrap();

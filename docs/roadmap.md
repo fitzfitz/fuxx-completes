@@ -29,6 +29,21 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **M1 Task 6: `forget` and `doctor`.** The binary takes `serve`, `forget` and
+  `doctor [--shell-facts <lines>]` (usage and exit 2 otherwise); `doctor::report` prints the
+  facts in a fixed order; the zsh adapter's `fuxx-completes` function (only when the name is
+  free) passes its copy of `FUXX_PLUGIN_DATA` and, for `doctor`, the shell's facts. A bug the
+  tests found (systematic debugging): the command run just before `forget` is reported one
+  prompt late, and `record()` wrote it under the forgotten secret, recreating the folder; now
+  `record()` checks the key file first and drops records that finished before the forget was
+  noticed. `design.md` §7, §16; README (ranking, coexistence, `doctor`, the data). Tests first,
+  each seen failing: the report without and with facts, a conflict and second copies, the
+  `shglob` warning, counting context files; `forget` as a process (removes, twice, keeps fuxx's
+  folder, an I/O error exits 1), usage, `doctor` outside a shell; in zsh the function hands
+  `doctor` the facts, `forget` uses the plugin data folder, a user's own `fuxx-completes`
+  function is left alone; and in the store a record after `forget`. 126 adapter tests on zsh
+  5.3.1, 5.8.1 and 5.9; the workspace passes.
+
 - **2026-11-21** — **M1 Task 5: the zsh adapter.** The double-load guard (the first copy's path;
   another copy stops before defining anything), Warp and zsh-autosuggestions checked at every
   `precmd` (`FUXX_AUTOSUGGESTIONS_FORCE=1` overrides only the latter; a running core is

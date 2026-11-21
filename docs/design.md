@@ -870,6 +870,24 @@ host mode is on, where the context file is and how big, and the core's last erro
 `fuxx-completes forget` wipes the context file (§5.7). No config DSL. Details belong in the M1
 plan.
 
+**Settled in M1 (AI's calls).** The binary's commands are `serve`, `forget` and
+`doctor [--shell-facts <lines>]`; anything else prints `usage: fuxx-completes serve | forget |
+doctor` and exits 2. `forget` prints what it did; it removes `context/` and `key`, and the data
+folder itself only when it is ours (never fuxx's plugin folder) and then empty. A command the
+shell reports after a `forget` but that finished before the core noticed it is dropped, so a
+late report can't outlive the wipe. A shell can't be seen from a separate process, so the zsh
+adapter defines a **`fuxx-completes` shell function** (only when no function or alias of that
+name exists): it runs the binary with the adapter's copy of `FUXX_PLUGIN_DATA` (without it,
+`forget` typed in fuxx would wipe the wrong folder, since fuxx unsets the variable after
+sourcing) and hands `doctor` the shell's facts as `name=value` lines. The report, one fact per
+line: version; shell and version; state (`on`, or `off` with why); `force`; which copy runs and
+which copies stayed off; each key bound or kept (with the user's widget); host mode (not built
+until M2); the data folder and where its path came from; the context files' count and size and
+this shell's own file against the 4 MiB cap; whether the secret exists; and a `shglob` warning
+(§16). "The core's last error" is the adapter's reason for going off: `no-binary`,
+`start-failed`, `hung`, `exited`, `protocol`, `write-failed`, `conflict:warp`,
+`conflict:zsh-autosuggestions`.
+
 ## 8. How fuxx uses it (changed 2026-11-13)
 
 fuxx installs fuxx-completes as a **fuxx plugin** (fuxx's milestones M11y–M11z, its note 76). It
@@ -1111,6 +1129,8 @@ over the host channel is later, in both repos.
 - **`setopt shglob` and zsh's own hook helper.** Under `shglob`, zsh 5.9's `add-zle-hook-widget`
   dispatcher prints "No such widget `1:…'" at every prompt for any plugin that uses it. We keep
   the hook helpers (AGENTS.md says to use them) and revisit this in M1's coexistence work.
+  **Revisited in M1:** we can't change zsh's function, and dropping the helpers would break
+  other plugins' hooks; `doctor` names the cause when `shglob` is on (AI's call).
 - **zsh 5.3.x leaks the adapter's pipe fds.** Close-on-exec works from zsh 5.4, so on 5.3.x the
   adapter's pipe descriptors are inherited by programs the user runs, so a core can linger, for
   example after `exec zsh` or behind a daemon started from the shell, until whatever inherited

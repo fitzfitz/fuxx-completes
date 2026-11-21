@@ -45,6 +45,7 @@
   typeset -ga _FUXX_AS_SECOND=()
   # "<keymap> <key>" -> `bound` or `kept:<widget>` for the keys we bind only when free.
   typeset -gA _FUXX_AS_KEYS
+  typeset -gi _FUXX_AS_OWN_FN=0   # 1 once we defined the `fuxx-completes` function
   typeset -g _FUXX_AS_PID=''
   typeset -g _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD=''
   typeset -g _FUXX_AS_SPARE_FD=''  # read-write holder on `resp` until `ready` (see _fuxx_as_start)
@@ -894,6 +895,31 @@ _fuxx_as_zshexit() {
   [[ $_FUXX_AS_STATE == on ]] && _fuxx_as_send bye
   _fuxx_as_stop kill
   return 0
+}
+
+# `fuxx-completes forget` and `fuxx-completes doctor` typed at this prompt (design §7): the
+# binary is run with this adapter's copy of FUXX_PLUGIN_DATA (fuxx unsets the variable after
+# sourcing us, so without this `forget` would wipe another folder), and `doctor` gets the
+# shell's facts. Defined only when the user has no function or alias of that name (ours is
+# replaced when the same file is sourced again).
+() {
+  emulate -L zsh
+  (( _FUXX_AS_OWN_FN || ! ( $+functions[fuxx-completes] || $+aliases[fuxx-completes] ) )) || return 0
+  typeset -gi _FUXX_AS_OWN_FN=1
+  fuxx-completes() {
+    emulate -L zsh
+    local bin=${FUXX_COMPLETES_BIN:-${commands[fuxx-completes]-}}
+    if [[ -z $bin ]]; then
+      print -ru2 -- 'fuxx-completes: not found on PATH'
+      return 127
+    fi
+    if [[ $1 == doctor ]]; then
+      shift
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" doctor --shell-facts "$(_fuxx_as_facts)" "$@"
+    else
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" "$@"
+    fi
+  }
 }
 
 add-zsh-hook precmd _fuxx_as_precmd
