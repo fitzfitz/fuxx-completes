@@ -29,12 +29,16 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-21** — **v0.0.7 test release (the AI's pick on the user's "go with your picks"),
+  before the M1 check.** v0.0.6 plus the ⌃C decision, so the user checks the final behaviour
+  once. Same packaging and branch as v0.0.6; `main` untouched.
+
 - **2026-11-21** — **⌃C is neutral (the user's decision: "neutral").** The review's open question:
   a command stopped with ⌃C (`npm run dev`, `tail -f`) counted as failed and ranked last. Now exit
   status 130 (⌃C) and 143 (SIGTERM) count as neither a success nor a failure; other non-zero
   statuses (129, 137, ...) still count as failures. `design.md` §4, §5.4; README. Tests first,
   seen failing: the tally ignores 130 and 143 but counts 129, and a dev server stopped with ⌃C
-  ranks like a command with no records, not last. Not in v0.0.6; it goes out with the next build.
+  ranks like a command with no records, not last. Not in v0.0.6; released in v0.0.7.
 
 - **2026-11-21** — **v0.0.6 test release (the user's call: "publish it"), before the M1 check.**
   Like v0.0.1–v0.0.5: `fuxx-plugin-macos-arm64.zip` (Apple Silicon, zsh), installed through
