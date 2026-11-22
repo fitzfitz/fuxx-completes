@@ -5,13 +5,13 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M1b** (M1 done 2026-11-22; the M1b plan is written next).
+**Current milestone: M1b** (plan written 2026-11-22 and built at once, the user's "just go ahead with your best recommendation pick").
 
 | | Milestone | Status |
 | --- | --- | --- |
 | M0 | Core + history + zsh adapter | ✅ done 2026-11-21 (the user's check: "close m0, all good") |
 | M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
-| M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ⬜ |
+| M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | 🟨 being built ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md)) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
@@ -28,6 +28,10 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M1b planned and started.** Plan: [`plans/M1b Plan - Project Knowledge.md`](plans/M1b%20Plan%20-%20Project%20Knowledge.md)
+  (6 tasks, 39 ecosystems). The user: "just go ahead with your best recommendation pick", so it is
+  built at once in the session, with one whole-branch review at the end.
 
 - **2026-11-22** — **M1 done.** The user installed v0.0.7 in fuxx and checked it ("its good");
   `fuxx-completes doctor` there showed: on, fuxx's plugin copy, every free key bound, data under
