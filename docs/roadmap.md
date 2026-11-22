@@ -29,6 +29,15 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1b Task 3: detection.** `core/src/projects/detect.rs`: the walk-up (8
+  folders, `$HOME` and `/` never scanned, stop after `.git`), matching, `beats` per folder,
+  candidates nearest first, stamps, the deadline. Fixtures for all 39 ecosystems
+  (`core/tests/fixtures/projects/`, copied to a temp folder with a `.git` marker because git can't
+  track a file named `.git`). `design.md` §5.4. Tests first, seen failing (missing items): cargo,
+  pnpm beats npm, monorepo order, the walk's stops, 8 levels, a past deadline, an unreadable parent,
+  hostile script names and a FIFO named `Makefile` (under 200 ms), stamps; and every ecosystem
+  detected from its fixture with its first command and every template applied to `fx`.
+
 - **2026-11-22** — **M1b Task 2: the six readers.** `core/src/projects/readers.rs`: `safe_name`,
   `read_small` (regular files ≤ 256 KB only), `json_keys` (a small JSON/JSONC parser), `toml_keys`,
   `make_targets`, `just_recipes`, `yaml_keys`, `file_names`. `design.md` §5.4. Tests first, seen

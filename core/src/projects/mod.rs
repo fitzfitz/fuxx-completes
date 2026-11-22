@@ -57,6 +57,7 @@ pub struct ProjectType {
     pub from: &'static [Source],
 }
 
+pub mod detect;
 pub mod readers;
 
 // The table generated from `projects/*.toml` by `build.rs`.

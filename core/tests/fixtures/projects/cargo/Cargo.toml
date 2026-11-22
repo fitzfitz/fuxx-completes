@@ -1,0 +1,6 @@
+[package]
+name = "fx-crate"
+
+[[bin]]
+name = "fx"
+path = "src/fx.rs"

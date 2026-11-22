@@ -376,6 +376,15 @@ keys at the first child indent under a column-0 `key:`; `file_names` returns nam
 `*.ext` without the extension, sorted. Only regular files of at most 256 KB are read (never a FIFO
 or device, which could block).
 
+**Detection (AI's calls, M1b).** From the cwd the walk looks at no more than 8 folders, never
+scans `$HOME` or `/` (a stray file there must not turn every folder into a project), and stops
+after a folder holding `.git`; a folder it can't list ends the walk quietly. A type matches when a
+marker is in the listing, every `requires` exists, one `requires_any` exists if any are listed,
+and its `contains` text is in that file; a matched type's `beats` drop others matched **in the
+same folder**. Candidates per project: its fixed commands, then each reader's names through each
+template (name by name, first template first); nearest folder first, duplicates dropped. Every
+listed folder and read file is stamped (mtime, size) for the cache.
+
 So `cargo tree` typed once elsewhere doesn't hide `cargo test` in a new Rust project, while
 `git st` there still finds `git status` from elsewhere. Once run, a project command is in this
 folder's history and ranks in step 1. The ecosystem list, the data format sketch and the readers'

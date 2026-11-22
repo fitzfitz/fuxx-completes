@@ -1,0 +1,4 @@
+version: '3'
+tasks:
+  fx:
+    cmds: [echo fx]

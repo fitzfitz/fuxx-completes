@@ -1,0 +1,4 @@
+name: fx
+dependencies:
+  flutter:
+    sdk: flutter

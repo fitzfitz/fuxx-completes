@@ -1,0 +1,5 @@
+[project]
+name = "fx"
+
+[project.scripts]
+fx = "fx:main"
