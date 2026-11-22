@@ -1,8 +1,10 @@
 # fuxx-completes: design
 
-Status: **M0, M1, M1b and M1c are done** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh
+Status: **M0, M1, M1b, M1c and M1d are done** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh
 adapter; the context file, ranking, coexistence, `forget` and `doctor`; project knowledge; the
-suggestion list; the user's checks on 2026-11-21 and 2026-11-22); M2 onward are design only. This document is the
+suggestion list; safety and polish; the user's checks on 2026-11-21 and 2026-11-22); **M2 is
+being built** (bash, fish and the host channel; the user's four decisions of 2026-11-23); M3
+onward are design only. This document is the
 source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
@@ -200,8 +202,9 @@ arrive.
   remembering the exact strings it added and deleting entries equal to them (§6). The adapter
   checks the version with `is-at-least` and stays off, silently, below 5.3.
 - **bash: plain readline needs 4.0+** (`bind -x` with `READLINE_LINE` and `READLINE_POINT`, and
-  fractional `read -t` timeouts). **ble.sh runs on bash 3.0+,** so on macOS's system bash 3.2 the
-  ble.sh path may work where plain readline can't (§6).
+  fractional `read -t` timeouts). ble.sh itself runs on bash 3.0+, but its auto-complete (the grey
+  text we feed, §6) is bash 4.0+ only (checked 2026-11-22, ble.sh manual §7.3), so on macOS's
+  system bash 3.2 we stay off on both paths and `doctor` says why.
 - **fish: minimum 3.0** (private mode). fish 4.0+ also honours `fish_should_add_to_history` (§5.8).
 - The test matrix is in §14.
 
@@ -773,7 +776,11 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
   once the shell has written the file, leaves no trace), and the oldest records go first past the
   cap. The cap (a few MB) and the record encoding are the builder's choice. A command a shell has
   saved only in memory and not yet written may lose its records to a compaction by another
-  session; that costs ranking, never privacy. **Settled in M1 (AI's calls):** the cap is 4 MiB a
+  session; that costs ranking, never privacy. **fish (the user's decision, 2026-11-23, U2 = F1):**
+  `fuxx-completes report` loads no history, so it can't prune by history; it keeps only the 4 MiB
+  cap. A fish command deleted from fish's history keeps its records (key, folder, status, time;
+  no text, and they can't be turned back into text without the history) until the cap drops
+  them. **Settled in M1 (AI's calls):** the cap is 4 MiB a
   file; a compaction that has to trim goes down to 3 MiB, so the next one isn't one append away;
   a compaction that would remove nothing leaves the file alone. It runs on a worker thread, and
   only after a complete read of the history file: a missing or unreadable history would
@@ -833,8 +840,11 @@ user typed, so they reveal nothing the shell was told not to keep.
   matched) is already in the file, so it uses that entry and adds no session record. Older file
   entries came from other shells and never absorb a report, so with zsh's default options the
   command just run still ranks first (narrowed after the M1 review).
-- **bash:** a function added to `PROMPT_COMMAND` (appended, not replacing) runs `history 1` and
-  reports the entry only if its history number is new since the last prompt. bash has already
+- **bash:** a function added to `PROMPT_COMMAND` (not replacing it) runs `history 1` and
+  reports the entry only if its history number is new since the last prompt. **Corrected in the M2
+  plan (2026-11-22):** the function goes **first** (element 0 of a bash 5.1+ array, else prepended
+  with `;`) and returns the status it found, because appended it would read the previous entry's
+  `$?` instead of the command's, and the entries after it still see the command's `$?`. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working
   directory is the one saved at the previous prompt, where the command started.
 - **fish:** a `fish_postexec` handler reports the command unless it starts with a space, fish is
@@ -1044,9 +1054,9 @@ Honest about what each shell allows.
 
 ### bash
 
-- **Versions:** plain readline needs bash 4.0+; ble.sh runs on bash 3.0+ (§3). macOS ships bash
-  3.2: there the plain-readline adapter says so in `doctor` and stays off, and the ble.sh path is
-  the hope.
+- **Versions:** plain readline needs bash 4.0+, and so does ble.sh's auto-complete (§3). macOS
+  ships bash 3.2: there the adapter stays off on both paths and says why in `doctor` (corrected in
+  the M2 plan: ble.sh was the hope, but its auto-complete needs 4.0).
 - **Plain readline has no ghost text hook.** There is no `POSTDISPLAY` equivalent and no
   per-keystroke hook. Drawing grey text with escape codes behind readline's back breaks on redraw,
   so we won't.
@@ -1058,9 +1068,15 @@ Honest about what each shell allows.
   modal loop that blocks only while it is open. Keys that only type are never bound. This is the
   one stated exception to "never wait" (§3, AGENTS rule 6).
 - **ble.sh** replaces readline with a line editor written in bash and has its own grey
-  auto-complete. When ble.sh is loaded, whether we can feed our suggestions into it through its
-  own interfaces is an open question for the bash milestone. If we can't, ble.sh users keep its
-  built-in feature and we stay off.
+  auto-complete. **The user's decision (2026-11-23, U1 = B2 of the M2 plan): we feed it.** Our
+  source goes first in ble.sh's `_ble_complete_auto_source` list, so ble.sh draws our best
+  suggestion as its own grey text, as you type, on bash 4.0+ (its auto-complete needs 4.0). The
+  interface is ble.sh's internal one (the manual documents no way to add a source; atuin ships on
+  the same one). The source waits for the core inside ble.sh's idle task, checking every 5 ms for
+  at most 50 ms, and gives up the moment a key arrives (AGENTS rule 6's second stated wait).
+- **The list in bash (the user's decision, 2026-11-23, U3 = A1):** no list of 5. The explicit key
+  inserts the best suggestion; on an empty line after a failed command the same key inserts the
+  fix (the core already answers an empty `suggest` with it).
 - **History:** `PROMPT_COMMAND` with `history 1` (§5.8).
 - **Host mode:** bash can forward the buffer only at the explicit keys (there is no buffer-change
   hook in plain readline), and binds the "accept from host" key (§5.5).
@@ -1197,7 +1213,7 @@ the line.
 | fzf key bindings (`fzf-history-widget`, `fzf-file-widget`, `fzf-completion`) | we never bind ⌃R, ⌃T or Tab; Tab's widget (`fzf-completion`, fzf-tab's `fzf-tab-complete`) is wrapped and runs as before whenever no ghost text shows; while one shows, Tab accepts it (2026-11-13, §6); if `fzf-completion` holds Tab, our menu never uses Tab |
 | atuin | we never bind ⌃R or ↑ |
 | fish's own autosuggestions | fuxx-autosuggestions off in fish (§6) |
-| ble.sh auto-complete | stay off unless the bash milestone finds a clean way in |
+| ble.sh auto-complete | we feed it (the user's decision, 2026-11-23): our source goes first in its list and ble.sh draws our suggestion; beside atuin's ble.sh source we stay off (§6) |
 | **Warp** (`TERM_PROGRAM=WarpTerminal`) | both libraries stay off in every shell. Warp's own input editor replaces ZLE (and readline), and Warp lists ZLE plugins such as zsh-autosuggestions as unsupported |
 | Any key sequence already bound by the user or a plugin | we leave it bound as it was (§6) |
 | **Another copy of fuxx-completes** already loaded in this shell (fuxx's plugin and the user's rc file both load it) | the second copy stays off (§8's double-load guard) |
@@ -1336,7 +1352,10 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
 
   Old zsh versions come from source builds (`scripts/build-zsh.sh`, cached in `target/zsh/`); the
   matrix runs with `scripts/test-zsh-matrix.sh` (AI's call, M0). bash and fish versions are picked
-  in M2.
+  in M2. **Decided 2026-11-23 (the user, U4 = C2):** every test shell is built or unpacked into
+  the repo's `target/` like zsh: bash 4.0 and 5.3 (`scripts/build-bash.sh`), fish 3.0.2, 3.7.1
+  and 4.9.3 (`scripts/build-fish.sh`), ble.sh 0.4.0-devel3 (`scripts/get-blesh.sh`); macOS's
+  `/bin/bash` 3.2 for the stay-off checks. A version that won't build is reported, not patched.
 - **Manual checks** (can't be automated well; say so): ghost text and menu look right in Ghostty,
   iTerm, Terminal.app and fuxx, with powerlevel10k's instant prompt, in a narrow window, and stay
   off in Warp.
@@ -1402,7 +1421,9 @@ over the host channel is later, in both repos.
 
 1. ~~Line-delimited JSON for everyone, or a simpler encoding for shell adapters (§5.5)?~~ Answered
    (M0 plan): field-separated for shells (wire format 1); JSON deferred until an embedder needs it.
-2. Can ble.sh take our suggestions through its own interfaces (§6)?
+2. ~~Can ble.sh take our suggestions through its own interfaces (§6)?~~ Answered (M2 plan,
+   2026-11-22; the user's decision 2026-11-23): yes, through `_ble_complete_auto_source`, an
+   interface ble.sh's manual doesn't document (atuin uses it); bash 4.0+ only. We feed it.
 3. JSON or TOML for specs, compiled in or loaded from disk (§5.2)?
 4. Should menu pick counts persist across sessions? The context file holds only folder, exit code
    and time (§5.7), so persisting them needs the user to widen that decision first (§5.4).

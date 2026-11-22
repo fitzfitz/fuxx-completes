@@ -41,7 +41,10 @@ When they disagree, the design wins; flag it.
    nothing at shell startup. **One stated exception:** in bash, an explicit key press (accept,
    open or filter the menu) may send a `sync` request and wait for the core, bounded at 50 ms; on
    timeout it does nothing. Keys that only type never wait, and the bash menu blocks only while it
-   is open.
+   is open. **A second stated exception (the user's decision, 2026-11-23, M2 plan U1 = B2):** under
+   ble.sh, our auto-complete source runs inside ble.sh's idle task (never while a key is waiting)
+   and checks for the core's answer in 5 ms slices, at most 50 ms; it gives up the moment a key
+   arrives.
 
 7. **History and command lines never leave the machine.** No network code, no telemetry, no
    uploads. History files are read, never written or copied. The one file we write is the small

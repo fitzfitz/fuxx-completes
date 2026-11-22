@@ -6,8 +6,8 @@ Written 2026-11-22 from `docs/design.md` §15's M2 row (designed and approved 20
 the session (executing-plans), then one whole-branch review on the most capable model, one fix
 pass and a test release for the user's check (the user's standing choice for milestones).
 Decisions marked **AI's call** are open to change; each lands in `docs/design.md` in the task
-named. **Four decisions are the user's** (below); the plan is written with the AI's picks and
-says what changes if the user picks otherwise.
+named. **Four decisions are the user's** (below); the user approved all four AI's picks on
+2026-11-23 ("go"), so the plan is built as written.
 
 **Goal:** bash 4.0+ users get the best suggestion on an explicit key (bounded at 50 ms) with
 history reported through `PROMPT_COMMAND`; the ble.sh path is decided; fish stays off and reports
@@ -54,6 +54,17 @@ mode. Old and new shells are built into `target/` by scripts, as `scripts/build-
 | U2 | Pruning fish's context file. `report` loads no history (§5.5), and a core only rewrites its own history's file (§5.7), so nothing ever deletes records of commands removed from fish's history | **F1** `report` keeps the 4 MiB cap (trims the oldest, down to 3 MiB) and §5.7 states the limit: a fish command deleted from history keeps its records (key, folder, status, time; no text) until the cap drops them. **F2** also add a fish history reader to the core and prune by history whenever `report` trims (about 150 lines and tests; still nothing below the cap) | **F1**: the records hold no text and can't be read back without the history; F2 adds a parser for a rare trim |
 | U3 | The M1c list and the M1d fix in bash (design row: "insert the best suggestion") | **A1** the explicit key inserts the best suggestion; on an empty line after a failure the same key inserts the fix (free: the core already answers an empty `suggest` with it). **A2** also a key that prints the list of 5 below the line and picks with ⌥1–⌥5 (a modal loop and a new `sync` list request: the M7 menu's machinery, early) | **A1** |
 | U4 | Test shells | **C1** Homebrew for the newest bash and fish (installs outside the repo). **C2** everything built or unpacked into `target/` like `scripts/build-zsh.sh`: bash 4.0 and 5.3 from GNU tarballs, fish 3.0.2 and 3.7.1 (CMake, C++) and 4.9.3 (cargo), ble.sh's release tarball; first build about 15–20 min. **C3** C2 without fish 3.0.2 and bash 4.0 (faster; the minimums untested) | **C2**, matrix: bash 3.2 (`/bin/bash`, stay-off tests only), 4.0, 5.3; ble.sh 0.4.0-devel3 on 5.3; fish 3.0.2, 3.7.1, 4.9.3. A version that won't build with the zsh script's kind of flag fixes is reported to the user, not patched |
+
+### The user's decisions (2026-11-23)
+
+The user's word: **"go"**, approving all four AI's picks.
+
+| # | Decided | What it means for the build |
+| --- | --- | --- |
+| U1 | **B2**: feed ble.sh's own grey suggestions | Task 4 as written. AGENTS.md rule 6 now allows the second bounded wait: inside ble.sh's idle task our source checks for the core's answer in 5 ms slices, at most 50 ms, and gives up the moment a key arrives |
+| U2 | **F1**: `report` keeps only the 4 MiB cap | design §5.7 states the limit: a fish command deleted from fish's history keeps its records (no text) until the cap drops them |
+| U3 | **A1**: the key inserts the best suggestion | → and End at the end of the line insert it; on an empty line after a failure they insert the fix; no list in bash |
+| U4 | **C2**: every test shell built into `target/` | `scripts/build-bash.sh`, `build-fish.sh`, `get-blesh.sh`; a version that won't build is reported to the user, not patched |
 
 Not a decision here: fuxx's manifest has only a `zsh =` key (design §8), so fuxx keeps loading only
 the zsh adapter; a `bash =` key, and fuxx drawing over the host channel, are fuxx's side and later.
