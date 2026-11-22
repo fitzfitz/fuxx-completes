@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE";
+const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--format zsh|bash] [--cwd DIR] [--histfile FILE] [--] LINE";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -22,7 +22,7 @@ fn main() -> ExitCode {
         ["doctor", "--shell-facts", facts] => doctor(Some(facts), false),
         ["doctor", "--shell-facts", facts, "--report"] => doctor(Some(facts), true),
         ["why", ref rest @ ..] => match why_args(rest) {
-            Some((cwd, histfile, line)) => why(cwd, histfile, &line),
+            Some(w) => why(w),
             None => usage(),
         },
         _ => usage(),
@@ -34,15 +34,32 @@ fn usage() -> ExitCode {
     ExitCode::from(2)
 }
 
-/// `[--cwd DIR] [--histfile FILE] [--] LINE…`: the folder (default: this process's), the history
-/// file, and the line (the remaining words joined by spaces). `None` when the line is missing or
-/// an option has no value.
-fn why_args(args: &[&str]) -> Option<(PathBuf, Option<PathBuf>, String)> {
+/// What `why` was asked.
+struct WhyArgs {
+    format: &'static str,
+    cwd: PathBuf,
+    histfile: Option<PathBuf>,
+    line: String,
+}
+
+/// `[--format zsh|bash] [--cwd DIR] [--histfile FILE] [--] LINE…`: the history file's format
+/// (default zsh), the folder (default: this process's), the history file, and the line (the
+/// remaining words joined by spaces). `None` when the line is missing, an option has no value or
+/// the format is unknown.
+fn why_args(args: &[&str]) -> Option<WhyArgs> {
+    let mut format = "zsh";
     let mut cwd = None;
     let mut histfile = None;
     let mut i = 0;
     while let Some(&a) = args.get(i) {
         match a {
+            "--format" => {
+                format = match *args.get(i + 1)? {
+                    "zsh" => "zsh",
+                    "bash" => "bash",
+                    _ => return None,
+                }
+            }
             "--cwd" => cwd = Some(PathBuf::from(args.get(i + 1)?)),
             "--histfile" => histfile = Some(PathBuf::from(args.get(i + 1)?)),
             "--" => {
@@ -61,11 +78,16 @@ fn why_args(args: &[&str]) -> Option<(PathBuf, Option<PathBuf>, String)> {
         Some(c) => c,
         None => std::env::current_dir().ok()?,
     };
-    Some((cwd, histfile.filter(|h| !h.as_os_str().is_empty()), line))
+    Some(WhyArgs {
+        format,
+        cwd,
+        histfile: histfile.filter(|h| !h.as_os_str().is_empty()),
+        line,
+    })
 }
 
 /// `why` (`docs/design.md` §7): loads like `serve` (history, context, projects), writes nothing.
-fn why(cwd: PathBuf, histfile: Option<PathBuf>, line: &str) -> ExitCode {
+fn why(args: WhyArgs) -> ExitCode {
     let mut session = fuxx_completes::session::Session::for_why(
         data_dir_from_env(),
         std::env::var_os("HOME")
@@ -74,14 +96,14 @@ fn why(cwd: PathBuf, histfile: Option<PathBuf>, line: &str) -> ExitCode {
     );
     session.handle(Request::Hello {
         protocol: 1,
-        shell: "zsh".into(),
+        shell: args.format.into(),
         shell_version: String::new(),
-        history_format: "zsh".into(),
-        history_path: histfile,
+        history_format: args.format.into(),
+        history_path: args.histfile,
         libraries: vec!["autosuggestions".into()],
     });
     let deadline = Instant::now() + Duration::from_secs(5);
-    print!("{}", session.explain(line, &cwd, deadline));
+    print!("{}", session.explain(&args.line, &args.cwd, deadline));
     ExitCode::SUCCESS
 }
 

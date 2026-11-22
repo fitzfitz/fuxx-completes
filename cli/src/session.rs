@@ -723,6 +723,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn bash_hello_serves_a_bash_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let hist = dir.path().join(".bash_history");
+        std::fs::write(&hist, "#1700000000\ngit status\n#1700000001\nls\n").unwrap();
+        let mut s = Session::new(None, None);
+        s.handle(Request::Hello {
+            protocol: 1,
+            shell: "bash".into(),
+            shell_version: "5.3.0(1)-release".into(),
+            history_format: "bash".into(),
+            history_path: Some(hist),
+            libraries: vec!["autosuggestions".into()],
+        });
+        let got = ask_until(&mut s, "git s", Path::new("/"), Some("tatus"));
+        assert_eq!(got.as_deref(), Some("tatus"));
+    }
+
     /// Asks until the answer is `want` (the history loads in the background), up to 2 s.
     fn ask_until(s: &mut Session, buffer: &str, cwd: &Path, want: Option<&str>) -> Option<String> {
         let end = Instant::now() + Duration::from_secs(2);

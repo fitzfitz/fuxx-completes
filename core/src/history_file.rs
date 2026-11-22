@@ -7,8 +7,41 @@ use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::thread::JoinHandle;
 
+use crate::bash_history::BashHistoryParser;
 use crate::history::{History, HistoryFormat};
 use crate::zsh_history::ZshHistoryParser;
+
+/// The parser for the file's format, keeping what an unfinished entry holds between reads.
+#[derive(Debug, Clone)]
+enum Parser {
+    Zsh(ZshHistoryParser),
+    Bash(BashHistoryParser),
+}
+
+impl Parser {
+    fn new(format: HistoryFormat) -> Self {
+        match format {
+            HistoryFormat::Zsh => Parser::Zsh(ZshHistoryParser::new()),
+            HistoryFormat::Bash => Parser::Bash(BashHistoryParser::new()),
+        }
+    }
+
+    fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
+        match self {
+            Parser::Zsh(p) => p.feed(bytes),
+            Parser::Bash(p) => p.feed(bytes),
+        }
+    }
+
+    /// The end of what was read so far: a bash entry with timestamps ends only at the next
+    /// timestamp, and bash writes whole entries, so the newest one counts as complete now.
+    fn end_of_read(&mut self) -> Vec<String> {
+        match self {
+            Parser::Zsh(_) => Vec::new(),
+            Parser::Bash(p) => p.flush(),
+        }
+    }
+}
 
 /// What we know about the file we last read. `len` is the number of bytes we consumed (not
 /// the file's length at some other moment), so "longer than `len`" means "has unread bytes".
@@ -35,7 +68,7 @@ impl Stamp {
 /// from exactly where the full read stopped.
 struct FullRead {
     entries: Vec<String>,
-    parser: ZshHistoryParser,
+    parser: Parser,
     /// `None` when the file could not be opened (missing = no entries).
     stamp: Option<Stamp>,
     /// The whole file was read: opened, and read to its end without an error.
@@ -51,12 +84,10 @@ type Hold = ();
 #[derive(Debug)]
 pub struct HistoryFile {
     path: PathBuf,
-    // Only zsh exists in M0; kept so a second format has one place to plug in.
-    #[allow(dead_code)]
     format: HistoryFormat,
     /// The file as of the last read that was applied; `None` = no file (or nothing applied).
     seen: Option<Stamp>,
-    parser: ZshHistoryParser,
+    parser: Parser,
     reload: Option<JoinHandle<FullRead>>,
     /// A full read was applied at least once.
     loaded: bool,
@@ -88,7 +119,7 @@ impl HistoryFile {
             path,
             format,
             seen: None,
-            parser: ZshHistoryParser::new(),
+            parser: Parser::new(format),
             reload: None,
             loaded: false,
         };
@@ -131,7 +162,7 @@ impl HistoryFile {
             Ok(m) => m,
             Err(_) => {
                 if self.seen.take().is_some() {
-                    self.parser = ZshHistoryParser::new();
+                    self.parser = Parser::new(self.format);
                     history.replace_file_entries(Vec::new());
                 }
                 return;
@@ -172,7 +203,8 @@ impl HistoryFile {
         // read then still differs from the stamp (mtime) and is read on the next refresh, instead
         // of the stamp being taken before it and hiding it. `len` is what we consumed.
         let after = file.metadata().unwrap_or(meta);
-        let entries = self.parser.feed(&bytes);
+        let mut entries = self.parser.feed(&bytes);
+        entries.extend(self.parser.end_of_read());
         self.seen = Some(Stamp::of(&after, seen.len + bytes.len() as u64));
         history.append_file_entries(entries);
     }
@@ -182,8 +214,9 @@ impl HistoryFile {
             return;
         }
         let path = self.path.clone();
+        let format = self.format;
         self.reload = Some(std::thread::spawn(move || {
-            let done = read_everything(&path);
+            let done = read_everything(&path, format);
             #[cfg(test)]
             if let Some((done_tx, release_rx)) = hold {
                 let _ = done_tx.send(());
@@ -197,8 +230,8 @@ impl HistoryFile {
 }
 
 /// Reads the whole file in chunks (so a huge file isn't held twice in memory).
-fn read_everything(path: &PathBuf) -> FullRead {
-    let mut parser = ZshHistoryParser::new();
+fn read_everything(path: &PathBuf, format: HistoryFormat) -> FullRead {
+    let mut parser = Parser::new(format);
     let mut entries = Vec::new();
     let Ok(mut file) = File::open(path) else {
         return FullRead {
@@ -225,6 +258,7 @@ fn read_everything(path: &PathBuf) -> FullRead {
             }
         }
     }
+    entries.extend(parser.end_of_read());
     // Stat the open file after reading: same inode as what we read, and `len` is what we
     // consumed, so growth after (or during) the read still counts as unread bytes.
     let stamp = file.metadata().ok().map(|m| Stamp::of(&m, total));

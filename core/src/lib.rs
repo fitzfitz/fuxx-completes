@@ -24,6 +24,7 @@
 //! The core knows nothing about any shell's runtime: it never calls, embeds or depends on
 //! zsh, bash or fish. It never sends history or command lines off the machine.
 
+pub mod bash_history;
 pub mod cd_target;
 pub mod context;
 pub mod history;

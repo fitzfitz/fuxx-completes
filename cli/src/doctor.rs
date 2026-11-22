@@ -23,7 +23,7 @@ pub fn report(facts: Option<&str>, data: Option<&DataDir>, version: &str) -> Str
     if facts.is_empty() {
         line(
             "shell",
-            "run this inside zsh with fuxx-autosuggestions loaded for shell facts",
+            "run this inside zsh or bash with fuxx-autosuggestions loaded for shell facts",
         );
     } else {
         line(
@@ -243,7 +243,7 @@ mod tests {
         assert!(
             has(
                 &r,
-                "shell        run this inside zsh with fuxx-autosuggestions loaded for shell facts"
+                "shell        run this inside zsh or bash with fuxx-autosuggestions loaded for shell facts"
             ),
             "{r}"
         );
@@ -258,6 +258,16 @@ mod tests {
         assert!(!r.contains("warning"), "{r}");
         let r = report(None, None, "0.0.5");
         assert!(has(&r, "data         none (no HOME)"), "{r}");
+    }
+
+    #[test]
+    fn report_with_bash_facts() {
+        let facts = "shell=bash\nversion=5.3.0(1)-release\nstate=on\nwhy=\n\
+                     key=emacs \\e[C bound\nhistfile=/h/.bash_history\n";
+        let r = report(Some(facts), None, "1");
+        assert!(has(&r, "shell        bash 5.3.0(1)-release"), "{r}");
+        assert!(has(&r, "state        on"), "{r}");
+        assert!(has(&r, "keys         emacs \\e[C bound"), "{r}");
     }
 
     #[test]

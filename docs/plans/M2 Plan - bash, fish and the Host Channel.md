@@ -193,7 +193,7 @@ bash_history::BashHistoryParser` with `new()`, `feed(&mut self, bytes: &[u8]) ->
 `HistoryFile` dispatching on the format; `Session` serving `hello … bash …`; `why --format
 zsh|bash`; doctor facts keyed by `shell=` (zsh, bash, fish).
 
-- [ ] **Step 1: Failing tests** (`bash_history.rs`): `plain_lines_are_entries` (`"ls\n\ngit status\n"`
+- [x] **Step 1: Failing tests** (`bash_history.rs`): `plain_lines_are_entries` (`"ls\n\ngit status\n"`
   → `["ls", "git status"]`); `timestamps_are_dropped` (`"#1700000000\nls\n#1700000001\ngit st\n"` →
   `["ls", "git st"]`); `multiline_entries_join_between_timestamps` (`"#1\nfor i in 1 2\ndo echo $i\ndone\n#2\nls\n"`
   → `["for i in 1 2\ndo echo $i\ndone", "ls"]`); `hash_without_digit_is_a_command` (`"#foo\n"` →
@@ -203,8 +203,8 @@ zsh|bash`; doctor facts keyed by `shell=` (zsh, bash, fish).
   `git status`; `suggest` `git s` → `tatus`). (`cli.rs`): `why_reads_a_bash_history` (`why --format bash
   --histfile f -- git status` prints `in your history`). (`doctor.rs`): `report_with_bash_facts`
   (`shell        bash 5.3.0(1)-release`; the no-facts hint names zsh and bash).
-- [ ] **Step 2:** run (fail); implement; run (pass).
-- [ ] **Step 3:** `latency.rs` gains `sync_requests_on_a_bash_history` (100,000 timestamped entries,
+- [x] **Step 2:** run (fail); implement; run (pass).
+- [x] **Step 3:** `latency.rs` gains `sync_requests_on_a_bash_history` (100,000 timestamped entries,
   2,000 `sync` requests through `serve_with`: p95 < 10 ms, max < 50 ms). Gate. **Docs:** design §5.1
   (bash format as built), §7 (`why --format`), roadmap. Commit `feat(core): read bash's history file`.
 

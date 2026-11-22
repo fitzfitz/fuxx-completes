@@ -452,3 +452,88 @@ fn repo_and_fix_p95_under_10_ms() {
     println!("fix after a failure, 200 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}");
     assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
 }
+
+/// M2: bash's explicit keys wait for a `sync` answer at most 50 ms (design §3). On a 100,000-entry
+/// timestamped bash history, 2,000 `sync` requests through the real serve loop (pipes in and out,
+/// timed from the write to the reply line) stay under 10 ms at p95 and 50 ms at most.
+#[test]
+#[ignore = "a release-mode benchmark; run it with --release -- --ignored"]
+fn sync_requests_on_a_bash_history() {
+    use std::io::{BufRead, BufReader, Write};
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let mut rng = Lcg(0xba5);
+    let commands = distinct(&mut rng);
+    let lines: Vec<&str> = (0..100_000)
+        .map(|_| commands[rng.below(commands.len())].as_str())
+        .collect();
+    let mut text = String::new();
+    for (i, l) in lines.iter().enumerate() {
+        text.push_str(&format!("#{}\n{l}\n", 1_700_000_000 + i));
+    }
+    let hist = base.join(".bash_history");
+    std::fs::write(&hist, text).unwrap();
+
+    let (in_r, mut in_w) = std::io::pipe().unwrap();
+    let (out_r, out_w) = std::io::pipe().unwrap();
+    let server = std::thread::spawn(move || {
+        fuxx_completes::serve::serve_with(Session::new(None, None), BufReader::new(in_r), out_w)
+    });
+    let mut replies = BufReader::new(out_r);
+    let us = '\u{1f}';
+    let mut ask = |line: String| -> (Duration, String) {
+        let t = Instant::now();
+        in_w.write_all(line.as_bytes()).unwrap();
+        in_w.flush().unwrap();
+        let mut reply = String::new();
+        replies.read_line(&mut reply).unwrap();
+        (t.elapsed(), reply)
+    };
+    let started = Instant::now();
+    let (_, ready) = ask(format!(
+        "hello{us}1{us}bash{us}5.3.0(1)-release{us}bash{us}{}{us}autosuggestions\n",
+        hist.display()
+    ));
+    assert!(ready.starts_with("ready"), "{ready:?}");
+    let newest = lines[lines.len() - 1];
+    loop {
+        let (_, r) = ask(format!(
+            "suggest{us}0{us}sync{us}2{us}/{us}{}\n",
+            &newest[..2]
+        ));
+        if !r.trim_end().ends_with(us) {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "history never loaded"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    println!("hello to loaded: {:?}", started.elapsed());
+
+    let mut times = Vec::with_capacity(2000);
+    for id in 1..=2000u64 {
+        let line = lines[rng.below(lines.len())];
+        let prefix: String = line.chars().take(1 + rng.below(6)).collect();
+        let n = prefix.chars().count();
+        let (t, reply) = ask(format!("suggest{us}{id}{us}sync{us}{n}{us}/{us}{prefix}\n"));
+        assert!(
+            reply.starts_with(&format!("suggestion{us}{id}{us}")),
+            "{reply:?}"
+        );
+        times.push(t);
+    }
+    times.sort();
+    let p50 = times[times.len() / 2];
+    let p95 = times[times.len() * 95 / 100];
+    let max = times[times.len() - 1];
+    println!(
+        "bash sync suggest over 2000 requests (round trip): p50 {p50:?}, p95 {p95:?}, max {max:?}"
+    );
+    drop(in_w);
+    server.join().unwrap().unwrap();
+    assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
+    assert!(max < Duration::from_millis(50), "max {max:?}");
+}

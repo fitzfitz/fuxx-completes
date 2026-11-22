@@ -31,6 +31,13 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M2 Task 2: the core reads bash's history.** `core/src/bash_history.rs` reads
+  the file as bash does (timestamps dropped, lines between two timestamps one multi-line entry,
+  plain files line by line, CRLF trimmed); `hello … bash …` serves it, `why --format bash` explains
+  a line from it, and `doctor`'s hint names zsh and bash. Measured: 2,000 `sync` requests on a
+  100,000-entry timestamped bash history through the real serve loop, round trip p50 9 µs, p95
+  16 µs, max 0.43 ms (release). `design.md` §5.1, §7. Tests seen failing first.
+
 - **2026-11-23** — **M2 Task 1: test shells and one pty harness.** `scripts/build-bash.sh`,
   `build-fish.sh` and `get-blesh.sh` put bash 4.0 and 5.3, fish 4.9.3 and ble.sh 0.4.0-devel3
   into `target/` (pinned SHA-256s); `scripts/test-bash-matrix.sh` and `test-fish-matrix.sh` run

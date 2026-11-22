@@ -30,10 +30,11 @@ pub enum Verdict {
     Skip,
 }
 
-/// The shell history file formats the core can read. Only zsh in M0.
+/// The shell history file formats the core can read: zsh (M0) and bash (M2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryFormat {
     Zsh,
+    Bash,
 }
 
 impl FromStr for HistoryFormat {
@@ -42,6 +43,7 @@ impl FromStr for HistoryFormat {
     fn from_str(s: &str) -> Result<Self, ()> {
         match s {
             "zsh" => Ok(HistoryFormat::Zsh),
+            "bash" => Ok(HistoryFormat::Bash),
             _ => Err(()),
         }
     }
@@ -605,9 +607,10 @@ mod tests {
     }
 
     #[test]
-    fn format_parses_zsh_only() {
+    fn format_parses_zsh_and_bash() {
         assert_eq!("zsh".parse::<HistoryFormat>(), Ok(HistoryFormat::Zsh));
-        assert!("bash".parse::<HistoryFormat>().is_err());
+        assert_eq!("bash".parse::<HistoryFormat>(), Ok(HistoryFormat::Bash));
+        assert!("fish".parse::<HistoryFormat>().is_err());
     }
 
     #[test]

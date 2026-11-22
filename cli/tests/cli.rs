@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const BIN: &str = env!("CARGO_BIN_EXE_fuxx-completes");
-const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE";
+const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--format zsh|bash] [--cwd DIR] [--histfile FILE] [--] LINE";
 
 fn run(home: &Path, env: &[(&str, &Path)], args: &[&str]) -> Output {
     let mut c = Command::new(BIN);
@@ -180,6 +180,40 @@ fn why(base: &Path, cwd: &Path, hist: Option<&Path>, line: &str) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     stdout(&out)
+}
+
+#[test]
+fn why_reads_a_bash_history() {
+    let home = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(home.path()).unwrap();
+    let hist = base.join(".bash_history");
+    std::fs::write(&hist, "#1700000000\ngit status\n#1700000001\nls\n").unwrap();
+    let out = run(
+        &base,
+        &[],
+        &[
+            "why",
+            "--format",
+            "bash",
+            "--cwd",
+            base.to_str().unwrap(),
+            "--histfile",
+            hist.to_str().unwrap(),
+            "--",
+            "git status",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = stdout(&out);
+    assert!(
+        text.lines().any(|l| l == "history    in your history"),
+        "{text}"
+    );
 }
 
 #[test]

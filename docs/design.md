@@ -306,7 +306,15 @@ Holds every piece of logic that is not drawing:
 - **History.** Reads the shell's history file read-only and keeps it in memory, re-reading it when
   it changes (§5.8). Supported formats: zsh (plain and `EXTENDED_HISTORY`,
   `: <start>:<elapsed>;<command>`, with zsh's metafied bytes decoded), bash (plain, and `#<epoch>`
-  timestamp lines when `HISTTIMEFORMAT` is set), fish (`~/.local/share/fish/fish_history`). The
+  timestamp lines when `HISTTIMEFORMAT` is set), fish (`~/.local/share/fish/fish_history`).
+  **bash as built (M2, AI's call):** `core/src/bash_history.rs` reads the file as bash reads it
+  back (readline's `histfile.c`): a file whose first line is `#<digit>…` has timestamps, the
+  timestamp lines are dropped and the lines between two timestamps are one entry joined with
+  `\n` (a multi-line command saved with `lithist`); otherwise each non-blank line is an entry and
+  a `#<digit>` line is still dropped (`#foo` is a command); a `\r` before the `\n` is trimmed.
+  With timestamps an entry ends only at the next timestamp, so the newest one is taken as ended
+  at the end of each read (bash writes whole entries). The fish format is not read: fish never
+  runs `serve` (§6). The
   adapter tells the core which file and format; reading a file format is parsing, not depending on
   a shell. The adapter also reports each command the shell saved, with its working directory and
   exit status, which the history file alone doesn't record.
@@ -1143,7 +1151,9 @@ settings with where each came from (fuxx Settings, the shell, or the default; M1
 `conflict:zsh-autosuggestions`.
 
 **`why` and `doctor --report` (M1d §4.5, AI's calls).** The usage line is now `usage:
-fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE`.
+fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE`
+(M2 adds `--format zsh|bash`, the history file's format, default `zsh`; the bash function passes
+`--format bash`).
 `fuxx-completes why <line>` (the shell function passes `--cwd $PWD`, `--histfile` with
 `$HISTFILE` when set, and `--`; the remaining words are joined by spaces, so quote a line whose
 spacing matters) loads what `serve` loads (history, waiting at most 5 s for it, the context
