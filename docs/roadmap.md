@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M1d** (approved 2026-11-22; then M2) (M1c done 2026-11-22; the fuxx Settings piece waits until fuxx's other work is done, the user's call).
+**Current milestone: M2** (M1d done 2026-11-22; M2 being planned). fuxx's Settings for plugins is on fuxx's `master` (M11au); this repo adds the `setting.list*` lines to `fuxx-plugin.conf` once a fuxx release has it.
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -13,8 +13,8 @@ Building starts after fuxx's v0.5.0 release.
 | M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
-| M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | 🟨 built and reviewed, waiting for the user's check ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md)) |
-| M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
+| M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
+| M2 | bash and fish adapters, and the host channel (autosuggestions) | 🟨 being planned |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
@@ -30,6 +30,10 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M1d done.** The user: "close m1d then plan M2". M1d is ✅ on test build
+  v0.0.11 and merged to `main`; the user had not tried v0.0.11 in fuxx before closing it, so
+  anything found there later is fixed as a chore. Next: M2's plan.
 
 - **2026-11-22** — **M1d: the user's two calls.** "go with your picks": `cli/tests/size.rs` now
   holds the whole release binary under one limit of 768 KB (786,432 bytes; M1d's is 702,224), in
