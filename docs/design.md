@@ -357,6 +357,14 @@ is used only if it is 1–100 characters of letters, digits and `-_.:/@+`. The o
    mapping's fixed commands in order, then reader results in file order.
 3. Otherwise the rest of history as before (matches typed only in other folders).
 
+**The data (AI's calls, M1b).** Each `projects/*.toml` file holds `[[project]]` entries: `id`,
+`markers` (any of; a name or `*.ext`), `requires` (all of), `requires_any`, an optional
+`contains = { file, text }`, `beats`, `commands`, and `[[project.from]]` sources (`reader`,
+`files` — the first that exists is read, `path`, `templates` with `{}` for the name). Files are
+read in name order, entries in file order; `build.rs` (build-only `toml` and `serde`) turns them
+into static tables, and bad data (an unknown reader, an unknown `beats` id, a duplicate id, a
+template without `{}`) fails the build. `projects/README.md` documents the format.
+
 So `cargo tree` typed once elsewhere doesn't hide `cargo test` in a new Rust project, while
 `git st` there still finds `git status` from elsewhere. Once run, a project command is in this
 folder's history and ranks in step 1. The ecosystem list, the data format sketch and the readers'

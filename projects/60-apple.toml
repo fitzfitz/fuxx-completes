@@ -1,0 +1,21 @@
+[[project]]
+id = "xcode"
+markers = ["*.xcodeproj", "*.xcworkspace"]
+[[project.from]]
+reader = "file_names"
+files = ["*.xcodeproj"]
+templates = ["xcodebuild -scheme {} build", "xcodebuild -scheme {} test", "open {}.xcodeproj"]
+[[project.from]]
+reader = "file_names"
+files = ["*.xcworkspace"]
+templates = ["open {}.xcworkspace"]
+
+[[project]]
+id = "swiftpm"
+markers = ["Package.swift"]
+commands = ["swift build", "swift test", "swift run"]
+
+[[project]]
+id = "cocoapods"
+markers = ["Podfile"]
+commands = ["pod install", "pod update"]

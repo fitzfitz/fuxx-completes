@@ -1,0 +1,40 @@
+[[project]]
+id = "go"
+markers = ["go.mod"]
+commands = ["go build ./...", "go test ./...", "go run .", "go mod tidy"]
+
+[[project]]
+id = "ruby"
+markers = ["Gemfile"]
+commands = ["bundle install", "bundle exec"]
+
+[[project]]
+id = "rails"
+markers = ["Gemfile"]
+requires = ["bin/rails"]
+commands = ["bin/rails server", "bin/rails console", "bin/rails db:migrate", "bin/rails test"]
+
+[[project]]
+id = "composer"
+markers = ["composer.json"]
+commands = ["composer install"]
+[[project.from]]
+reader = "json_keys"
+files = ["composer.json"]
+path = "scripts"
+templates = ["composer {}"]
+
+[[project]]
+id = "laravel"
+markers = ["artisan"]
+commands = ["php artisan serve", "php artisan migrate", "php artisan tinker", "php artisan test"]
+
+[[project]]
+id = "mix"
+markers = ["mix.exs"]
+commands = ["mix deps.get", "mix test", "mix compile", "iex -S mix"]
+
+[[project]]
+id = "zig"
+markers = ["build.zig"]
+commands = ["zig build", "zig build test", "zig build run"]

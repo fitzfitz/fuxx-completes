@@ -1,0 +1,41 @@
+[[project]]
+id = "flutter"
+markers = ["pubspec.yaml"]
+contains = { file = "pubspec.yaml", text = "sdk: flutter" }
+beats = ["dart"]
+commands = ["flutter run", "flutter test", "flutter pub get", "flutter build apk", "flutter build ios"]
+
+[[project]]
+id = "dart"
+markers = ["pubspec.yaml"]
+commands = ["dart run", "dart test", "dart pub get"]
+
+[[project]]
+id = "android"
+markers = ["gradlew"]
+requires_any = ["app/build.gradle", "app/build.gradle.kts"]
+beats = ["gradlew", "gradle"]
+commands = [
+  "./gradlew assembleDebug",
+  "./gradlew installDebug",
+  "./gradlew test",
+  "./gradlew lint",
+  "./gradlew clean",
+]
+
+[[project]]
+id = "gradlew"
+markers = ["gradlew"]
+requires_any = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+beats = ["gradle"]
+commands = ["./gradlew build", "./gradlew test", "./gradlew clean"]
+
+[[project]]
+id = "gradle"
+markers = ["build.gradle", "build.gradle.kts"]
+commands = ["gradle build", "gradle test"]
+
+[[project]]
+id = "maven"
+markers = ["pom.xml"]
+commands = ["mvn clean install", "mvn test", "mvn package"]

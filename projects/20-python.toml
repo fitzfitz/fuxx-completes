@@ -1,0 +1,36 @@
+[[project]]
+id = "uv"
+markers = ["uv.lock"]
+beats = ["pip"]
+commands = ["uv sync", "uv run"]
+[[project.from]]
+reader = "toml_keys"
+files = ["pyproject.toml"]
+path = "project.scripts"
+templates = ["uv run {}"]
+
+[[project]]
+id = "poetry"
+markers = ["poetry.lock"]
+beats = ["pip"]
+commands = ["poetry install"]
+[[project.from]]
+reader = "toml_keys"
+files = ["pyproject.toml"]
+path = "tool.poetry.scripts"
+templates = ["poetry run {}"]
+
+[[project]]
+id = "pip"
+markers = ["requirements.txt"]
+commands = ["pip install -r requirements.txt"]
+
+[[project]]
+id = "django"
+markers = ["manage.py"]
+commands = [
+  "python manage.py runserver",
+  "python manage.py migrate",
+  "python manage.py makemigrations",
+  "python manage.py test",
+]

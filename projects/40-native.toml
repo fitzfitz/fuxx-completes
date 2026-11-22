@@ -1,0 +1,37 @@
+[[project]]
+id = "cmake"
+markers = ["CMakeLists.txt"]
+commands = ["cmake -B build", "cmake --build build"]
+
+[[project]]
+id = "cmake-presets"
+markers = ["CMakePresets.json"]
+[[project.from]]
+reader = "json_keys"
+files = ["CMakePresets.json"]
+path = "configurePresets[].name"
+templates = ["cmake --preset {}"]
+[[project.from]]
+reader = "json_keys"
+files = ["CMakePresets.json"]
+path = "buildPresets[].name"
+templates = ["cmake --build --preset {}"]
+
+[[project]]
+id = "meson"
+markers = ["meson.build"]
+commands = ["meson setup build", "meson compile -C build", "meson test -C build"]
+
+[[project]]
+id = "make"
+markers = ["Makefile", "GNUmakefile", "makefile"]
+commands = ["make"]
+[[project.from]]
+reader = "make_targets"
+files = ["GNUmakefile", "makefile", "Makefile"]
+templates = ["make {}"]
+
+[[project]]
+id = "dotnet"
+markers = ["*.sln", "*.csproj", "*.vbproj", "*.fsproj"]
+commands = ["dotnet build", "dotnet run", "dotnet test", "dotnet restore"]

@@ -1,0 +1,14 @@
+[[project]]
+id = "cargo"
+markers = ["Cargo.toml"]
+commands = ["cargo build", "cargo test", "cargo run", "cargo check", "cargo clippy", "cargo fmt"]
+[[project.from]]
+reader = "toml_keys"
+files = ["Cargo.toml"]
+path = "bin[].name"
+templates = ["cargo run --bin {}"]
+[[project.from]]
+reader = "toml_keys"
+files = [".cargo/config.toml"]
+path = "alias"
+templates = ["cargo {}"]

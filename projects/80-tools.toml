@@ -1,0 +1,48 @@
+[[project]]
+id = "just"
+markers = ["justfile", "Justfile", ".justfile"]
+commands = ["just"]
+[[project.from]]
+reader = "just_recipes"
+files = ["justfile", "Justfile", ".justfile"]
+templates = ["just {}"]
+
+[[project]]
+id = "task"
+markers = ["Taskfile.yml", "Taskfile.yaml"]
+commands = ["task"]
+[[project.from]]
+reader = "yaml_keys"
+files = ["Taskfile.yml", "Taskfile.yaml"]
+path = "tasks"
+templates = ["task {}"]
+
+[[project]]
+id = "compose"
+markers = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"]
+commands = ["docker compose up", "docker compose up -d", "docker compose down", "docker compose logs -f"]
+[[project.from]]
+reader = "yaml_keys"
+files = ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"]
+path = "services"
+templates = ["docker compose up {}", "docker compose logs -f {}"]
+
+[[project]]
+id = "docker"
+markers = ["Dockerfile"]
+commands = ["docker build ."]
+
+[[project]]
+id = "terraform"
+markers = ["*.tf"]
+commands = ["terraform init", "terraform plan", "terraform apply", "terraform fmt"]
+
+[[project]]
+id = "helm"
+markers = ["Chart.yaml"]
+commands = ["helm lint .", "helm template ."]
+
+[[project]]
+id = "nix"
+markers = ["flake.nix"]
+commands = ["nix build", "nix develop", "nix run", "nix flake update"]

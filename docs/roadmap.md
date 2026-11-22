@@ -29,6 +29,12 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1b Task 1: mappings as data.** `projects/*.toml` (39 project types in 8
+  files, with a README) and `core/build.rs` (build-only `toml` 1.2 and `serde`) compile them into
+  `core/src/projects` static tables; bad data fails the build (checked by hand with an unknown
+  reader). `design.md` §5.4. Tests first, seen failing (no table): every planned ecosystem, unique
+  ids and known `beats`, placeholders in templates, the pnpm entry, xcode/flutter/android shapes.
+
 - **2026-11-22** — **M1b planned and started.** Plan: [`plans/M1b Plan - Project Knowledge.md`](plans/M1b%20Plan%20-%20Project%20Knowledge.md)
   (6 tasks, 39 ecosystems). The user: "just go ahead with your best recommendation pick", so it is
   built at once in the session, with one whole-branch review at the end.

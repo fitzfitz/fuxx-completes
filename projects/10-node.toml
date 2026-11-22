@@ -1,0 +1,61 @@
+[[project]]
+id = "npm"
+markers = ["package.json"]
+commands = ["npm install", "npm test"]
+[[project.from]]
+reader = "json_keys"
+files = ["package.json"]
+path = "scripts"
+templates = ["npm run {}"]
+
+[[project]]
+id = "pnpm"
+markers = ["pnpm-lock.yaml"]
+requires = ["package.json"]
+beats = ["npm"]
+commands = ["pnpm install"]
+[[project.from]]
+reader = "json_keys"
+files = ["package.json"]
+path = "scripts"
+templates = ["pnpm {}", "pnpm run {}"]
+
+[[project]]
+id = "yarn"
+markers = ["yarn.lock"]
+requires = ["package.json"]
+beats = ["npm"]
+commands = ["yarn install"]
+[[project.from]]
+reader = "json_keys"
+files = ["package.json"]
+path = "scripts"
+templates = ["yarn {}"]
+
+[[project]]
+id = "bun"
+markers = ["bun.lock", "bun.lockb"]
+requires = ["package.json"]
+beats = ["npm"]
+commands = ["bun install"]
+[[project.from]]
+reader = "json_keys"
+files = ["package.json"]
+path = "scripts"
+templates = ["bun run {}"]
+
+[[project]]
+id = "deno"
+markers = ["deno.json", "deno.jsonc"]
+commands = ["deno task"]
+[[project.from]]
+reader = "json_keys"
+files = ["deno.json", "deno.jsonc"]
+path = "tasks"
+templates = ["deno task {}"]
+
+[[project]]
+id = "expo"
+markers = ["app.json"]
+contains = { file = "app.json", text = "\"expo\"" }
+commands = ["npx expo start"]

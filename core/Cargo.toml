@@ -11,3 +11,8 @@ blake3 = { version = "1.8.7", default-features = false, features = ["pure"] }
 
 [dev-dependencies]
 tempfile = "3.27"
+
+# Build time only: projects/*.toml becomes static Rust tables (no runtime cost, design §3).
+[build-dependencies]
+toml = "1.2"
+serde = { version = "1", features = ["derive"] }
