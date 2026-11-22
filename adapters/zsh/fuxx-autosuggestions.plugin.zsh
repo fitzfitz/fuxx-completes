@@ -1145,35 +1145,67 @@ _fuxx_as_list_key() {
   return 0
 }
 
-# Draws the ghost text and the list rows under it: "  N  <item>", newlines shown as ↵, each row
-# cut to the width with …, at most LINES-3 rows; the rows dim, the highlighted one in standout.
+# Draws the ghost text and the list under it (design spec §9, look A): a dim "Suggestions" title,
+# rows "  N  <item>" (the selected one "▸ N  <item>") with the number in blue and the command at
+# normal brightness, the selected row on a grey background, and a dim key hint. Newlines show as
+# ↵, tabs and control characters as a space; every line is cut to the width by screen columns
+# with …. A short window loses the hint first, then the title, before any item.
 _fuxx_as_list_draw() {
   emulate -L zsh
-  local out=$_FUXX_AS_LIST_GHOST row
-  local -i i cols=$(( COLUMNS - 1 )) maxrows=$(( LINES - 3 )) start=0 len=0
-  (( maxrows < 1 )) && maxrows=1
+  local ghost=$_FUXX_AS_LIST_GHOST out row num
+  local title='  Suggestions' hint='  ⌥1–5 pick · ↑↓ move · esc close'
+  local -i i n cols=$(( COLUMNS - 1 )) avail=$(( LINES - 3 )) pos
+  local -a spans
+  (( avail < 1 )) && avail=1
   if (( _FUXX_AS_LIST_SEL )); then
-    out=${_FUXX_AS_LIST_ITEMS[_FUXX_AS_LIST_SEL]}
-    [[ $out == "$BUFFER"* ]] && out=${out#"$BUFFER"} || out=''
+    ghost=${_FUXX_AS_LIST_ITEMS[_FUXX_AS_LIST_SEL]}
+    [[ $ghost == "$BUFFER"* ]] && ghost=${ghost#"$BUFFER"} || ghost=''
   fi
-  for (( i = 1; i <= $#_FUXX_AS_LIST_ITEMS && i <= maxrows; i++ )); do
-    row="  $i  ${_FUXX_AS_LIST_ITEMS[i]//$'\n'/ ↵ }"
-    row=${row//[[:cntrl:]]/ }
-    # Cut by screen columns, not characters: CJK and emoji take two each.
-    if (( ${(m)#row} > cols )); then
-      while (( ${(m)#row} > cols - 1 )); do row=${row[1,-2]}; done
-      row+=…
-    fi
+  n=$#_FUXX_AS_LIST_ITEMS
+  (( n > avail )) && n=avail
+  out=$ghost
+  pos=$(( $#BUFFER + $#ghost ))
+  (( $#ghost )) && spans+=( "$#BUFFER $pos ${FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE:-fg=8}" )
+  if (( avail >= n + 1 )); then
+    _fuxx_as_list_fit $title $cols
+    spans+=( "$(( pos + 1 )) $(( pos + 1 + $#REPLY )) fg=8" )
+    out+=$'\n'$REPLY
+    pos=$(( pos + 1 + $#REPLY ))
+  fi
+  for (( i = 1; i <= n; i++ )); do
+    if (( i == _FUXX_AS_LIST_SEL )); then row="▸ $i  " ; else row="  $i  "; fi
+    num=$(( pos + 3 ))
+    row+=${_FUXX_AS_LIST_ITEMS[i]//$'\n'/ ↵ }
+    _fuxx_as_list_fit $row $cols
+    row=$REPLY
     if (( i == _FUXX_AS_LIST_SEL )); then
-      start=$(( $#BUFFER + $#out + 1 )) len=${#row}
+      spans+=( "$(( pos + 1 )) $(( pos + 1 + $#row )) bg=8" "$num $(( num + 1 )) fg=blue,bg=8" )
+    else
+      spans+=( "$num $(( num + 1 )) fg=blue" )
     fi
     out+=$'\n'$row
+    pos=$(( pos + 1 + $#row ))
   done
+  if (( avail >= n + 2 )); then
+    _fuxx_as_list_fit $hint $cols
+    spans+=( "$(( pos + 1 )) $(( pos + 1 + $#REPLY )) fg=8" )
+    out+=$'\n'$REPLY
+  fi
   _fuxx_as_clear
   POSTDISPLAY=$out
-  _fuxx_as_highlight
-  (( len )) && _fuxx_as_hl_add "$start $(( start + len )) standout"
+  for row in "${(@)spans}"; do _fuxx_as_hl_add "$row"; done
   return 0
+}
+
+# REPLY = $1 with control characters as spaces, cut to $2 screen columns with … (CJK and emoji
+# take two columns each).
+_fuxx_as_list_fit() {
+  emulate -L zsh
+  REPLY=${1//[[:cntrl:]]/ }
+  if (( ${(m)#REPLY} > $2 )); then
+    while (( ${(m)#REPLY} > $2 - 1 )); do REPLY=${REPLY[1,-2]}; done
+    REPLY+=…
+  fi
 }
 
 # A pushed list arrived for the newest request (checked by the response handler): draw it, if

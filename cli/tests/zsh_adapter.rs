@@ -2789,13 +2789,18 @@ fn git_list() -> ZshOpts {
     }
 }
 
+/// The item rows of the list (not its title or hint line).
 fn rows(s: &common::LineState) -> Vec<String> {
     s.postdisplay
         .split('\n')
         .skip(1)
+        .filter(|l| l.starts_with("▸ ") || l.chars().nth(2).is_some_and(|c| c.is_ascii_digit()))
         .map(str::to_string)
         .collect()
 }
+
+const TITLE: &str = "  Suggestions";
+const HINT: &str = "  ⌥1–5 pick · ↑↓ move · esc close";
 
 #[test]
 fn list_appears_after_a_pause() {
@@ -2803,7 +2808,8 @@ fn list_appears_after_a_pause() {
     z.send("git s");
     let s = z.wait_state(|s| s.postdisplay.contains('\n'));
     assert_eq!(
-        s.postdisplay, "tash\n  1  git stash\n  2  git status",
+        s.postdisplay,
+        format!("tash\n{TITLE}\n  1  git stash\n  2  git status\n{HINT}"),
         "{s:?}"
     );
     assert!(s.region_highlight.iter().any(|h| h.contains("fg=8")));
@@ -2983,7 +2989,7 @@ fn down_highlights_and_the_ghost_follows() {
     let mut z = ZshHarness::start(keys_list());
     open_list(&mut z, "git s");
     z.send(DOWN);
-    let s = z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("standout")));
+    let s = z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("bg=8")));
     assert!(s.postdisplay.starts_with("tash\n"), "{s:?}");
     z.send(DOWN);
     let s = z.wait_state(|s| s.postdisplay.starts_with("tatus\n"));
@@ -3042,7 +3048,7 @@ fn enter_with_a_highlight_inserts_without_running() {
     let mut z = ZshHarness::start(keys_list());
     open_list(&mut z, "git s");
     z.send(DOWN);
-    z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("standout")));
+    z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("bg=8")));
     z.send("\r");
     let s = z.wait_state(|s| s.buffer == "git stash");
     assert_eq!(s.keymap, "main");
@@ -3135,9 +3141,9 @@ fn keymap_is_restored_after_every_close() {
 fn first_key_down_enters_the_list() {
     let mut z = ZshHarness::start(keys_list());
     z.send("git s");
-    assert!(z.wait_screen("  2  git status"));
+    assert!(z.wait_screen("esc close"));
     z.send(DOWN);
-    let s = z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("standout")));
+    let s = z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("bg=8")));
     assert!(s.postdisplay.starts_with("tash\n"), "{s:?}");
 }
 
@@ -3145,7 +3151,7 @@ fn first_key_down_enters_the_list() {
 fn first_key_alt_digit_picks() {
     let mut z = ZshHarness::start(keys_list());
     z.send("git s");
-    assert!(z.wait_screen("  2  git status"));
+    assert!(z.wait_screen("esc close"));
     z.send("\x1b2");
     z.wait_state(|s| s.buffer == "git status");
     z.send("x");
@@ -3156,7 +3162,7 @@ fn first_key_alt_digit_picks() {
 fn first_key_option_char_picks() {
     let mut z = ZshHarness::start(keys_list());
     z.send("git s");
-    assert!(z.wait_screen("  2  git status"));
+    assert!(z.wait_screen("esc close"));
     z.send("¡");
     z.wait_state(|s| s.buffer == "git stash");
 }
@@ -3282,4 +3288,44 @@ fn macro_binding_passes_through_quietly() {
     std::thread::sleep(Duration::from_millis(200));
     let screen = z.screen_now();
     assert!(!screen.contains("No such widget"), "{screen:?}");
+}
+
+// ---- M1c: the look (spec §9) ----
+
+#[test]
+fn list_has_a_title_a_hint_and_colours() {
+    let mut z = ZshHarness::start(keys_list());
+    let s = open_list(&mut z, "git s");
+    let lines: Vec<&str> = s.postdisplay.split('\n').collect();
+    assert_eq!(lines[1], TITLE, "{s:?}");
+    assert_eq!(*lines.last().unwrap(), HINT, "{s:?}");
+    assert!(
+        s.region_highlight.iter().any(|h| h.contains("fg=blue")),
+        "{s:?}"
+    );
+    assert!(
+        !s.region_highlight.iter().any(|h| h.contains("bg=8")),
+        "{s:?}"
+    );
+    z.send(DOWN);
+    let s = z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("bg=8")));
+    assert!(
+        s.postdisplay
+            .split('\n')
+            .any(|l| l.starts_with("▸ 1  git stash")),
+        "{s:?}"
+    );
+}
+
+#[test]
+fn short_window_drops_the_hint_first() {
+    let mut z = ZshHarness::start(ZshOpts {
+        size: Some((40, 7)),
+        ..keys_list()
+    });
+    let s = z.wait_state(|s| s.postdisplay.contains('\n'));
+    let lines: Vec<&str> = s.postdisplay.split('\n').collect();
+    assert_eq!(lines[1], TITLE, "{s:?}");
+    assert_eq!(rows(&s).len(), 3, "{s:?}");
+    assert!(!s.postdisplay.contains("pick"), "{s:?}");
 }

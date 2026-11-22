@@ -30,6 +30,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1c Task 7: the list's look.** After v0.0.9 the user: "the list appears not
+  really good … add like title … better in UI and UX"; chose to fix it in fuxx-completes, picked
+  look A of three browser mockups, approved the design ("Approved and deploy it directly"). A
+  dim title, blue numbers, commands at normal brightness, `▸` and a grey background on the
+  selected row, a dim key hint; a short window drops the hint, then the title. Spec §9,
+  `design.md` §6. Tests first, seen failing: the title, hint and colours; the short window; the
+  existing list tests updated for the layout. 164 adapter tests on zsh 5.3.1, 5.8.1 and 5.9.
+
 - **2026-11-22** — **v0.0.9 test release (the user: "go deploy and release it then"), before the
   M1c check.** The suggestion list, tagged on the M1c branch like v0.0.6–v0.0.8; `main` untouched.
   Binary 635,744 bytes.
