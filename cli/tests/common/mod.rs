@@ -143,6 +143,12 @@ impl ZshHarness {
         }
     }
 
+    /// Waits (5 s at most) until `needle` shows in the output, without sending a key: a state
+    /// dump is a key, and it would use up a read the shell made before a redraw (M1c review).
+    pub fn wait_screen(&mut self, needle: &str) -> bool {
+        self.wait_for(0, needle, Duration::from_secs(5))
+    }
+
     /// Polls until `needle` appears in the output at or after byte offset `from`.
     fn wait_for(&mut self, from: usize, needle: &str, within: Duration) -> bool {
         let end = Instant::now() + within;

@@ -922,6 +922,18 @@ Honest about what each shell allows.
   did; Esc closes the list and hides the ghost text, then does what Esc did in that keymap (in vi
   insert mode, command mode); any other key closes the list (keeping the highlighted item as the
   ghost text, so → and End take it) and does what it did.
+  **Fixes after the M1c review.** The list arrives while zsh already waits for a key, so the first
+  key after it opens was read in the old keymap: every wrapper first checks whether the key is
+  one of the list's and runs that list widget (↓, ⌥n and `¡` work on the first press). A fresh line
+  drops whatever ⌃C left (zsh runs no line-finish on SIGINT); the rows ⌃C leaves in the
+  scrollback are a known limit. With the list open, Esc on a sequence nothing binds (⌃→) still
+  drops its tail through our Esc widget. While the ghost text is hidden until the next edit (after
+  Tab, Esc, vi command mode) a cursor move asks for nothing, so no ghost text comes back and no
+  list opens over a completion listing; nor does one open, or get asked for, while another widget
+  is still running (⌃R's search, a menu). Rows are cut by screen columns (CJK and emoji take two),
+  with tabs and control characters shown as a space. A `bindkey -s` string on ↑, Enter, Tab or Esc
+  is left alone rather than run as a widget name. The settings code keeps its variables local and
+  does no arithmetic on user values, so it prints nothing even with hostile user variables.
 - **Host mode:** with `FUXX_COMPLETES_HOST=1`, the same wrapped widgets forward the buffer over the
   host channel instead of drawing (§5.5).
 - **Limits:** a menu below the line pushes the screen and can't overlap other text; very long

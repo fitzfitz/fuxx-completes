@@ -30,6 +30,21 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1c whole-branch review and its fix pass.** One fresh reviewer (Opus): one
+  Critical and six Important. Fixed, each with a test seen failing first: (critical) the first
+  key after the list opened was read in the old keymap, so ↓, ⌥n and `¡` failed on the first press
+  (the harness's state dump had been using up that read; a screen-wait helper now tests it);
+  ⌃C left a stale list and ghost text; Esc on ⌃→ typed its tail with the list open; a cursor move
+  brought back a hidden ghost text (vi `Esc h l A`) and could open the list over a completion
+  listing; the list could open over ⌃R; rows were cut by characters, not columns (CJK wrapped);
+  hostile user variables (`typeset -r cand`, `on='1+'`) printed at the prompt; and (regraded from
+  Minor, it printed at the prompt) a `bindkey -s` string on ↑/Enter/Tab. `design.md` §6. 162
+  adapter tests on zsh 5.3.1, 5.8.1 and 5.9; the workspace passes. Deferred (minor): unwrapped
+  widgets (`yank`, `_*` completion widgets) leave the list up; keymap-change hooks see
+  `fuxx-as-list`; item 1 can differ from the ghost text if history changed during the pause; the
+  `LINES-3` cap ignores a multi-line prompt; a stream of non-`suggest` lines could delay a list;
+  `£`/`¡` typed on UK/Spanish keyboards pick while the list shows.
+
 - **2026-11-22** — **M1c Task 5: doctor and the list's speed.** `doctor` shows the list
   settings and where each came from (`list         on (fuxx Settings)`, `list delay   3 s
   (default)`, …). `cli/tests/latency.rs` times the list of 5 on the 100,000-line history (release):

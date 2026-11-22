@@ -3128,3 +3128,158 @@ fn keymap_is_restored_after_every_close() {
     let s = z.wait_state(|s| s.buffer.is_empty());
     assert_eq!(s.keymap, "main");
 }
+
+// ---- M1c review fixes ----
+
+#[test]
+fn first_key_down_enters_the_list() {
+    let mut z = ZshHarness::start(keys_list());
+    z.send("git s");
+    assert!(z.wait_screen("  2  git status"));
+    z.send(DOWN);
+    let s = z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("standout")));
+    assert!(s.postdisplay.starts_with("tash\n"), "{s:?}");
+}
+
+#[test]
+fn first_key_alt_digit_picks() {
+    let mut z = ZshHarness::start(keys_list());
+    z.send("git s");
+    assert!(z.wait_screen("  2  git status"));
+    z.send("\x1b2");
+    z.wait_state(|s| s.buffer == "git status");
+    z.send("x");
+    z.wait_state(|s| s.buffer == "git statusx");
+}
+
+#[test]
+fn first_key_option_char_picks() {
+    let mut z = ZshHarness::start(keys_list());
+    z.send("git s");
+    assert!(z.wait_screen("  2  git status"));
+    z.send("¡");
+    z.wait_state(|s| s.buffer == "git stash");
+}
+
+#[test]
+fn ctrl_c_leaves_no_stale_list() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("\x03");
+    z.wait_state(|s| s.buffer.is_empty() && s.postdisplay.contains('\n'));
+    z.send("\x1b[C");
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(z.state().buffer, "");
+}
+
+#[test]
+fn unbound_sequence_tail_is_dropped_with_the_list_open() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("\x1b[1;5C");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(z.state().buffer, "git s");
+}
+
+#[test]
+fn vi_esc_then_moves_bring_no_ghost_back() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "bindkey -v\n\
+                   bindkey -M viins '^[[9999~' _fuxx-test-dump\n\
+                   bindkey -M vicmd '^[[9999~' _fuxx-test-dump"
+            .into(),
+        ..keys_list()
+    });
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay == "tash");
+    z.send("\x1b");
+    z.wait_state(|s| s.keymap == "vicmd");
+    z.send("h");
+    z.send("l");
+    std::thread::sleep(Duration::from_millis(300));
+    z.send("A");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(z.state().buffer, "git s");
+}
+
+#[test]
+fn no_list_over_a_completion_after_a_move() {
+    let mut z = ZshHarness::start(keys_list());
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay == "tash");
+    z.send("\x1b[D\t");
+    std::thread::sleep(Duration::from_millis(100));
+    z.send("\x1b[D");
+    std::thread::sleep(Duration::from_millis(900));
+    assert!(
+        !z.state().postdisplay.contains('\n'),
+        "a list over a completion"
+    );
+}
+
+#[test]
+fn no_list_over_ctrl_r() {
+    let mut z = ZshHarness::start(keys_list());
+    z.send("git s\x12");
+    std::thread::sleep(Duration::from_millis(900));
+    z.send("\x07");
+    let s = z.state();
+    assert_ne!(s.keymap, "fuxx-as-list", "{s:?}");
+    assert!(!s.postdisplay.contains('\n'), "{s:?}");
+}
+
+/// Width on screen: the CJK characters used here take two columns.
+fn width(s: &str) -> usize {
+    s.chars()
+        .map(|c| {
+            if ('\u{3000}'..='\u{9fff}').contains(&c) {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+#[test]
+fn wide_characters_are_cut_by_width() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["echo 日本語日本語日本語日本語日本語日本語"],
+        rc_before: LIST_KEYS.into(),
+        size: Some((30, 12)),
+        ..Default::default()
+    });
+    z.send("echo");
+    let s = z.wait_state(|s| s.postdisplay.contains('\n'));
+    for r in rows(&s) {
+        assert!(width(&r) <= 29, "{r:?} is {} columns", width(&r));
+        assert!(r.ends_with('…'), "{r:?}");
+    }
+}
+
+#[test]
+fn hostile_user_variables_print_nothing() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: format!("{LIST_KEYS}; typeset -r cand=x; on='1+'; off='1+'"),
+        ..keys_list()
+    });
+    open_list(&mut z, "git s");
+    let screen = z.screen_now();
+    assert!(
+        !screen.contains("read-only") && !screen.contains("bad math"),
+        "{screen:?}"
+    );
+}
+
+#[test]
+fn macro_binding_passes_through_quietly() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "bindkey -s '^[[A' 'hello'".into(),
+        ..keys_list()
+    });
+    z.wait_state(|s| s.postdisplay.contains('\n'));
+    z.send(UP);
+    std::thread::sleep(Duration::from_millis(200));
+    let screen = z.screen_now();
+    assert!(!screen.contains("No such widget"), "{screen:?}");
+}

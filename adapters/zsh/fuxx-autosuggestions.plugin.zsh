@@ -63,6 +63,7 @@
   typeset -gi _FUXX_AS_LIST_SEL=0 _FUXX_AS_KEYSEQ=0 _FUXX_AS_LIST_FOR_SEQ=-1
   typeset -g _FUXX_AS_LIST_FOR_ID='' _FUXX_AS_LIST_FOR_BUFFER='' _FUXX_AS_LIST_GHOST=''
   typeset -g _FUXX_AS_LIST_PREV=main   # the keymap the list's own keymap was copied from
+  typeset -gi _FUXX_AS_HIDDEN=0   # 1 while the ghost text is off until the next edit (Tab, Esc)
   typeset -gA _FUXX_AS_LIST_VAL _FUXX_AS_LIST_SRC
   typeset -ga _FUXX_AS_LIST_ITEMS=() _FUXX_AS_HLS=()
   typeset -g _FUXX_AS_PID=''
@@ -397,7 +398,9 @@ _fuxx_as_widget_answer() {
   else
     zle fuxx-as-show -- "$1"
     # A key that didn't edit came while we waited: ask again, so the list's pause restarts.
-    (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_FOR_SEQ != _FUXX_AS_KEYSEQ )) && _fuxx_as_request
+    # Not while the ghost text is hidden, nor while a widget still runs (⌃R's search, a menu).
+    (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_FOR_SEQ != _FUXX_AS_KEYSEQ && ! _FUXX_AS_HIDDEN )) \
+      && [[ -z ${_fuxx_as_inside-} ]] && _fuxx_as_request
   fi
   return 0
 }
@@ -415,6 +418,7 @@ zle -N fuxx-as-clear _fuxx_as_widget_clear
 # key that changes the buffer asks again as usual.
 _fuxx_as_hide() {
   emulate -L zsh
+  _FUXX_AS_HIDDEN=1
   _fuxx_as_list_reset
   _fuxx_as_clear
   (( ${+_fuxx_as_held} )) && _fuxx_as_held=
@@ -467,7 +471,7 @@ zle -N fuxx-as-escape _fuxx_as_widget_escape
 # (`my-end() { zle end-of-line }`) still accepts it, and a widget that changes the buffer drops it.
 _fuxx_as_w_modify() {
   emulate -L zsh
-  _fuxx_as_list_key
+  _fuxx_as_list_key || return 0
   local orig=$1
   shift
   # Another plugin that wrapped us can put our wrapper of a widget inside another of ours for the
@@ -518,11 +522,13 @@ _fuxx_as_w_modify() {
     _fuxx_as_held=
     _fuxx_as_clear
     _FUXX_AS_LAST_BUFFER=$BUFFER
+    _FUXX_AS_HIDDEN=0
     _fuxx_as_request
   else
     (( holder )) && [[ -n $_fuxx_as_held ]] && _fuxx_as_show "$_fuxx_as_held"
-    # A key that only moved: ask again, so the list's pause starts over (design spec M1c).
-    (( holder && _FUXX_AS_LIST_SIZE )) && _fuxx_as_request
+    # A key that only moved: ask again, so the list's pause starts over (design spec M1c);
+    # not while the ghost text is hidden until the next edit (after Tab, Esc, vi command mode).
+    (( holder && _FUXX_AS_LIST_SIZE && ! _FUXX_AS_HIDDEN )) && _fuxx_as_request
   fi
   return $ret
 }
@@ -567,7 +573,7 @@ _fuxx_as_complete() {
 # runs on the longer text; anywhere else the key just moves the cursor and the ghost text stays.
 _fuxx_as_w_accept() {
   emulate -L zsh
-  _fuxx_as_list_key
+  _fuxx_as_list_key || return 0
   local orig=$1
   shift
   local self=${orig#fuxx-as-orig-<->-}
@@ -596,7 +602,7 @@ _fuxx_as_w_accept() {
 # text, otherwise the buffer is put back. The rest of the suggestion is still right, so no request.
 _fuxx_as_w_partial() {
   emulate -L zsh
-  _fuxx_as_list_key
+  _fuxx_as_list_key || return 0
   local orig=$1 saved=$BUFFER sugg=${POSTDISPLAY:-${_fuxx_as_held-}} rest
   shift
   local self=${orig#fuxx-as-orig-<->-}
@@ -639,7 +645,7 @@ _fuxx_as_w_partial() {
 # _fuxx_as_w_clear <original widget> [args]: widgets that replace the line or leave it.
 _fuxx_as_w_clear() {
   emulate -L zsh
-  _fuxx_as_list_key
+  _fuxx_as_list_key || return 0
   local orig=$1
   shift
   local self=${orig#fuxx-as-orig-<->-}
@@ -671,6 +677,10 @@ _fuxx_as_line_init() {
   emulate -L zsh
   _FUXX_AS_LAST_BUFFER=''
   _FUXX_AS_KEYSEQ+=1
+  # ⌃C runs no line-finish: drop a list it left, and its ghost text, keymap and highlights.
+  _FUXX_AS_LIST_GHOST='' _FUXX_AS_HIDDEN=0
+  _fuxx_as_list_reset
+  _fuxx_as_clear
   # The list on an empty line (design spec M1c): ask at once, the core times the pause.
   [[ -z $BUFFER ]] && (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY )) && _fuxx_as_request
   return 0
@@ -925,7 +935,7 @@ _fuxx_as_take_pending() {
 # each value and where it came from.
 _fuxx_as_list_settings() {
   emulate -L zsh
-  local name var v src ok
+  local name var v src ok cand
   local -A defaults=( list on list_empty on list_delay 3 list_size 5 )
   for name in list list_empty list_delay list_size; do
     var=${(U)name}
@@ -957,9 +967,9 @@ _fuxx_as_list_settings() {
   (( size < 1 )) && size=1
   (( size > 5 )) && size=5
   _FUXX_AS_LIST_DELAY_MS=$ms
-  _FUXX_AS_LIST_SIZE=$(( $_FUXX_AS_LIST_VAL[list] == on ? size : 0 ))
-  [[ $_FUXX_AS_LIST_VAL[list] == on ]] || _FUXX_AS_LIST_SIZE=0
-  _FUXX_AS_LIST_EMPTY=$(( 0 ))
+  _FUXX_AS_LIST_SIZE=0
+  [[ $_FUXX_AS_LIST_VAL[list] == on ]] && _FUXX_AS_LIST_SIZE=$size
+  _FUXX_AS_LIST_EMPTY=0
   [[ $_FUXX_AS_LIST_VAL[list_empty] == on ]] && _FUXX_AS_LIST_EMPTY=1
   return 0
 }
@@ -1002,6 +1012,14 @@ _fuxx_as_list_keymap() {
   zle -K fuxx-as-list
 }
 
+# Runs a binding found with `bindkey -M`: a widget by name. A `bindkey -s` string (shown quoted)
+# is left alone rather than run as a widget name, which would print an error at the prompt.
+_fuxx_as_run_binding() {
+  emulate -L zsh
+  [[ -n $1 && $1 != undefined-key && $1 != \"* ]] || return 0
+  zle $1
+}
+
 # Puts list item $1 into the line (never runs it); the list closes and the ghost text is asked
 # for the new line.
 _fuxx_as_list_insert() {
@@ -1026,8 +1044,7 @@ _fuxx_as_list_passthrough() {
   _fuxx_as_list_reset
   _fuxx_as_show "$ghost"
   w=$(bindkey -M $_FUXX_AS_LIST_PREV -- "$KEYS" 2>/dev/null)
-  w=${w##* }
-  [[ -n $w && $w != undefined-key ]] && zle $w
+  _fuxx_as_run_binding "${w##* }"
   return 0
 }
 
@@ -1090,9 +1107,15 @@ _fuxx_as_widget_list_esc() {
   w=$(bindkey -M $_FUXX_AS_LIST_PREV -- "$KEYS" 2>/dev/null)
   w=${w##* }
   _FUXX_AS_KEYSEQ+=1
+  if [[ $w == fuxx-as-escape ]]; then
+    # Our own Esc also drops the tail of a sequence nothing binds (⌃→), so it isn't typed.
+    _fuxx_as_list_reset
+    zle fuxx-as-escape
+    return 0
+  fi
   _fuxx_as_dismiss
   zle -R
-  [[ -n $w && $w != undefined-key && $w != fuxx-as-escape ]] && zle $w
+  _fuxx_as_run_binding "$w"
   return 0
 }
 zle -N fuxx-as-list-esc _fuxx_as_widget_list_esc
@@ -1100,8 +1123,19 @@ zle -N fuxx-as-list-esc _fuxx_as_widget_list_esc
 # Every wrapped key: the list closes (the plain ghost text comes back, so the wrappers see
 # POSTDISPLAY as the ghost text, as always) and the key counter moves on, so a list for an
 # earlier request is never drawn.
+# Returns 1 when the key was the list's own: zsh had already read it in the old keymap when the
+# list opened (it arrives while zsh waits for a key), so it lands here; its list widget is run and
+# the caller stops.
 _fuxx_as_list_key() {
   emulate -L zsh
+  if (( $#_FUXX_AS_LIST_ITEMS )) && [[ $KEYMAP == fuxx-as-list ]]; then
+    local w=$(bindkey -M fuxx-as-list -- "$KEYS" 2>/dev/null)
+    w=${w##* }
+    if [[ $w == fuxx-as-list-* ]]; then
+      zle $w
+      return 1
+    fi
+  fi
   _FUXX_AS_KEYSEQ+=1
   (( $#_FUXX_AS_LIST_ITEMS )) || return 0
   _fuxx_as_list_ghost
@@ -1124,7 +1158,12 @@ _fuxx_as_list_draw() {
   fi
   for (( i = 1; i <= $#_FUXX_AS_LIST_ITEMS && i <= maxrows; i++ )); do
     row="  $i  ${_FUXX_AS_LIST_ITEMS[i]//$'\n'/ ↵ }"
-    (( ${#row} > cols )) && row="${row[1,cols-1]}…"
+    row=${row//[[:cntrl:]]/ }
+    # Cut by screen columns, not characters: CJK and emoji take two each.
+    if (( ${(m)#row} > cols )); then
+      while (( ${(m)#row} > cols - 1 )); do row=${row[1,-2]}; done
+      row+=…
+    fi
     if (( i == _FUXX_AS_LIST_SEL )); then
       start=$(( $#BUFFER + $#out + 1 )) len=${#row}
     fi
@@ -1143,6 +1182,8 @@ _fuxx_as_widget_list_open() {
   emulate -L zsh
   [[ $BUFFER == "$_FUXX_AS_LIST_FOR_BUFFER" ]] || return 0
   [[ $KEYMAP == main || $KEYMAP == emacs || $KEYMAP == viins ]] || return 0
+  # Never over a widget that is still running (⌃R's search, a menu) or a hidden ghost text.
+  [[ -z ${_fuxx_as_inside-} ]] && (( ! _FUXX_AS_HIDDEN )) || return 0
   (( $# )) || return 0
   (( $#_FUXX_AS_LIST_ITEMS )) || _FUXX_AS_LIST_GHOST=$POSTDISPLAY
   _FUXX_AS_LIST_ITEMS=( "$@" ) _FUXX_AS_LIST_SEL=0
