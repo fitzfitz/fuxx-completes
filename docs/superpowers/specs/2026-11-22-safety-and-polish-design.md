@@ -1,7 +1,7 @@
 # fuxx-completes: safety and polish (M1d) — design
 
 **Status:** written 2026-11-22; builder check done (five questions, all settled as AI's calls
-below); for the user's review. Not planned, not built. "Design §n" means
+below). **Approved by the user 2026-11-22** ("Approved"). Not planned, not built. "Design §n" means
 `docs/design.md`.
 
 ## 1. Intent and why
