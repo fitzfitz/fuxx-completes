@@ -992,11 +992,11 @@ fn history_file_appended_by_another_shell_is_seen() {
 #[test]
 fn history_file_rewritten_without_a_line_drops_it() {
     let mut z = ZshHarness::start(ZshOpts {
-        history: vec!["rm -rf build", "ls"],
+        history: vec!["rm build.log", "ls"],
         ..Default::default()
     });
     z.send("rm");
-    z.wait_state(|s| s.postdisplay == " -rf build");
+    z.wait_state(|s| s.postdisplay == " build.log");
     z.send("\x15");
     let tmp = z.home().join("hist.tmp");
     std::fs::write(&tmp, "ls\n").unwrap();

@@ -499,6 +499,23 @@ the tails, the exemptions, the separator rule). Hidden lines leave the candidate
 the walk, so they never count toward its 50-candidate bound and its budget never returns one
 unchecked.
 
+*Dangerous commands (M1d §4.2):* a line whose first simple command (after `NAME=value`,
+`sudo`/`doas` and their options, `builtin`/`command`) is on the list is guarded: `rm` with
+`-r`/`-R`/`-f` (any cluster) or `--recursive`/`--force`; `git push` with `-f`/`--force`/
+`--force-with-lease`; `git reset --hard`; `git clean` with `-f`; `git checkout -- .`;
+`git restore .`; `kubectl delete`; `terraform apply`/`destroy`; `helm uninstall`;
+`docker system prune`; `docker volume rm`; `dd`; `mkfs*`; `chmod -R`; `chown -R`; `shutdown`;
+`reboot` (a const table in `safety.rs`, **AI's call** on the entries). Flags after a `--` are
+arguments (`rm -- -rf` is a file), and subcommand words may follow options (`git -C dir push
+-f`). Such a line never gets the tier-1 lift, a frequency boost, the follows lift or the
+"this folder's history" step, and is never deferred as failed-only: it ranks by recency with
+the rest. It is shown (ghost text or list) only once the typed text reaches its dangerous part:
+the whole subcommand (`kubectl delete`), a flag's first character (`rm -`, `git push -`), `git
+reset --h`, `git checkout --`, `git restore .`, or the command word itself (`reboot`) (**AI's
+call**: typing `g` never puts `git push --force` one key away). So it never shows on an empty
+line, in the empty-line list or as a fix. Like secrets, guarded lines leave the candidates
+before the walk.
+
 **Menu items** are ordered by kind (subcommands, then options, then argument values; open to
 change), then by prefix match quality, then by how often the user picked them (counted in memory
 only; persisting them would need the user to widen §5.7 first).

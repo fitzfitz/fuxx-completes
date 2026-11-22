@@ -77,6 +77,9 @@ struct Word {
     plain: bool,
     /// Starts with `NAME=` (unquoted): an assignment before the command.
     assign: bool,
+    /// Where the raw word starts and ends in the command (bytes).
+    start: usize,
+    end: usize,
 }
 
 /// What a command is, as a `cd`/`pushd`.
@@ -159,6 +162,56 @@ pub fn command_word(command: &str) -> Option<String> {
     cmd.plain.then_some(cmd.value)
 }
 
+/// One word of a command's first simple command, for rules that look at its words (M1d's
+/// dangerous-command guard): the value after quote removal, whether the raw text was plain,
+/// whether it is a `NAME=value` assignment, and where the raw word starts and ends in the
+/// command (byte offsets).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CmdWord {
+    pub value: String,
+    pub plain: bool,
+    pub assign: bool,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// The words of `command`'s first simple command, up to what the parser stops at.
+pub fn command_words(command: &str) -> Vec<CmdWord> {
+    first_simple_command(command)
+        .0
+        .into_iter()
+        .map(|w| CmdWord {
+            value: w.value,
+            plain: w.plain,
+            assign: w.assign,
+            start: w.start,
+            end: w.end,
+        })
+        .collect()
+}
+
+/// The characters of a command, with the byte offset of the next one.
+struct Cursor<'a> {
+    chars: std::iter::Peekable<std::str::Chars<'a>>,
+    pos: usize,
+}
+
+impl Cursor<'_> {
+    fn peek(&mut self) -> Option<&char> {
+        self.chars.peek()
+    }
+}
+
+impl Iterator for Cursor<'_> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        let c = self.chars.next()?;
+        self.pos += c.len_utf8();
+        Some(c)
+    }
+}
+
 fn is_name(s: &str) -> bool {
     let mut chars = s.chars();
     chars
@@ -172,7 +225,10 @@ fn is_name(s: &str) -> bool {
 /// comment, unbalanced quotes); the words before that are still returned.
 fn first_simple_command(command: &str) -> (Vec<Word>, bool) {
     let mut words = Vec::new();
-    let mut chars = command.chars().peekable();
+    let mut chars = Cursor {
+        chars: command.chars().peekable(),
+        pos: 0,
+    };
     loop {
         while chars.peek().is_some_and(|&c| c == ' ' || c == '\t') {
             chars.next();
@@ -190,8 +246,10 @@ fn first_simple_command(command: &str) -> (Vec<Word>, bool) {
 }
 
 /// Reads one word; `None` for what we don't parse inside it.
-fn read_word(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<Word> {
+fn read_word(chars: &mut Cursor) -> Option<Word> {
     let mut w = Word {
+        start: chars.pos,
+        end: chars.pos,
         value: String::new(),
         special: false,
         tilde: chars.peek() == Some(&'~'),
@@ -257,6 +315,7 @@ fn read_word(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<Word> {
         }
         first = false;
     }
+    w.end = chars.pos;
     Some(w)
 }
 
@@ -416,6 +475,25 @@ mod tests {
                 },
             )
         }
+    }
+
+    #[test]
+    fn command_words_carry_byte_offsets() {
+        let w = command_words("FOO=1 \\rm  -rf 'a b' é && ls");
+        let got: Vec<(&str, bool, bool, usize, usize)> = w
+            .iter()
+            .map(|w| (w.value.as_str(), w.plain, w.assign, w.start, w.end))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("FOO=1", true, true, 0, 5),
+                ("rm", false, false, 6, 9),
+                ("-rf", true, false, 11, 14),
+                ("a b", false, false, 15, 20),
+                ("é", true, false, 21, 23),
+            ]
+        );
     }
 
     #[test]

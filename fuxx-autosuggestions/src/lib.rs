@@ -18,7 +18,7 @@ use fuxx_completes_core::cd_target::{classify, CdKind, Place};
 use fuxx_completes_core::history::{History, Verdict, CHECK_BUDGET};
 pub use fuxx_completes_core::rank::Ranking;
 use fuxx_completes_core::rank::{follows_of, walk};
-use fuxx_completes_core::safety::looks_secret;
+use fuxx_completes_core::safety::hidden_for;
 use std::time::Instant;
 
 /// The text to show after `buffer`, or None. None for an empty buffer, no match, or an exact match.
@@ -75,7 +75,7 @@ fn best_entry<'a>(
         .copied()
         .chain(project)
         .chain(others)
-        .filter(|c| !looks_secret(c));
+        .filter(|c| !hidden_for(c, buffer));
     walk(candidates, CHECK_BUDGET, judge)
 }
 
@@ -126,7 +126,7 @@ pub fn suggestion_list<'a>(
         if out.len() >= max || start.elapsed() >= CHECK_BUDGET {
             break;
         }
-        if c.is_empty() || c == buffer || out.contains(&c) || looks_secret(c) {
+        if c.is_empty() || c == buffer || out.contains(&c) || hidden_for(c, buffer) {
             continue;
         }
         if classify(c, place) == CdKind::Missing {
@@ -589,5 +589,33 @@ mod tests {
             suggestion(&h, "export ", &nowhere(), &none(), &[]),
             Some("PATH=x")
         );
+    }
+
+    /// M1d §4.2: typing `g` never puts `git push --force` one key away.
+    #[test]
+    fn dangerous_needs_its_dangerous_part_typed() {
+        let h = hist(&["git pull", "git push --force"]);
+        let at = |b: &str| suggestion(&h, b, &nowhere(), &none(), &[]);
+        assert_eq!(at("g"), Some("it pull"));
+        assert_eq!(at("git p"), Some("ull"));
+        assert_eq!(at("git push -"), Some("-force"));
+        assert_eq!(at("git push --force"), None);
+        let list = suggestion_list(&h, "git p", &nowhere(), &none(), &[], 5);
+        assert_eq!(list, ["git pull"]);
+    }
+
+    #[test]
+    fn no_dangerous_line_on_the_empty_line_list() {
+        let h = hist(&["git add .", "git push -f", "git status"]);
+        let mut succ = fuxx_completes_core::rank::Successors::new();
+        succ.record("git add .", "git push -f");
+        let r = Ranking {
+            index: None,
+            cwd: Path::new("/p"),
+            previous: Some("git add ."),
+            successors: Some(&succ),
+        };
+        let list = suggestion_list(&h, "", &nowhere(), &r, &[], 5);
+        assert_eq!(list, ["git status", "git add ."]);
     }
 }

@@ -31,6 +31,13 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1d Task 2: the dangerous-command guard.** `safety::danger_reach` over a
+  const table (spec §4.2's list) and the first simple command's words with byte offsets
+  (`cd_target::command_words`); a dangerous line gets no lift of any kind and is shown only
+  once the typed text reaches its dangerous part (`rm -`, `git push -`, `git reset --h`,
+  `kubectl delete`). `design.md` §5.4. Tests first, seen failing; one older adapter test used
+  a recursive `rm` as a plain example and now uses `rm build.log`.
+
 - **2026-11-22** — **M1d Task 1: the secret filter.** `core/src/safety.rs` `looks_secret`: known
   token shapes, `Authorization:`/`Bearer` values, URL passwords, secret-named values and long
   random-looking words; such a line is never ghost text or a list item, and it leaves the

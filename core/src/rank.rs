@@ -9,6 +9,7 @@ use crate::context::index::{ContextIndex, Tally};
 use crate::context::Key;
 use crate::history::History;
 pub use crate::history::{Verdict, CHECK_BUDGET, MAX_SKIPPED};
+use crate::safety::is_dangerous;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -109,7 +110,10 @@ impl<'a, 'r> Ranked<'a, 'r> {
                 if tally.ok == 0 {
                     continue;
                 }
-                let Some(text) = history.text_for(key).filter(|t| t.starts_with(prefix)) else {
+                let Some(text) = history
+                    .text_for(key)
+                    .filter(|t| t.starts_with(prefix) && !is_dangerous(t))
+                else {
                     continue;
                 };
                 let freq = if no_frequency_boost(text) {
@@ -161,7 +165,11 @@ pub fn follows_of<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> 
         return Vec::new();
     };
     let mut out: Vec<&'a str> = Vec::new();
-    for next in s.next_of(p).filter(|n| n.starts_with(prefix)) {
+    // A dangerous command gets no lift (M1d §4.2).
+    for next in s
+        .next_of(p)
+        .filter(|n| n.starts_with(prefix) && !is_dangerous(n))
+    {
         if let Some(e) = history.find(next) {
             if !out.contains(&e) {
                 out.push(e);
@@ -189,7 +197,10 @@ pub fn here_order<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> 
         if tally.ok == 0 && tally.failed > 0 {
             continue;
         }
-        let Some(text) = history.text_for(key).filter(|t| t.starts_with(prefix)) else {
+        let Some(text) = history
+            .text_for(key)
+            .filter(|t| t.starts_with(prefix) && !is_dangerous(t))
+        else {
             continue;
         };
         let tier = u32::from(tally.ok > 0);
@@ -231,7 +242,10 @@ impl<'a> Iterator for Ranked<'a, '_> {
                 if !text.starts_with(self.prefix.as_str()) || !self.seen.insert(text) {
                     continue;
                 }
-                if key.is_some_and(|k| failed_only(index, self.ranking.cwd, k)) {
+                // A dangerous command ranks like one without records: not deferred either.
+                if key.is_some_and(|k| failed_only(index, self.ranking.cwd, k))
+                    && !is_dangerous(text)
+                {
                     deferred.push(text);
                     continue;
                 }
@@ -529,5 +543,26 @@ mod tests {
             order(&h, "npm run ", &at(&ix, "/p")),
             ["npm run dev", "npm run build"]
         );
+    }
+
+    /// M1d §4.2: a dangerous line gets no tier-1 lift, no frequency boost and no follows lift.
+    #[test]
+    fn dangerous_lines_get_no_lift() {
+        let recs: Vec<(&str, &str, i32, i64)> =
+            (0..9).map(|i| ("rm -rf target", "/p", 0, i)).collect();
+        let (h, ix) = setup(&["rm -rf target", "rm -rf dist"], &recs);
+        let mut succ = Successors::new();
+        succ.record("make", "rm -rf target");
+        let mut r = at(&ix, "/p");
+        r.successors = Some(&succ);
+        r.previous = Some("make");
+        assert_eq!(order(&h, "rm ", &r), ["rm -rf dist", "rm -rf target"]);
+        assert!(here_order(&h, "rm ", &r).is_empty());
+        assert!(follows_of(&h, "rm ", &r).is_empty());
+        // Failed only here: still by recency, not deferred.
+        let (h, ix) = setup(&["rm -rf a", "ls x"], &[("rm -rf a", "/p", 1, 1)]);
+        assert_eq!(order(&h, "", &at(&ix, "/p")), ["ls x", "rm -rf a"]);
+        let (h, ix) = setup(&["ls x", "rm -rf a"], &[("rm -rf a", "/p", 1, 1)]);
+        assert_eq!(order(&h, "", &at(&ix, "/p")), ["rm -rf a", "ls x"]);
     }
 }

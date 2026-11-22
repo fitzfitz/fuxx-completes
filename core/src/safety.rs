@@ -2,6 +2,8 @@
 //! they hold a secret are never suggested; dangerous commands are guarded until their dangerous
 //! part is typed.
 
+use crate::cd_target::{command_words, CmdWord};
+
 /// True when `line` looks like it holds a secret (spec M1d §4.1): a known token shape, an
 /// `Authorization:`/`Bearer` value, a URL with a password, a secret-named value, or one long
 /// random-looking word. Such a line is dropped, never masked.
@@ -12,6 +14,217 @@ pub fn looks_secret(line: &str) -> bool {
         || has_url_password(line)
         || has_secret_name(line)
         || has_random_word(line)
+}
+
+/// How many bytes of `line` must be typed before it may be shown, when it is a dangerous
+/// command (spec M1d §4.2): the command word and the dangerous flag or subcommand. `None`: not
+/// dangerous.
+pub fn danger_reach(line: &str) -> Option<usize> {
+    let words = command_words(line);
+    let words = strip_prefix_words(&words);
+    let (cmd, args) = words.split_first()?;
+    DANGERS.iter().find_map(|d| {
+        let named = match d.command.strip_suffix('*') {
+            Some(stem) => cmd.value.starts_with(stem),
+            None => cmd.value == d.command,
+        };
+        if !named {
+            return None;
+        }
+        // The subcommand words, as one run anywhere after the command (`git -C dir push`).
+        let after = if d.sub.is_empty() {
+            0
+        } else {
+            (0..args.len()).find(|&i| {
+                args.len() - i >= d.sub.len()
+                    && d.sub.iter().zip(&args[i..]).all(|(s, a)| a.value == *s)
+            })? + d.sub.len()
+        };
+        let last = if after == 0 { cmd } else { &args[after - 1] };
+        let rest = &args[after..];
+        match d.trigger {
+            Trigger::Word => Some(last.end),
+            Trigger::Flag { short, long, reach } => rest
+                .iter()
+                .take_while(|a| a.value != "--")
+                .find(|a| {
+                    let v = a.value.as_str();
+                    long.iter()
+                        .any(|l| v == *l || v.strip_prefix(l).is_some_and(|r| r.starts_with('=')))
+                        || (v.len() > 1
+                            && v.starts_with('-')
+                            && !v.starts_with("--")
+                            && v[1..].chars().any(|c| short.contains(c)))
+                })
+                .map(|a| (a.start + reach).min(a.end)),
+            Trigger::Args(seq) => (0..rest.len()).find_map(|i| {
+                (rest.len() - i >= seq.len()
+                    && seq.iter().zip(&rest[i..]).all(|(s, a)| a.value == *s))
+                .then(|| rest[i].end)
+            }),
+        }
+    })
+}
+
+/// What makes a listed command dangerous.
+#[derive(Clone, Copy)]
+enum Trigger {
+    /// The command (and its subcommand words) alone; typed in full.
+    Word,
+    /// A short-option cluster holding one of `short`, or one of the `long` options (also with
+    /// `=value`), before a `--`; `reach` characters of it must be typed.
+    Flag {
+        short: &'static str,
+        long: &'static [&'static str],
+        reach: usize,
+    },
+    /// These arguments in a row; typed up to the end of the first.
+    Args(&'static [&'static str]),
+}
+
+struct Danger {
+    /// The command word (`mkfs*`: any word starting with `mkfs`).
+    command: &'static str,
+    sub: &'static [&'static str],
+    trigger: Trigger,
+}
+
+const fn flag(short: &'static str, long: &'static [&'static str], reach: usize) -> Trigger {
+    Trigger::Flag { short, long, reach }
+}
+
+/// The dangerous list (spec M1d §4.2; **AI's call** on the exact entries).
+const DANGERS: [Danger; 18] = [
+    Danger {
+        command: "rm",
+        sub: &[],
+        trigger: flag("rRf", &["--recursive", "--force"], 1),
+    },
+    Danger {
+        command: "git",
+        sub: &["push"],
+        trigger: flag("f", &["--force", "--force-with-lease"], 1),
+    },
+    Danger {
+        command: "git",
+        sub: &["reset"],
+        trigger: flag("", &["--hard"], 3),
+    },
+    Danger {
+        command: "git",
+        sub: &["clean"],
+        trigger: flag("f", &["--force"], 1),
+    },
+    Danger {
+        command: "git",
+        sub: &["checkout"],
+        trigger: Trigger::Args(&["--", "."]),
+    },
+    Danger {
+        command: "git",
+        sub: &["restore"],
+        trigger: Trigger::Args(&["."]),
+    },
+    Danger {
+        command: "kubectl",
+        sub: &["delete"],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "terraform",
+        sub: &["apply"],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "terraform",
+        sub: &["destroy"],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "helm",
+        sub: &["uninstall"],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "docker",
+        sub: &["system", "prune"],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "docker",
+        sub: &["volume", "rm"],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "dd",
+        sub: &[],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "mkfs*",
+        sub: &[],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "chmod",
+        sub: &[],
+        trigger: flag("R", &["--recursive"], 1),
+    },
+    Danger {
+        command: "chown",
+        sub: &[],
+        trigger: flag("R", &["--recursive"], 1),
+    },
+    Danger {
+        command: "shutdown",
+        sub: &[],
+        trigger: Trigger::Word,
+    },
+    Danger {
+        command: "reboot",
+        sub: &[],
+        trigger: Trigger::Word,
+    },
+];
+
+/// sudo's and doas's options that take a value.
+const PREFIX_VALUE_OPTIONS: [&str; 10] =
+    ["-u", "-g", "-C", "-h", "-p", "-r", "-t", "-T", "-D", "-U"];
+
+/// The words from the command word on: `NAME=value`, `sudo`/`doas` (with their options) and
+/// `builtin`/`command` before it are skipped.
+fn strip_prefix_words(words: &[CmdWord]) -> &[CmdWord] {
+    let mut i = 0;
+    while let Some(w) = words.get(i) {
+        if w.assign || w.value == "builtin" || w.value == "command" {
+            i += 1;
+        } else if w.value == "sudo" || w.value == "doas" {
+            i += 1;
+            while let Some(o) = words.get(i).filter(|o| o.value.starts_with('-')) {
+                i += 1;
+                if o.value == "--" {
+                    break;
+                }
+                if PREFIX_VALUE_OPTIONS.contains(&o.value.as_str()) {
+                    i += 1;
+                }
+            }
+        } else {
+            break;
+        }
+    }
+    &words[i.min(words.len())..]
+}
+
+/// True when `line`'s first simple command is on the dangerous list.
+pub fn is_dangerous(line: &str) -> bool {
+    danger_reach(line).is_some()
+}
+
+/// True when `line` must not be offered for `buffer`: it looks like it holds a secret, or it is
+/// dangerous and `buffer` hasn't reached its dangerous part yet.
+pub fn hidden_for(line: &str, buffer: &str) -> bool {
+    looks_secret(line) || danger_reach(line).is_some_and(|reach| buffer.len() < reach)
 }
 
 /// Known token prefixes (at a word start), the characters their tail may hold, and the
@@ -302,5 +515,105 @@ mod tests {
         ] {
             assert!(!looks_secret(l), "{l}");
         }
+    }
+
+    #[test]
+    fn the_list_is_dangerous() {
+        for l in [
+            "rm -rf build",
+            "rm -f x",
+            "rm --recursive x",
+            "rm build -Rf",
+            "git push --force-with-lease",
+            "git push origin main -f",
+            "git reset --hard HEAD~1",
+            "git clean -fdx",
+            "git checkout -- .",
+            "git restore .",
+            "kubectl delete pod x",
+            "terraform apply",
+            "terraform destroy",
+            "helm uninstall r",
+            "docker system prune -a",
+            "docker volume rm v",
+            "dd if=a of=b",
+            "mkfs.ext4 /dev/x",
+            "chmod -R 777 .",
+            "chown -R me .",
+            "shutdown -h now",
+            "reboot",
+        ] {
+            assert!(is_dangerous(l), "{l}");
+        }
+    }
+
+    #[test]
+    fn safe_neighbours() {
+        for l in [
+            "rm file",
+            "git push",
+            "git push -u origin x",
+            "git reset --soft HEAD~1",
+            "git clean -n",
+            "git checkout -b x",
+            "git checkout -- src/a.rs",
+            "git restore src/a.rs",
+            "kubectl get pods",
+            "terraform plan",
+            "chmod +x a",
+            "ddgr x",
+            "echo rm -rf x",
+            "cd x && rm -rf b",
+        ] {
+            assert!(!is_dangerous(l), "{l}");
+        }
+    }
+
+    #[test]
+    fn reach_is_the_dangerous_part() {
+        assert_eq!(danger_reach("rm -rf build"), Some("rm -".len()));
+        assert_eq!(danger_reach("git push --force"), Some("git push -".len()));
+        assert_eq!(
+            danger_reach("git reset --hard"),
+            Some("git reset --h".len())
+        );
+        assert_eq!(
+            danger_reach("kubectl delete pod x"),
+            Some("kubectl delete".len())
+        );
+        assert_eq!(
+            danger_reach("git checkout -- ."),
+            Some("git checkout --".len())
+        );
+        assert_eq!(danger_reach("git restore ."), Some("git restore .".len()));
+        assert_eq!(danger_reach("reboot"), Some(6));
+        assert_eq!(danger_reach("mkfs.ext4 /dev/x"), Some("mkfs.ext4".len()));
+    }
+
+    /// Review Focus 2: prefixes and odd forms.
+    #[test]
+    fn prefixes_and_forms() {
+        let l = "sudo -u root rm -rf x";
+        assert_eq!(danger_reach(l), Some("sudo -u root rm -".len()));
+        let l = "FOO=1 command rm -fr x";
+        assert_eq!(danger_reach(l), Some("FOO=1 command rm -".len()));
+        assert!(!is_dangerous("rm -- -rf"));
+        assert!(is_dangerous("\\rm -rf x"));
+        assert_eq!(
+            danger_reach("git -C dir push -f"),
+            Some("git -C dir push -".len())
+        );
+        assert!(is_dangerous("doas reboot"));
+    }
+
+    #[test]
+    fn hidden_until_the_dangerous_part_is_typed() {
+        let l = "git push --force";
+        for b in ["", "g", "git push", "git push "] {
+            assert!(hidden_for(l, b), "{b:?}");
+        }
+        assert!(!hidden_for(l, "git push -"));
+        assert!(!hidden_for("git pull", ""));
+        assert!(hidden_for("TOKEN=abc x", "TOKEN=abc x"));
     }
 }
