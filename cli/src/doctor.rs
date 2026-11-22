@@ -126,6 +126,56 @@ pub fn report(facts: Option<&str>, data: Option<&DataDir>, version: &str) -> Str
     out
 }
 
+/// `doctor --report` (M1d §4.5): the report inside a ```text fence, with the OS, the machine and
+/// the terminal added, under a line asking the user to check it first. Nothing is sent or run.
+pub fn report_for_posting(facts: Option<&str>, data: Option<&DataDir>, version: &str) -> String {
+    let mut out =
+        String::from("Check this before you post it: it shows your data folder's path.\n```text\n");
+    out.push_str(&report(facts, data, version));
+    let _ = writeln!(out, "{:<13}{}", "os", os_version());
+    let _ = writeln!(out, "{:<13}{}", "arch", std::env::consts::ARCH);
+    let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let program = match (var("TERM_PROGRAM"), var("TERM_PROGRAM_VERSION")) {
+        (Some(p), Some(v)) => Some(format!("{p} {v}")),
+        (p, _) => p,
+    };
+    let terminal: Vec<String> = program.into_iter().chain(var("TERM")).collect();
+    let terminal = if terminal.is_empty() {
+        "unknown".to_string()
+    } else {
+        terminal.join(", ")
+    };
+    let _ = writeln!(out, "{:<13}{terminal}", "terminal");
+    out.push_str("```\n");
+    out
+}
+
+/// The OS and its version, read from files (macOS's SystemVersion.plist, Linux's os-release);
+/// nothing is run.
+fn os_version() -> String {
+    let os = std::env::consts::OS;
+    if os == "macos" {
+        let plist = std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist")
+            .unwrap_or_default();
+        let version = plist
+            .split("<key>ProductVersion</key>")
+            .nth(1)
+            .and_then(|r| r.split("<string>").nth(1))
+            .and_then(|r| r.split("</string>").next())
+            .map(str::trim);
+        return match version {
+            Some(v) => format!("macOS {v}"),
+            None => "macOS".to_string(),
+        };
+    }
+    let release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    release
+        .lines()
+        .find_map(|l| l.strip_prefix("PRETTY_NAME="))
+        .map(|v| v.trim_matches('"').to_string())
+        .unwrap_or_else(|| os.to_string())
+}
+
 fn kb(bytes: u64) -> String {
     format!("{:.1} KB", bytes as f64 / 1024.0)
 }

@@ -1271,10 +1271,10 @@ _fuxx_as_zshexit() {
   return 0
 }
 
-# `fuxx-completes forget` and `fuxx-completes doctor` typed at this prompt (design §7): the
-# binary is run with this adapter's copy of FUXX_PLUGIN_DATA (fuxx unsets the variable after
-# sourcing us, so without this `forget` would wipe another folder), and `doctor` gets the
-# shell's facts. Defined only when the user has no function or alias of that name (ours is
+# `fuxx-completes forget`, `doctor` and `why` typed at this prompt (design §7): the binary is
+# run with this adapter's copy of FUXX_PLUGIN_DATA (fuxx unsets the variable after sourcing us,
+# so without this `forget` would wipe another folder), `doctor` gets the shell's facts and `why`
+# this folder and history file. Defined only when the user has no function or alias of that name (ours is
 # replaced when the same file is sourced again).
 () {
   emulate -L zsh
@@ -1291,6 +1291,12 @@ _fuxx_as_zshexit() {
     if [[ $1 == doctor ]]; then
       shift
       FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" doctor --shell-facts "$(_fuxx_as_facts $shglob)" "$@"
+    elif [[ $1 == why ]]; then
+      # `why` reads what this shell's core reads: this folder and this history file (M1d).
+      shift
+      local -a hf=()
+      [[ -n ${HISTFILE-} ]] && hf=( --histfile "${HISTFILE:a}" )
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" why --cwd "$PWD" "${hf[@]}" -- "$@"
     else
       FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" "$@"
     fi

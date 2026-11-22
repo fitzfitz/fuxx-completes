@@ -69,6 +69,8 @@ pub struct Session {
     fix: Option<(PathBuf, usize, Option<String>)>,
     /// The previous command's exit status, when `prev` sent one.
     previous_status: i32,
+    /// `why`'s session: never compacts (it writes nothing).
+    read_only: bool,
 }
 
 impl Session {
@@ -94,7 +96,75 @@ impl Session {
             previous_failed: false,
             fix: None,
             previous_status: 0,
+            read_only: false,
         }
+    }
+
+    /// A session for `fuxx-completes why`: reads what `serve` reads, writes nothing.
+    pub fn for_why(data: Option<DataDir>, home: Option<PathBuf>) -> Self {
+        let mut s = Self::new(data, home);
+        s.read_only = true;
+        s
+    }
+
+    /// Why `line` ranks where it does in `cwd` (M1d §4.5), once the history has loaded (or
+    /// `deadline` passed).
+    pub fn explain(&mut self, line: &str, cwd: &Path, deadline: Instant) -> String {
+        while !self.history_loaded() && Instant::now() < deadline {
+            self.refresh();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        self.refresh();
+        self.update_repo(cwd);
+        let home = self.home.as_deref();
+        let detection = fuxx_completes_core::projects::detect::detect(
+            cwd,
+            home,
+            Instant::now() + Duration::from_secs(1),
+        );
+        let project = detection
+            .candidates
+            .iter()
+            .position(|c| c == line)
+            .and_then(|i| detection.origins.get(i))
+            .map(|o| {
+                let folder = detection
+                    .folders
+                    .get(o.folder)
+                    .map(|f| f.display().to_string());
+                format!(
+                    "{} ({}) in {}",
+                    o.id,
+                    o.file.unwrap_or("built in"),
+                    folder.unwrap_or_default()
+                )
+            });
+        let index = self.store.as_ref().map(ContextStore::index);
+        let key = self.history.key_of(line).filter(|_| index.is_some());
+        let place = Place {
+            cwd,
+            home,
+            cdpath: None,
+        };
+        let reach = fuxx_completes_core::safety::danger_reach(line);
+        let facts = crate::why::Facts {
+            line,
+            cwd,
+            repo: self.repos.key(cwd, home),
+            in_history: self.history.find(line).is_some(),
+            keyed: key.is_some(),
+            here: key.and_then(|k| index?.in_folder(cwd)?.get(&k).copied()),
+            in_repo: key.and_then(|k| self.repo_view.as_ref()?.tallies.as_ref()?.get(&k).copied()),
+            anywhere: key.and_then(|k| index?.anywhere(k)),
+            project,
+            secret: fuxx_completes_core::safety::looks_secret(line),
+            guarded: reach.and_then(|r| line.get(..r)),
+            cd_missing: fuxx_completes_core::cd_target::certainly_missing(line, &place),
+            now: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs() as i64),
+        };
+        crate::why::render(&facts)
     }
 
     /// The data folder and `$HOME` from this process's environment (`main` only: tests pass
@@ -326,7 +396,10 @@ impl Session {
         }
         if let Some(store) = &mut self.store {
             let loaded = self.file.as_ref().is_some_and(HistoryFile::has_loaded);
-            if loaded && store.secret().is_some() && (!self.compacted || store.own_file_len() > CAP)
+            if !self.read_only
+                && loaded
+                && store.secret().is_some()
+                && (!self.compacted || store.own_file_len() > CAP)
             {
                 store.compact_in_background(self.history.keys().collect());
                 self.compacted = true;

@@ -31,6 +31,13 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1d Task 5: `why` and `doctor --report`.** `fuxx-completes why <line>`
+  (the shell function passes `--cwd` and `--histfile`) explains the step a line ranks in, its
+  runs here / in this repo / anywhere, its project and file, and its flags, writing nothing;
+  `doctor --report` fences the report with the OS, machine and terminal, under a check-first
+  line. Project detection now remembers where each candidate came from. `design.md` §7; README.
+  Tests first, seen failing; 170 adapter tests on zsh 5.3.1, 5.8.1 and 5.9.
+
 - **2026-11-22** — **M1d Task 4: a fix after a failed command.** `prev` gains the exit status
   (`prev␟cmd␟status`); the zsh plugin asks on the empty line after a failure even with the list
   off; the core answers with a fix as ghost text (and item 1 of the empty-line list): the

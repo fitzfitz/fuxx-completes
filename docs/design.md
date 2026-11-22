@@ -1107,6 +1107,25 @@ settings with where each came from (fuxx Settings, the shell, or the default; M1
 `start-failed`, `hung`, `exited`, `protocol`, `write-failed`, `conflict:warp`,
 `conflict:zsh-autosuggestions`.
 
+**`why` and `doctor --report` (M1d §4.5, AI's calls).** The usage line is now `usage:
+fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE`.
+`fuxx-completes why <line>` (the shell function passes `--cwd $PWD`, `--histfile` with
+`$HISTFILE` when set, and `--`; the remaining words are joined by spaces, so quote a line whose
+spacing matters) loads what `serve` loads (history, waiting at most 5 s for it, the context
+files, the folder's projects) and **writes nothing** (no secret made, no compaction). It prints,
+one fact per line: the folder and its repo key; whether the line is in the history; its runs
+here, in the repo's other folders and anywhere (ok, failed, newest as an age), or that there are
+no records to match yet; the project, the file and the folder it came from (`pnpm
+(package.json) in …`, `built in` for a fixed command); the step it ranks in (this folder's
+history, this repo's, a project command, the rest, failed only, never shown, never suggested);
+that what followed what is kept only in each shell's core (so `why` can't say); and flags (never
+shown: looks like a secret; guarded: shown once you type its dangerous part; passed over: a `cd`
+to a folder that isn't here). `fuxx-completes doctor --report` prints the doctor report inside a
+```` ```text ```` fence under the line `Check this before you post it: it shows your data
+folder's path.`, with `os` (macOS's `SystemVersion.plist` ProductVersion, Linux's `/etc/os-release`
+PRETTY_NAME, else the OS name), `arch` and `terminal` (`TERM_PROGRAM` and its version, `TERM`)
+added; the zsh version is the `shell` line. Both read files only: nothing runs, nothing is sent.
+
 ## 8. How fuxx uses it (changed 2026-11-13)
 
 fuxx installs fuxx-completes as a **fuxx plugin** (fuxx's milestones M11y–M11z, its note 76). It

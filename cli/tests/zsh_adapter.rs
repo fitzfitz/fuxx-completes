@@ -3409,3 +3409,18 @@ fn enter_on_a_fix_runs_nothing() {
     let after = z.screen_now()[mark..].to_string();
     assert!(!after.contains("MARKER-FILE"), "ls ran: {after:?}");
 }
+
+// ---- M1d: `fuxx-completes why` through the shell function ----
+
+#[test]
+fn the_shell_function_passes_cwd_and_histfile_to_why() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["git status"],
+        ..Default::default()
+    });
+    let home = z.home().display().to_string();
+    z.run("fuxx-completes why git status");
+    let screen = printable(&z.screen_now());
+    assert!(screen.contains(&format!("folder     {home}")), "{screen}");
+    assert!(screen.contains("history    in your history"), "{screen}");
+}

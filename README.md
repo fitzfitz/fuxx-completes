@@ -56,6 +56,11 @@ URL or a `PASSWORD=` value), and dangerous commands (`rm -rf`, `git push --force
 `git reset --hard`, `kubectl delete`, …) until you've typed their dangerous part yourself
 (`rm -`, `git push -`). A habit in a repo carries to its subfolders and its other worktrees.
 
+`fuxx-completes why git push` explains why a line is (or isn't) suggested where you are: its runs
+here, in this repo and anywhere, the project file it came from, and whether it is hidden or
+guarded. `fuxx-completes doctor --report` prints the doctor output in a block ready to paste into
+an issue (check it first: it shows your data folder's path). Neither sends anything anywhere.
+
 `fuxx-completes doctor` shows what is loaded, which keys were bound or left alone, why it is off
 if it is, and where the data is.
 

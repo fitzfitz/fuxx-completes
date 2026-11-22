@@ -41,6 +41,19 @@ pub struct Detection {
     pub stamps: Vec<Stamp>,
     pub ids: Vec<&'static str>,
     pub complete: bool,
+    /// Where each candidate came from, one per candidate (for `why`, M1d).
+    pub origins: Vec<Origin>,
+    /// The folders `Origin::folder` points into.
+    pub folders: Vec<PathBuf>,
+}
+
+/// Where a candidate came from: the project type, the folder (an index into
+/// `Detection::folders`) and the file a reader took it from (`None`: a fixed command).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Origin {
+    pub id: &'static str,
+    pub folder: usize,
+    pub file: Option<&'static str>,
 }
 
 /// One folder on the walk: its path, its listing, and the types matched there.
@@ -99,19 +112,32 @@ pub fn detect(cwd: &Path, home: Option<&Path>, deadline: Instant) -> Detection {
     }
     let mut seen = HashSet::new();
     'walk: for (dir, names, found) in &walked {
+        out.folders.push(dir.clone());
+        let folder = out.folders.len() - 1;
         for t in found {
             out.ids.push(t.id);
+            let fixed = Origin {
+                id: t.id,
+                folder,
+                file: None,
+            };
             for c in t.commands {
-                push(&mut out, &mut seen, c.to_string());
+                push(&mut out, &mut seen, c.to_string(), fixed);
             }
             for s in t.from {
                 if Instant::now() >= deadline {
                     cut = true;
                     break 'walk;
                 }
-                for item in source_names(s, dir, names, &mut out) {
+                let (items, file) = source_names(s, dir, names, &mut out);
+                let from = Origin {
+                    id: t.id,
+                    folder,
+                    file,
+                };
+                for item in items {
                     for tpl in s.templates {
-                        push(&mut out, &mut seen, tpl.replace("{}", &item));
+                        push(&mut out, &mut seen, tpl.replace("{}", &item), from);
                     }
                 }
             }
@@ -149,34 +175,42 @@ fn matches(t: &ProjectType, dir: &Path, names: &[String], out: &mut Detection) -
             .is_none_or(|c| read(dir, c.file, out).is_some_and(|text| text.contains(c.text)))
 }
 
-/// The names one source pulls out of a folder.
-fn source_names(s: &Source, dir: &Path, names: &[String], out: &mut Detection) -> Vec<String> {
+/// The names one source pulls out of a folder, and the file (or pattern) they came from.
+fn source_names(
+    s: &Source,
+    dir: &Path,
+    names: &[String],
+    out: &mut Detection,
+) -> (Vec<String>, Option<&'static str>) {
     if s.reader == Reader::FileNames {
-        return s
+        let found = s
             .files
             .iter()
             .flat_map(|f| file_names(names, f.trim_start_matches('*')))
             .collect();
+        return (found, s.files.first().copied());
     }
     let Some(file) = s.files.iter().find(|f| exists(dir, names, f)) else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
     let Some(text) = read(dir, file, out) else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
-    match s.reader {
+    let found = match s.reader {
         Reader::JsonKeys => json_keys(&text, s.path),
         Reader::TomlKeys => toml_keys(&text, s.path),
         Reader::YamlKeys => yaml_keys(&text, s.path),
         Reader::MakeTargets => make_targets(&text),
         Reader::JustRecipes => just_recipes(&text),
         Reader::FileNames => Vec::new(),
-    }
+    };
+    (found, Some(file))
 }
 
-fn push(out: &mut Detection, seen: &mut HashSet<String>, c: String) {
+fn push(out: &mut Detection, seen: &mut HashSet<String>, c: String, from: Origin) {
     if seen.insert(c.clone()) {
         out.candidates.push(c);
+        out.origins.push(from);
     }
 }
 

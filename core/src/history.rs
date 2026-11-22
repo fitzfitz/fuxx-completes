@@ -281,7 +281,7 @@ impl History {
     }
 
     /// The entry equal to `text`, if one is held.
-    pub(crate) fn find(&self, text: &str) -> Option<&str> {
+    pub fn find(&self, text: &str) -> Option<&str> {
         if let Some(e) = self.session.iter().rev().find(|e| *e == text) {
             return Some(e);
         }

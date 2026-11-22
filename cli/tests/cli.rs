@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const BIN: &str = env!("CARGO_BIN_EXE_fuxx-completes");
+const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE";
 
 fn run(home: &Path, env: &[(&str, &Path)], args: &[&str]) -> Output {
     let mut c = Command::new(BIN);
@@ -98,13 +99,12 @@ fn unknown_subcommand_prints_usage_exit_2() {
         &[][..],
         &["forget", "x"][..],
         &["doctor", "--shell-facts"][..],
+        &["why"][..],
+        &["why", "--cwd"][..],
     ] {
         let out = run(home.path(), &[], args);
         assert_eq!(out.status.code(), Some(2), "{args:?}");
-        assert_eq!(
-            String::from_utf8_lossy(&out.stderr),
-            "usage: fuxx-completes serve | forget | doctor\n"
-        );
+        assert_eq!(String::from_utf8_lossy(&out.stderr), format!("{USAGE}\n"));
     }
 }
 
@@ -126,4 +126,211 @@ fn doctor_runs_outside_a_shell() {
         ],
     );
     assert!(stdout(&out).lines().any(|l| l == "state        on"));
+}
+
+// ---- M1d: why and doctor --report ----
+
+/// A temp HOME with a history file, a data folder holding a secret, and records
+/// `(command, folder, status)`.
+fn why_setup(
+    history: &[&str],
+    recs: &[(&str, &Path, i32)],
+) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let home = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(home.path()).unwrap();
+    let hist = base.join(".zsh_history");
+    std::fs::write(
+        &hist,
+        history.iter().map(|h| format!("{h}\n")).collect::<String>(),
+    )
+    .unwrap();
+    let root = base.join("xdg/fuxx-completes");
+    if !recs.is_empty() {
+        let secret = Secret::load_or_create(&root).unwrap();
+        let records: Vec<Record> = recs
+            .iter()
+            .enumerate()
+            .map(|(i, (c, f, st))| Record {
+                key: secret.key_of(c),
+                folder: f.to_path_buf(),
+                status: *st,
+                time: 1_000_000 + i as i64,
+            })
+            .collect();
+        let id = fuxx_completes_core::context::store::own_file_id(&secret, &hist);
+        append(&root, &id, &records).unwrap();
+    }
+    (home, base, hist)
+}
+
+fn why(base: &Path, cwd: &Path, hist: Option<&Path>, line: &str) -> String {
+    let mut args = vec!["why".to_string(), "--cwd".into(), cwd.display().to_string()];
+    if let Some(h) = hist {
+        args.push("--histfile".into());
+        args.push(h.display().to_string());
+    }
+    args.push("--".into());
+    args.push(line.into());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = run(base, &[], &args);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    stdout(&out)
+}
+
+#[test]
+fn why_explains_a_line_that_ran_here() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = std::fs::canonicalize(dir.path()).unwrap();
+    let (_h, base, hist) = why_setup(
+        &["make test", "make build"],
+        &[("make test", &p, 0), ("make test", &p, 0)],
+    );
+    let text = why(&base, &p, Some(&hist), "make test");
+    assert!(
+        text.lines()
+            .any(|l| l == format!("folder     {}", p.display())),
+        "{text}"
+    );
+    assert!(
+        text.lines()
+            .any(|l| l.starts_with("here       ok 2 · failed 0")),
+        "{text}"
+    );
+    assert!(
+        text.lines()
+            .any(|l| l == "step       this folder's history"),
+        "{text}"
+    );
+    assert!(
+        text.lines().any(|l| l == "history    in your history"),
+        "{text}"
+    );
+}
+
+#[test]
+fn why_flags_secret_and_dangerous_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = std::fs::canonicalize(dir.path()).unwrap();
+    let (_h, base, hist) = why_setup(&["TOKEN=abc make", "rm -rf build"], &[]);
+    let text = why(&base, &p, Some(&hist), "TOKEN=abc make");
+    assert!(
+        text.contains("never shown: looks like it holds a secret"),
+        "{text}"
+    );
+    let text = why(&base, &p, Some(&hist), "rm -rf build");
+    assert!(
+        text.contains("guarded: shown once you type \"rm -\""),
+        "{text}"
+    );
+}
+
+#[test]
+fn why_names_the_project_and_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = std::fs::canonicalize(dir.path()).unwrap();
+    std::fs::write(p.join("package.json"), r#"{"scripts":{"dev":"vite"}}"#).unwrap();
+    std::fs::write(p.join("pnpm-lock.yaml"), "").unwrap();
+    let (_h, base, hist) = why_setup(&[], &[]);
+    let text = why(&base, &p, Some(&hist), "pnpm run dev");
+    assert!(
+        text.lines()
+            .any(|l| l.starts_with("project    pnpm (package.json)")),
+        "{text}"
+    );
+    assert!(
+        text.lines().any(|l| l == "step       a project command"),
+        "{text}"
+    );
+}
+
+/// Review Focus 5: no data, no histfile, a line not in history; nothing is written.
+#[test]
+fn why_writes_nothing_and_works_without_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = std::fs::canonicalize(dir.path()).unwrap();
+    let (_h, base, hist) = why_setup(&["ls"], &[("ls", &p, 0)]);
+    let listing = |d: &Path| -> Vec<String> {
+        let mut v: Vec<String> = walk(d);
+        v.sort();
+        v
+    };
+    let before = listing(&base);
+    let text = why(&base, &p, Some(&hist), "foo bar");
+    assert!(text.contains("not in your history"), "{text}");
+    let text = why(&base, &p, None, "ls");
+    assert!(text.lines().any(|l| l.starts_with("history    ")), "{text}");
+    assert_eq!(listing(&base), before, "why wrote something");
+    // No data folder at all (no HOME).
+    let out = Command::new(BIN)
+        .env_clear()
+        .args(["why", "--cwd", &p.display().to_string(), "--", "ls"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(stdout(&out).contains("not in your history"));
+}
+
+/// Every file under `d`, with its size.
+fn walk(d: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else {
+            let len = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            out.push(format!("{} {len}", p.display()));
+        }
+    }
+    out
+}
+
+#[test]
+fn doctor_report_is_fenced_with_a_warning() {
+    let home = tempfile::tempdir().unwrap();
+    let out = run(
+        home.path(),
+        &[
+            ("TERM", Path::new("xterm-256color")),
+            ("TERM_PROGRAM", Path::new("fuxx")),
+        ],
+        &[
+            "doctor",
+            "--shell-facts",
+            "shell=zsh\nversion=5.9\nstate=on\n",
+            "--report",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[0],
+        "Check this before you post it: it shows your data folder's path."
+    );
+    assert_eq!(lines[1], "```text");
+    assert_eq!(*lines.last().unwrap(), "```");
+    assert!(
+        lines.iter().any(|l| l.starts_with("os           ")),
+        "{text}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("arch         ")),
+        "{text}"
+    );
+    assert!(
+        lines.contains(&"terminal     fuxx, xterm-256color"),
+        "{text}"
+    );
+    assert!(lines.contains(&"shell        zsh 5.9"), "{text}");
+    // Without --report: no fence.
+    let out = run(home.path(), &[], &["doctor"]);
+    assert!(!stdout(&out).contains("```"));
+    let out = run(home.path(), &[], &["doctor", "--report"]);
+    assert!(stdout(&out).contains("```text"));
 }
