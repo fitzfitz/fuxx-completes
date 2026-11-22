@@ -13,7 +13,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
-| M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | 🟨 approved, being planned and built |
+| M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | 🟨 being built ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md)) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
@@ -30,6 +30,11 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M1d plan written.** [`plans/M1d Plan - Safety and Polish.md`](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md):
+  five tasks (secret filter, dangerous guard, repo/worktree tier, fix after failure, `why` and
+  `doctor --report`), then measuring, one whole-branch review and one fix pass. Built in the
+  session, the user's standing choice.
 
 - **2026-11-22** — **M1d designed and approved.** From three analyst agents' reports the user
   picked five items ("let's go do #3–#7"), chose the fix-after-failure shape (A: grey text on the
