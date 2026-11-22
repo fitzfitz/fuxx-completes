@@ -31,4 +31,5 @@ pub mod history_file;
 pub mod projects;
 pub mod protocol;
 pub mod rank;
+pub mod safety;
 pub mod zsh_history;

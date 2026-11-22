@@ -18,6 +18,7 @@ use fuxx_completes_core::cd_target::{classify, CdKind, Place};
 use fuxx_completes_core::history::{History, Verdict, CHECK_BUDGET};
 pub use fuxx_completes_core::rank::Ranking;
 use fuxx_completes_core::rank::{follows_of, walk};
+use fuxx_completes_core::safety::looks_secret;
 use std::time::Instant;
 
 /// The text to show after `buffer`, or None. None for an empty buffer, no match, or an exact match.
@@ -67,7 +68,14 @@ fn best_entry<'a>(
     let others = history
         .ranked_with_prefix(buffer, ranking)
         .filter(|c| !here.contains(c));
-    let candidates = here.iter().copied().chain(project).chain(others);
+    // Hidden lines (M1d) leave before the walk: they never count toward its bounds and are never
+    // returned unchecked by its budget.
+    let candidates = here
+        .iter()
+        .copied()
+        .chain(project)
+        .chain(others)
+        .filter(|c| !looks_secret(c));
     walk(candidates, CHECK_BUDGET, judge)
 }
 
@@ -118,7 +126,7 @@ pub fn suggestion_list<'a>(
         if out.len() >= max || start.elapsed() >= CHECK_BUDGET {
             break;
         }
-        if c.is_empty() || c == buffer || out.contains(&c) {
+        if c.is_empty() || c == buffer || out.contains(&c) || looks_secret(c) {
             continue;
         }
         if classify(c, place) == CdKind::Missing {
@@ -554,5 +562,32 @@ mod tests {
         let h = hist(&[]);
         let r = Ranking::none(Path::new("/p"));
         assert!(suggestion_list(&h, "", &nowhere(), &r, &[], 5).is_empty());
+    }
+
+    /// M1d §4.1: a secret-looking line is never ghost text or a list item.
+    #[test]
+    fn secret_lines_are_never_suggested_or_listed() {
+        let h = hist(&["export PATH=x", "export TOKEN=abc123"]);
+        assert_eq!(
+            suggestion(&h, "export ", &nowhere(), &none(), &[]),
+            Some("PATH=x")
+        );
+        let list = suggestion_list(&h, "export ", &nowhere(), &none(), &[], 5);
+        assert_eq!(list, ["export PATH=x"]);
+        let list = suggestion_list(&h, "", &nowhere(), &none(), &[], 5);
+        assert_eq!(list, ["export PATH=x"]);
+    }
+
+    /// Hidden lines never count toward the walk's 50-candidate bound.
+    #[test]
+    fn fifty_secret_lines_do_not_use_up_the_walk() {
+        let mut entries = vec!["export PATH=x".to_string()];
+        entries.extend((0..51).map(|i| format!("export TOKEN=a{i}")));
+        let mut h = History::new();
+        h.replace_file_entries(entries);
+        assert_eq!(
+            suggestion(&h, "export ", &nowhere(), &none(), &[]),
+            Some("PATH=x")
+        );
     }
 }

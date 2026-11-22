@@ -480,6 +480,25 @@ project's commands, the rest) without `cd`s to missing folders or the typed text
 empty line, what usually follows the previous command, then this folder's history, the project's
 commands, then the newest history. Distinct, within the walk's 50 ms budget.
 
+**Lines never offered as they are (M1d, the user's pick 2026-11-22; spec
+`docs/superpowers/specs/2026-11-22-safety-and-polish-design.md`).** `core/src/safety.rs`.
+*Secrets:* a line that looks like it holds a secret is never ghost text, a list item or a fix;
+it is dropped, not masked, and always on (**AI's call**). It looks like one when it holds a
+known token at a word start (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` + 30, `github_pat_` + 20,
+`glpat-` + 20, `sk-` + 20, `xox[abps]-` + 10, `AKIA`/`ASIA` + exactly 16 capitals or digits,
+`AIza` + 35, `npm_` + 36) or `-----BEGIN`; an `Authorization:` value (after an optional scheme
+word) or a `Bearer ` value of 16+ characters that isn't a `$` variable; a URL password that
+isn't a `$` variable; a `NAME=value`, `--name=value` or `--name value` whose name (upper-cased,
+`-` as `_`) holds `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY`, `PRIVATE_KEY` or
+`ACCESS_KEY`, doesn't end in `FILE`, `PATH` or `DIR`, and has a literal value (`=$VAR`,
+`=$(…)` and a backtick are fine); or one run of 32+ characters from `[A-Za-z0-9+/=_-]` that is
+not all hex digits (git SHAs, `sha256:` digests, UUIDs are everyday arguments), holds a letter
+and a digit, has at most one `-`, `_` or `/` per 16 characters (so snake_case test names,
+branch names and paths stay) and has at least 3.5 bits of entropy per character (**AI's calls**:
+the tails, the exemptions, the separator rule). Hidden lines leave the candidate sequence before
+the walk, so they never count toward its 50-candidate bound and its budget never returns one
+unchecked.
+
 **Menu items** are ordered by kind (subcommands, then options, then argument values; open to
 change), then by prefix match quality, then by how often the user picked them (counted in memory
 only; persisting them would need the user to widen §5.7 first).
@@ -1231,6 +1250,7 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
 | M1 | Autosuggestions: context file and coexistence | the context file of §5.7 (keyed records, pruning, `forget`); ranking uses cwd, exit status and how often a command ran in this folder (no boost for `cd`, `pushd`, `open`) across shells and restarts, and the previous command in-session; conflicting plugins and Warp detected; `doctor`; latency benchmark meets §3; the context file under `FUXX_PLUGIN_DATA` when set, and the double-load guard (§8) |
 | M1b | Project knowledge | project detection, the in-memory cache and the six readers, with temp-folder tests; mapping data under `projects/` compiled in; every ecosystem in the design spec has a fixture folder and a test; the three-step order of §5.4 tested; latency within §3 on a cold and a warm folder; binary growth under 150 KB, measured from M1's binary |
 | M1c | Suggestion list | the core's top-N and the list it pushes after the pause (empty line too); the `suggest` field and `list` message; the zsh plugin draws the list under the line with the keys of the design spec, in its own keymap only while it shows; the settings variables, and fuxx's declared settings when fuxx has them; `doctor` shows the list settings; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
+| M1d | Safety and polish | secret-looking lines never offered; dangerous commands guarded until their dangerous part is typed; a repo/worktree tier after this folder's history; a fix after a failed command as ghost text on the empty line (`prev` carries the status); `why` and `doctor --report`; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
 | M3 | Release fuxx-autosuggestions | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |

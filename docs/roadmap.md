@@ -31,6 +31,13 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1d Task 1: the secret filter.** `core/src/safety.rs` `looks_secret`: known
+  token shapes, `Authorization:`/`Bearer` values, URL passwords, secret-named values and long
+  random-looking words; such a line is never ghost text or a list item, and it leaves the
+  candidates before the walk so it never uses up the walk's bounds. Everyday lines (snake_case
+  test names, branch names, UUIDs, SHAs, digests, paths, `Bearer $TOKEN`) stay. `design.md` §5.4,
+  §15. Tests first, seen failing.
+
 - **2026-11-22** — **M1d plan written.** [`plans/M1d Plan - Safety and Polish.md`](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md):
   five tasks (secret filter, dangerous guard, repo/worktree tier, fix after failure, `why` and
   `doctor --report`), then measuring, one whole-branch review and one fix pass. Built in the
