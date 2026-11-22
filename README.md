@@ -133,6 +133,19 @@ All the logic lives in the core. The shell plugins only draw and forward keys an
 never calls a shell and has no network code: your history and command lines never leave your
 machine.
 
+### For terminal authors: the host channel
+
+A terminal that wants to draw the suggestions itself sets `FUXX_COMPLETES_HOST=1` in the shell's
+environment. The zsh and bash plugins then start no core and draw nothing; instead they write
+`ESC ] 7701 ; fuxx-completes ; 1 ; <message> ; <fields…> BEL` to the terminal: `hello` (shell,
+version, history format and file), `buffer` (an id, the cursor, the folder and the line: in zsh
+as you type, in bash at → or End), `clear`, and `ran`/`prev` for the commands the shell saved.
+Text fields are base64, numbers plain digits. To put a line in, the terminal types
+`ESC [ 7701 ~`, base64 of `<id> 0x1F <line> 0x1F <cursor>`, then `BEL`; the shell applies it only
+for the id of the line it last sent. Inside tmux or screen the channel stays off. The Rust crate
+`fuxx-completes-core` has the codec (`host::scan`, `host::encode_accept`); `docs/design.md` §5.5
+has the details.
+
 ## Your data
 
 - Your history file is read, never written, and never copied.

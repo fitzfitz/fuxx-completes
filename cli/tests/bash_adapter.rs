@@ -757,3 +757,169 @@ fn blesh_on_bash_3_2_stays_off() {
     );
     assert!(screen.contains("pid=[]"), "no core started: {screen}");
 }
+
+// ---- The host channel (Task 6, design §5.5) ----
+
+use fuxx_completes_core::host::{encode_accept, scan, HostMessage};
+
+fn host(opts: BashOpts) -> BashHarness {
+    let mut env = opts.env.clone();
+    env.push(("FUXX_COMPLETES_HOST", "1".into()));
+    BashHarness::start(BashOpts { env, ..opts })
+}
+
+fn host_msgs(b: &mut BashHarness) -> Vec<HostMessage> {
+    b.screen_now();
+    scan(b.bytes())
+}
+
+/// Waits (3 s) until a `Buffer` message holds `buffer`, and returns its id.
+fn wait_buffer(b: &mut BashHarness, buffer: &str) -> u64 {
+    let mut id = None;
+    poll(Duration::from_secs(3), || {
+        id = host_msgs(b).iter().rev().find_map(|m| match m {
+            HostMessage::Buffer { id, buffer: t, .. } if t == buffer => Some(*id),
+            _ => None,
+        });
+        id.is_some()
+    });
+    id.unwrap_or_else(|| panic!("no Buffer {buffer:?}: {:?}", host_msgs(b)))
+}
+
+#[test]
+fn host_mode_forwards_facts_and_buffer() {
+    let mut b = host(git_history());
+    let home = b.home().to_path_buf();
+    b.wait_state(|s| s.state == "on");
+    b.send("git s");
+    b.wait_state(|s| s.buffer == "git s");
+    b.send(accept_key());
+    wait_buffer(&mut b, "git s");
+    let msgs = host_msgs(&mut b);
+    assert!(
+        matches!(&msgs[0], HostMessage::Hello { shell, history_format, history_path: Some(p), .. }
+            if shell == "bash" && history_format == "bash" && p == &b.histfile()),
+        "{msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(
+            |m| matches!(m, HostMessage::Buffer { cursor: 5, buffer, cwd, .. }
+            if buffer == "git s" && cwd == &home)
+        ),
+        "{msgs:?}"
+    );
+    b.send("\x15"); // ⌃U
+    b.run("false");
+    let msgs = host_msgs(&mut b);
+    assert!(msgs.contains(&HostMessage::Clear), "{msgs:?}");
+    assert!(
+        msgs.iter().any(|m| matches!(m, HostMessage::Ran { command, status: 1, cwd, .. } if command == "false" && cwd == &home)),
+        "{msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(
+            |m| matches!(m, HostMessage::Prev { command: Some(c), status: Some(1) } if c == "false")
+        ),
+        "{msgs:?}"
+    );
+}
+
+#[test]
+fn host_mode_starts_no_core_and_draws_nothing() {
+    let mut b = host(BashOpts {
+        core_script: Some(RECORDER),
+        ..git_history()
+    });
+    b.wait_state(|s| s.state == "on");
+    b.send("git s");
+    b.wait_state(|s| s.buffer == "git s");
+    b.send(accept_key());
+    wait_buffer(&mut b, "git s");
+    let s = b.state();
+    assert_eq!(s.buffer, "git s", "nothing inserted");
+    b.idle(Duration::from_millis(200));
+    assert!(!b.home().join("wire.log").exists(), "a core was started");
+}
+
+#[test]
+fn accept_from_host_sets_the_line() {
+    let mut b = host(git_history());
+    b.wait_state(|s| s.state == "on");
+    b.send("echo é");
+    b.wait_state(|s| s.buffer == "echo é");
+    b.send(accept_key());
+    let id = wait_buffer(&mut b, "echo é");
+    b.send_bytes(&encode_accept(id, "echo émoi", 9));
+    let s = b.wait_state(|s| s.buffer == "echo émoi");
+    assert_eq!(s.point, 9);
+}
+
+#[test]
+fn stale_or_broken_accept_does_nothing() {
+    let mut b = host(git_history());
+    b.wait_state(|s| s.state == "on");
+    b.send("git s");
+    b.wait_state(|s| s.buffer == "git s");
+    b.send(accept_key());
+    let id = wait_buffer(&mut b, "git s");
+    let mark = b.screen_now().len();
+    b.send_bytes(&encode_accept(id + 100, "git status", 10));
+    b.send_bytes(b"\x1b[7701~!!!!\x07");
+    let mut cut = encode_accept(id, "git status", 10);
+    cut.pop();
+    b.send_bytes(&cut);
+    b.idle(Duration::from_millis(200));
+    let s = b.state();
+    assert_eq!(s.buffer, "git s");
+    let after = printable(&b.screen_now()[mark..]);
+    assert!(
+        !after.contains("!!!") && !after.contains("Z2l0"),
+        "stray characters: {after:?}"
+    );
+}
+
+#[test]
+fn no_sequence_without_the_variable() {
+    let mut b = BashHarness::start(git_history());
+    settle(&mut b);
+    b.send("git s");
+    b.send(accept_key());
+    b.wait_state(|s| s.buffer == "git status");
+    b.send("\x15");
+    b.run("true");
+    assert!(
+        !b.screen_now().contains("\x1b]7701"),
+        "an OSC 7701 reached the terminal"
+    );
+}
+
+#[test]
+fn tmux_falls_back_to_normal_mode() {
+    let mut b = host(BashOpts {
+        env: vec![("TMUX", "/tmp/x".into())],
+        ..git_history()
+    });
+    settle(&mut b);
+    b.send("git s");
+    b.send(accept_key());
+    b.wait_state(|s| s.buffer == "git status");
+    assert!(
+        !b.screen_now().contains("\x1b]7701"),
+        "an OSC 7701 inside tmux"
+    );
+    b.send("\x15");
+    b.run("fuxx-completes doctor");
+    assert!(printable(&b.screen_now()).contains("host mode    off (tmux)"));
+}
+
+#[test]
+fn nothing_before_the_first_prompt() {
+    let mut b = host(git_history());
+    b.wait_state(|s| s.state == "on");
+    b.send("git s");
+    b.send(accept_key());
+    wait_buffer(&mut b, "git s");
+    let screen = b.screen_now();
+    let prompt = screen.find("READY> ").unwrap();
+    assert!(!screen[..prompt].contains("\x1b]7701"), "{screen:?}");
+}

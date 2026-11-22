@@ -29,6 +29,7 @@ pub mod cd_target;
 pub mod context;
 pub mod history;
 pub mod history_file;
+pub mod host;
 pub mod projects;
 pub mod protocol;
 pub mod rank;

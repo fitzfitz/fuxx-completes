@@ -119,6 +119,17 @@ impl Pty {
         self.answer();
     }
 
+    /// Waits `d` while reading what the shell prints, as a terminal would. (A shell that changes
+    /// the terminal's settings waits until its output was read: `tcsetattr` with `TCSADRAIN`,
+    /// as bash's `read` does. A plain sleep in a test would stall it.)
+    pub fn idle(&mut self, d: Duration) {
+        let end = Instant::now() + d;
+        while Instant::now() < end {
+            self.pump();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
     /// Bytes read so far.
     pub fn len(&self) -> usize {
         self.screen.len()

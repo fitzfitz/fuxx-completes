@@ -68,6 +68,11 @@
   typeset -gA _FUXX_AS_LIST_VAL _FUXX_AS_LIST_SRC
   typeset -ga _FUXX_AS_LIST_ITEMS=() _FUXX_AS_HLS=()
   typeset -g _FUXX_AS_PID=''
+  # The host channel (design §5.5, M2): 1 in host mode (the terminal draws; no core here), why
+  # it is off when asked for, the messages waiting for ZLE, the last `buffer` sent and its id.
+  typeset -gi _FUXX_AS_HOST=0
+  typeset -g _FUXX_AS_HOST_WHY='' _FUXX_AS_HOST_LAST='' _FUXX_AS_HOST_ID=''
+  typeset -ga _FUXX_AS_HOST_Q=()
   typeset -g _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD=''
   typeset -g _FUXX_AS_SPARE_FD=''  # read-write holder on `resp` until `ready` (see _fuxx_as_start)
   typeset -g _FUXX_AS_NEXT_ID=1 _FUXX_AS_INFLIGHT_ID='' _FUXX_AS_INFLIGHT_SINCE=0
@@ -163,6 +168,21 @@ _fuxx_as_start() {
   emulate -L zsh
   setopt nobgnice   # emulate -L turns BG_NICE on, which would run the core niced
   local bin=${FUXX_COMPLETES_BIN:-${commands[fuxx-completes]-}} dir rs='' ok=1
+  # Host mode (design §5.5): the terminal asked for the buffer with FUXX_COMPLETES_HOST=1 and no
+  # multiplexer sits between (tmux and screen drop or misroute unknown OSCs). No core is started
+  # and nothing is drawn; `hello` waits for ZLE like every message.
+  if [[ ${FUXX_COMPLETES_HOST-} == 1 ]]; then
+    if [[ -n ${TMUX-} || -n ${STY-} ]]; then
+      _FUXX_AS_HOST_WHY=tmux
+    else
+      _FUXX_AS_HOST=1
+      _fuxx_as_send hello 1 zsh "$ZSH_VERSION" zsh "${HISTFILE:+${HISTFILE:a}}" autosuggestions
+      _fuxx_as_wrap_widgets
+      _fuxx_as_install_once
+      _FUXX_AS_STATE=on
+      return 0
+    fi
+  fi
   if [[ -z $bin || ! -x $bin || -d $bin ]]; then
     _FUXX_AS_STATE=off _FUXX_AS_WHY=no-binary
     return 0
@@ -248,6 +268,10 @@ _fuxx_as_stop() {
 # treat a failure as "the core isn't reading" and stop it.
 _fuxx_as_send() {
   emulate -L zsh
+  if (( _FUXX_AS_HOST )); then
+    _fuxx_as_host_queue "$@"
+    return 0
+  fi
   [[ -n $_FUXX_AS_WFD ]] || return 1
   local f line nl=$'\n' rs=$'\x1e'   # $'..' isn't expanded inside "${//}", so use variables
   local -a out
@@ -274,6 +298,10 @@ _fuxx_as_send() {
 _fuxx_as_request() {
   emulate -L zsh
   [[ $_FUXX_AS_STATE == on ]] || return 0
+  if (( _FUXX_AS_HOST )); then
+    _fuxx_as_host_forward
+    return 0
+  fi
   [[ -n $BUFFER ]] || (( (_FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY) || _FUXX_AS_FAILED )) || return 0
   (( $#BUFFER > 1000 )) && return 0
   [[ $BUFFER == *[$'\x1f\x1e']* ]] && return 0
@@ -676,6 +704,14 @@ _fuxx_as_bind_if_free() {
 
 _fuxx_as_line_init() {
   emulate -L zsh
+  if (( _FUXX_AS_HOST )); then
+    # What precmd queued (hello, ran, prev) goes now, from ZLE: nothing is written at startup or
+    # in precmd (powerlevel10k's instant prompt).
+    local m
+    for m in "${_FUXX_AS_HOST_Q[@]}"; do _fuxx_as_host_put "$m"; done
+    _FUXX_AS_HOST_Q=() _FUXX_AS_HOST_LAST=''
+    return 0
+  fi
   _FUXX_AS_LAST_BUFFER=''
   _FUXX_AS_KEYSEQ+=1
   # ⌃C runs no line-finish: drop a list it left, and its ghost text, keymap and highlights.
@@ -691,6 +727,11 @@ _fuxx_as_line_init() {
 _fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the scrollback
   # (after ⌃C it can: zsh doesn't redraw the line on SIGINT)
   emulate -L zsh
+  if (( _FUXX_AS_HOST )); then
+    _fuxx_as_host_osc clear
+    _fuxx_as_host_put "$REPLY"
+    return 0
+  fi
   _fuxx_as_list_reset
   _FUXX_AS_KEYSEQ+=1
   _fuxx_as_clear
@@ -825,6 +866,12 @@ _fuxx_as_install_once() {
     _fuxx_as_bind_if_free $km '^[[4~' end-of-line
     _fuxx_as_bind_if_free $km '^[[1;3C' forward-word
   done
+  # The host's accept (design §5.5): a CSI no keyboard sends, bound only where it is free.
+  if (( _FUXX_AS_HOST )); then
+    for km in emacs viins; do
+      _fuxx_as_bind_if_free $km '^[[7701~' fuxx-as-host-accept
+    done
+  fi
   # Bare Esc in emacs mode (design §6); in viins it is vi-cmd-mode, handled in _fuxx_as_w_modify.
   _fuxx_as_bind_if_free emacs '^[' fuxx-as-escape
   add-zle-hook-widget line-init _fuxx_as_line_init 2>/dev/null
@@ -1232,6 +1279,152 @@ zle -N fuxx-as-list-open _fuxx_as_widget_list_open
 
 # Sets REPLY to why we must stay off in this shell (design §9), or '': Warp replaces the line
 # editor, and zsh-autosuggestions draws its own ghost text (unless FUXX_AUTOSUGGESTIONS_FORCE=1).
+# ---- The host channel (design §5.5, M2) ----
+
+# REPLY = base64 (RFC 4648, padded) of $1's bytes, in pure zsh: one fork per keystroke would slow
+# typing.
+_fuxx_as_b64() {
+  emulate -L zsh
+  setopt nomultibyte
+  local s=$1 t='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' out='' c
+  local -i i a b d n k1 k2 k3 k4 len=$#s
+  for (( i = 1; i <= len; i += 3 )); do
+    c=$s[i]; (( a = #c ))
+    b=0 d=0
+    if (( i + 1 <= len )); then c=$s[i+1]; (( b = #c )); fi
+    if (( i + 2 <= len )); then c=$s[i+2]; (( d = #c )); fi
+    (( n = (a << 16) | (b << 8) | d ))
+    (( k1 = (n >> 18 & 63) + 1, k2 = (n >> 12 & 63) + 1, k3 = (n >> 6 & 63) + 1, k4 = (n & 63) + 1 ))
+    out+=$t[k1]$t[k2]
+    if (( i + 1 <= len )); then out+=$t[k3]; else out+='='; fi
+    if (( i + 2 <= len )); then out+=$t[k4]; else out+='='; fi
+  done
+  REPLY=$out
+}
+
+# REPLY = the bytes $1 (padded base64) encodes; returns 1 when it isn't valid base64.
+_fuxx_as_unb64() {
+  emulate -L zsh
+  setopt nomultibyte
+  local s=$1 out='' c body rest
+  local -i i k n v pad x
+  (( $#s % 4 == 0 )) || return 1
+  # Letters, digits, + and /, then at most two `=` (no parentheses here: a user's SHGLOB parses
+  # this file too).
+  body=${s%%=*}
+  rest=${s#"$body"}
+  [[ $rest == '' || $rest == '=' || $rest == '==' ]] || return 1
+  [[ $body == *[^A-Za-z0-9+/]* ]] && return 1
+  for (( i = 1; i <= $#s; i += 4 )); do
+    n=0 pad=0
+    for (( k = 0; k < 4; k++ )); do
+      c=$s[i+k]
+      (( x = #c ))
+      if (( x == 61 )); then           # =
+        (( pad++, v = 0 ))
+      elif (( x >= 65 && x <= 90 )); then (( v = x - 65 ))   # A-Z
+      elif (( x >= 97 && x <= 122 )); then (( v = x - 71 ))  # a-z
+      elif (( x >= 48 && x <= 57 )); then (( v = x + 4 ))    # 0-9
+      elif (( x == 43 )); then v=62                          # +
+      else v=63                                              # / (the pattern above allows no other)
+      fi
+      (( n = (n << 6) | v ))
+    done
+    (( pad && i + 4 <= $#s )) && return 1   # padding only at the end
+    x=$(( n >> 16 & 255 )); out+=${(#)x}
+    if (( pad < 2 )); then x=$(( n >> 8 & 255 )); out+=${(#)x}; fi
+    if (( pad < 1 )); then x=$(( n & 255 )); out+=${(#)x}; fi
+  done
+  REPLY=$out
+}
+
+# _fuxx_as_host_osc <message> [n:<number> | s:<text>]...: REPLY = the OSC 7701 for it.
+_fuxx_as_host_osc() {
+  emulate -L zsh
+  local out=$'\e]7701;fuxx-completes;1;'$1 f
+  shift
+  for f in "$@"; do
+    case $f in
+      n:*) out+=";${f#n:}" ;;
+      *) _fuxx_as_b64 "${f#s:}"; out+=";$REPLY" ;;
+    esac
+  done
+  REPLY=$out$'\a'
+}
+
+# Writes to the terminal, never to stdout.
+_fuxx_as_host_put() {
+  emulate -L zsh
+  [[ -n ${TTY-} ]] || return 0
+  print -rn -- "$1" >>$TTY 2>/dev/null
+  return 0
+}
+
+# What `_fuxx_as_send` would tell a core, queued for the host until ZLE runs: hello, ran, prev.
+_fuxx_as_host_queue() {
+  emulate -L zsh
+  case $1 in
+    hello) _fuxx_as_host_osc hello s:$3 s:$4 s:$5 s:$6 s:$7 ;;
+    ran) _fuxx_as_host_osc ran s:$2 n:$3 n:$4 s:$5 ;;
+    prev)
+      if [[ -n ${3-} ]]; then
+        _fuxx_as_host_osc prev s:$2 n:$3
+      else
+        _fuxx_as_host_osc prev s:$2 ''
+      fi ;;
+    *) return 0 ;;
+  esac
+  _FUXX_AS_HOST_Q+=( "$REPLY" )
+}
+
+# Sends the line to the host when it changed (from a widget). Over 1000 characters, or holding
+# 0x1F/0x1E, it is never sent (design §5.5).
+_fuxx_as_host_forward() {
+  emulate -L zsh
+  local key="$CURSOR:$BUFFER"
+  [[ $key == "$_FUXX_AS_HOST_LAST" ]] && return 0
+  _FUXX_AS_HOST_LAST=$key
+  (( $#BUFFER > 1000 )) && return 0
+  [[ $BUFFER == *[$'\x1f\x1e']* ]] && return 0
+  local id=$_FUXX_AS_NEXT_ID
+  _FUXX_AS_NEXT_ID=$(( id + 1 ))
+  _FUXX_AS_HOST_ID=$id
+  _fuxx_as_host_osc buffer n:$id n:$CURSOR s:$PWD s:$BUFFER
+  _fuxx_as_host_put "$REPLY"
+}
+
+# `ESC [ 7701 ~` from the host, then base64 of `<id> US <buffer> US <cursor>` and BEL: reads the
+# rest within 50 ms and applies it only when the id is the last `buffer` sent. Anything else
+# (late, stale, broken) is read and dropped, so no stray characters are typed.
+_fuxx_as_widget_host_accept() {
+  emulate -L zsh
+  local c payload=''
+  local -i got=0
+  local -F deadline=$(( EPOCHREALTIME + 0.05 )) left
+  while (( $#payload < 8192 )); do
+    (( left = deadline - EPOCHREALTIME ))
+    (( left > 0 )) || break
+    read -k 1 -t $left c 2>/dev/null || break
+    if [[ $c == $'\a' ]]; then
+      got=1
+      break
+    fi
+    payload+=$c
+  done
+  (( got )) || return 0
+  _fuxx_as_unb64 "$payload" || return 0
+  local text=$REPLY id cur
+  [[ $text == *$'\x1f'*$'\x1f'* ]] || return 0
+  id=${text%%$'\x1f'*} cur=${text##*$'\x1f'}
+  text=${text#*$'\x1f'}
+  text=${text%$'\x1f'*}
+  [[ $id == <-> && $cur == <-> && $id == "$_FUXX_AS_HOST_ID" ]] || return 0
+  BUFFER=$text
+  CURSOR=$cur
+  _fuxx_as_host_forward
+}
+zle -N fuxx-as-host-accept _fuxx_as_widget_host_accept
+
 _fuxx_as_conflict() {
   emulate -L zsh
   REPLY=''
@@ -1259,6 +1452,13 @@ _fuxx_as_facts() {
   print -r -- shglob=$shglob
   print -r -- histfile=${HISTFILE:+${HISTFILE:a}}
   print -r -- force=${FUXX_AUTOSUGGESTIONS_FORCE:-0}
+  if (( _FUXX_AS_HOST )); then
+    print -r -- host=on
+  elif [[ -n $_FUXX_AS_HOST_WHY ]]; then
+    print -r -- host=off:$_FUXX_AS_HOST_WHY
+  else
+    print -r -- host=off
+  fi
   for k in list list_empty list_delay list_size; do
     [[ -n ${_FUXX_AS_LIST_VAL[$k]-} ]] && print -r -- "setting=$k ${_FUXX_AS_LIST_VAL[$k]} ${_FUXX_AS_LIST_SRC[$k]}"
   done

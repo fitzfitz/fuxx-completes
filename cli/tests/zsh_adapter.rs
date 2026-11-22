@@ -3424,3 +3424,182 @@ fn the_shell_function_passes_cwd_and_histfile_to_why() {
     assert!(screen.contains(&format!("folder     {home}")), "{screen}");
     assert!(screen.contains("history    in your history"), "{screen}");
 }
+
+// ---- M2: the host channel (design §5.5) ----
+
+use fuxx_completes_core::host::{encode_accept, scan, HostMessage};
+
+const HOST: &str = "export FUXX_COMPLETES_HOST=1";
+
+/// The host messages the shell has written so far.
+fn host_msgs(z: &mut ZshHarness) -> Vec<HostMessage> {
+    z.screen_now();
+    scan(z.bytes())
+}
+
+/// Waits (3 s) until a `Buffer` message holds `buffer`, and returns its id.
+fn wait_buffer(z: &mut ZshHarness, buffer: &str) -> u64 {
+    let mut id = None;
+    poll(Duration::from_secs(3), || {
+        id = host_msgs(z).iter().rev().find_map(|m| match m {
+            HostMessage::Buffer { id, buffer: b, .. } if b == buffer => Some(*id),
+            _ => None,
+        });
+        id.is_some()
+    });
+    id.unwrap_or_else(|| panic!("no Buffer {buffer:?}: {:?}", host_msgs(z)))
+}
+
+#[test]
+fn host_mode_forwards_facts_and_buffer() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: HOST.into(),
+        ..git_history()
+    });
+    let home = z.home().to_path_buf();
+    z.send("git s");
+    wait_buffer(&mut z, "git s");
+    let msgs = host_msgs(&mut z);
+    assert!(
+        matches!(&msgs[0], HostMessage::Hello { shell, history_format, history_path: Some(p), .. }
+            if shell == "zsh" && history_format == "zsh" && p == &z.histfile()),
+        "{msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(
+            |m| matches!(m, HostMessage::Buffer { cursor: 5, buffer, cwd, .. }
+            if buffer == "git s" && cwd == &home)
+        ),
+        "{msgs:?}"
+    );
+    z.send("\x15"); // ⌃U
+    z.run("false");
+    assert!(
+        poll(Duration::from_secs(3), || host_msgs(&mut z)
+            .contains(&HostMessage::Clear)),
+        "{:?}",
+        host_msgs(&mut z)
+    );
+    z.run("true");
+    let msgs = host_msgs(&mut z);
+    assert!(
+        msgs.iter().any(
+            |m| matches!(m, HostMessage::Prev { command: Some(c), status: Some(1) } if c == "false")
+        ),
+        "{msgs:?}"
+    );
+    assert!(
+        msgs.iter().any(|m| matches!(m, HostMessage::Ran { command, status: 1, cwd, .. } if command == "false" && cwd == &home)),
+        "{msgs:?}"
+    );
+}
+
+#[test]
+fn host_mode_starts_no_core_and_draws_nothing() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: HOST.into(),
+        core_script: Some("exec cat > \"$HOME/wire.log\""),
+        ..git_history()
+    });
+    z.send("git s");
+    wait_buffer(&mut z, "git s");
+    let s = z.state();
+    assert_eq!(s.postdisplay, "");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!z.home().join("wire.log").exists(), "a core was started");
+}
+
+#[test]
+fn accept_from_host_sets_the_line() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: HOST.into(),
+        ..git_history()
+    });
+    z.send("git s");
+    let id = wait_buffer(&mut z, "git s");
+    z.send_bytes(&encode_accept(id, "git status", 10));
+    let s = z.wait_state(|s| s.buffer == "git status");
+    assert_eq!(s.cursor, 10);
+}
+
+#[test]
+fn stale_or_broken_accept_does_nothing() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: HOST.into(),
+        ..git_history()
+    });
+    z.send("git s");
+    let id = wait_buffer(&mut z, "git s");
+    let mark = z.screen_now().len();
+    z.send_bytes(&encode_accept(id + 100, "git status", 10)); // an old or unknown id
+    z.send_bytes(b"\x1b[7701~!!!!\x07"); // bad base64
+    let mut cut = encode_accept(id, "git status", 10);
+    cut.pop(); // no BEL
+    z.send_bytes(&cut);
+    std::thread::sleep(Duration::from_millis(200));
+    let s = z.state();
+    assert_eq!(s.buffer, "git s");
+    let after = printable(&z.screen_now()[mark..]);
+    assert!(
+        !after.contains("!!!") && !after.contains("Z2l0"),
+        "stray characters: {after:?}"
+    );
+}
+
+#[test]
+fn no_sequence_without_the_variable() {
+    let mut z = ZshHarness::start(git_history());
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay == "tatus");
+    z.send("\x15");
+    z.run("true");
+    assert!(
+        !z.screen_now().contains("\x1b]7701"),
+        "an OSC 7701 reached the terminal"
+    );
+}
+
+#[test]
+fn tmux_falls_back_to_normal_mode() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: format!("{HOST}; export TMUX=/tmp/x"),
+        ..git_history()
+    });
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay == "tatus");
+    assert!(
+        !z.screen_now().contains("\x1b]7701"),
+        "an OSC 7701 inside tmux"
+    );
+}
+
+#[test]
+fn nothing_before_the_first_prompt() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: HOST.into(),
+        ..git_history()
+    });
+    z.send("git s");
+    wait_buffer(&mut z, "git s");
+    let screen = z.screen_now();
+    let prompt = screen.find("READY> ").unwrap();
+    assert!(!screen[..prompt].contains("\x1b]7701"), "{screen:?}");
+}
+
+#[test]
+fn doctor_shows_host_mode() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: HOST.into(),
+        ..git_history()
+    });
+    z.run("fuxx-completes doctor");
+    let screen = printable(&z.screen_now());
+    assert!(screen.contains("host mode    on"), "{screen}");
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: format!("{HOST}; export TMUX=/tmp/x"),
+        ..git_history()
+    });
+    z.run("fuxx-completes doctor");
+    let screen = printable(&z.screen_now());
+    assert!(screen.contains("host mode    off (tmux)"), "{screen}");
+}

@@ -190,6 +190,11 @@ impl BashHarness {
         self.pty.send_bytes(bytes)
     }
 
+    /// Waits while reading the shell's output, as a terminal would (see `Pty::idle`).
+    pub fn idle(&mut self, d: Duration) {
+        self.pty.idle(d)
+    }
+
     /// Types `line`, presses Enter, and waits for the next prompt (10 s at most).
     pub fn run(&mut self, line: &str) {
         self.pty.run(line, PROMPT)

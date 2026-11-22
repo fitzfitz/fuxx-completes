@@ -31,6 +31,16 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M2 Task 6: the host channel (zsh, bash).** `core/src/host.rs` encodes and
+  decodes OSC 7701 messages and the accept; with `FUXX_COMPLETES_HOST=1` (and no tmux/screen) the
+  zsh plugin forwards `hello`, `buffer` as you type, `clear`, `ran` and `prev` to the terminal
+  and starts no core; bash does the same at its prompts and explicit keys; both bind `ESC [ 7701 ~`
+  where free and apply only the last line's id. The number was re-checked against 13 terminals'
+  docs and source: no clash (mintty uses other 77xx numbers). Found: bash's `read` waits until
+  the terminal has read the shell's output (`TCSADRAIN`), so the tests' fake host keeps reading
+  while it waits; a real terminal always does. `doctor` shows host mode. Tests seen failing
+  first; zsh and bash matrices pass. `design.md` §5.5, §6, §7; `README.md`.
+
 - **2026-11-23** — **M2 Task 5: fish reports through `fuxx-completes report`.** The binary gains
   `report` (one record, no history load, never prints; a busy lock is retried for 100 ms; the
   file is trimmed past its 4 MiB cap, U2 = F1) and `doctor` shows fish's `reporting` fact.

@@ -60,6 +60,10 @@ if [[ -z ${_FUXX_AS_STATE+set} ]]; then
   _FUXX_AS_T0='' _FUXX_AS_S0=0
   _FUXX_AS_OWN_FN=0
   _FUXX_AS_BLE=''   # `fed` once our ble.sh source is registered, `atuin` when atuin's is there
+  # The host channel (design §5.5): 1 in host mode, why it is off when asked for, messages
+  # waiting to be written, the last `buffer` id sent.
+  _FUXX_AS_HOST=0 _FUXX_AS_HOST_WHY='' _FUXX_AS_HOST_ID=''
+  _FUXX_AS_HOST_Q=()
   if (( BASH_VERSINFO[0] < 4 )); then
     _FUXX_AS_STATE=off _FUXX_AS_WHY=bash-too-old
   else
@@ -145,6 +149,28 @@ _fuxx_as_open() {
 # and the pipes' names stay until `ready` is read (earlier would race the core's own opens).
 _fuxx_as_start() {
   local bin=${FUXX_COMPLETES_BIN:-} dir ok=1
+  # Host mode (design §5.5): the terminal asked with FUXX_COMPLETES_HOST=1 and no multiplexer
+  # sits between. No core; `hello` waits for the next prompt or key, so nothing is written before
+  # the first prompt.
+  if [[ ${FUXX_COMPLETES_HOST-} == 1 ]]; then
+    if [[ -n ${TMUX-} || -n ${STY-} ]]; then
+      _FUXX_AS_HOST_WHY=tmux
+    else
+      local hist=${HISTFILE-}
+      [[ -n $hist && $hist != /* ]] && hist=$PWD/$hist
+      _FUXX_AS_HOST=1 _FUXX_AS_STATE=on
+      _fuxx_as_send hello 1 bash "$BASH_VERSION" bash "$hist" autosuggestions
+      if (( _FUXX_AS_V < 402 )); then
+        read -r _FUXX_AS_T0 < <(command date +%s 2>/dev/null)
+        _FUXX_AS_S0=$SECONDS
+      fi
+      if [[ -z ${BLE_VERSION-} ]]; then
+        _fuxx_as_private_dir && _fuxx_as_bind_keys
+        _fuxx_as_unlink_pipes
+      fi
+      return 0
+    fi
+  fi
   # No command substitution anywhere on the prompt's path: in bash 4.0 one in PROMPT_COMMAND
   # keeps the first prompt from being drawn (checked 2026-11-23). PATH lookup through `hash`.
   if [[ -z $bin ]] && hash fuxx-completes 2>/dev/null; then
@@ -206,6 +232,14 @@ _fuxx_as_start() {
   [[ -n ${BLE_VERSION-} ]] || _fuxx_as_bind_keys
 }
 
+# A private folder (`mkdir -m 700`) in $TMPDIR, in _FUXX_AS_DIR.
+_fuxx_as_private_dir() {
+  local dir=${TMPDIR:-/tmp}
+  dir=${dir%/}/fuxx-completes.$$.$RANDOM
+  command mkdir -m 700 -- "$dir" 2>/dev/null || return 1
+  _FUXX_AS_DIR=$dir
+}
+
 # `_fuxx_as_stop kill [why]`: the core may still be alive, so end it. `_fuxx_as_stop gone [why]`:
 # it is already gone (EOF), and its pid may belong to another process by now.
 _fuxx_as_stop() {
@@ -229,6 +263,10 @@ _fuxx_as_stop() {
 # counted (an answer to the newest `suggest` shows it read everything up to it) and a write that
 # could fill the pipe (a FIFO holds about 8 KiB on macOS) is refused: the caller stops the core.
 _fuxx_as_send() {
+  if (( _FUXX_AS_HOST )); then
+    _fuxx_as_host_queue "$@"
+    return 0
+  fi
   [[ -n $_FUXX_AS_WFD ]] || return 1
   local f line='' sep='' nl=$'\n' rs=$'\x1e' us=$'\x1f'
   for f in "$@"; do
@@ -403,6 +441,12 @@ _fuxx_as_key_end() {
 }
 
 _fuxx_as_accept() {
+  if (( _FUXX_AS_HOST )); then
+    # The host draws and accepts (design §5.5): the key only tells it the line.
+    _fuxx_as_host_flush
+    _fuxx_as_host_forward
+    return 0
+  fi
   _fuxx_as_point_chars
   _fuxx_as_sync_suggest "$READLINE_LINE" "$REPLY" || return 0
   READLINE_LINE+=$REPLY
@@ -435,13 +479,14 @@ _fuxx_as_binding() {
 # the key becomes a macro typing one of these.
 _FUXX_AS_PRIV_RIGHT='\C-x\C-^'
 _FUXX_AS_PRIV_END='\C-x\C-]'
+_FUXX_AS_PRIV_HOST='\C-x\C-z'
 
 # _fuxx_as_bind_key <keymap> <sequence> <default function> <our function> <private sequence>:
 # binds only a key still on its default (or unbound), and records what happened.
 _fuxx_as_bind_key() {
   local km=$1 seq=$2 def=$3 fn=$4 priv=$5 k="$1 $2"
   _fuxx_as_binding "$km" "$seq"
-  if [[ -n $REPLY && $REPLY != "$def" ]]; then
+  if [[ -n $REPLY && ( -z $def || $REPLY != "$def" ) ]]; then
     _FUXX_AS_KEYS[$k]=kept:$REPLY
     return 0
   fi
@@ -464,6 +509,7 @@ _fuxx_as_bind_key() {
 # left to readline and only End inserts.
 _fuxx_as_bind_keys() {
   local km seq
+  [[ -n $_FUXX_AS_DIR ]] || return 0
   for km in emacs vi-insert; do
     { bind -m "$km" -p; bind -m "$km" -s; } >"$_FUXX_AS_DIR/keys-$km-p" 2>/dev/null
     (( _FUXX_AS_V >= 403 )) && bind -m "$km" -X >"$_FUXX_AS_DIR/keys-$km-x" 2>/dev/null
@@ -475,6 +521,10 @@ _fuxx_as_bind_keys() {
     for seq in '\e[F' '\eOF' '\e[4~'; do
       _fuxx_as_bind_key "$km" "$seq" end-of-line _fuxx_as_key_end "$_FUXX_AS_PRIV_END"
     done
+    # The host's accept, a CSI no keyboard sends, bound only where it is free (design §5.5).
+    if (( _FUXX_AS_HOST )); then
+      _fuxx_as_bind_key "$km" '\e[7701~' '' _fuxx_as_host_accept "$_FUXX_AS_PRIV_HOST"
+    fi
     command rm -f -- "$_FUXX_AS_DIR/keys-$km-p" "$_FUXX_AS_DIR/keys-$km-x" 2>/dev/null
   done
 }
@@ -535,7 +585,31 @@ _fuxx_as_prompt_work() {
     return 0
   fi
   [[ $_FUXX_AS_STATE == on ]] || return 0
+  if (( _FUXX_AS_HOST )); then
+    # The line was run or abandoned; then what is waiting (hello), then this command's report.
+    _fuxx_as_host_osc clear
+    _FUXX_AS_HOST_Q+=("$REPLY")
+    _fuxx_as_prompt_report "$st" "$n" "$entry" "$cwd"
+    _fuxx_as_host_flush
+    return 0
+  fi
   _fuxx_as_drain || return 0
+  _fuxx_as_prompt_report "$st" "$n" "$entry" "$cwd" || return 0
+  # Reports get no answer, so a ping (an empty `suggest`) now and then shows the core reads
+  # them; without one, the byte count above would stop a healthy core after a few dozen reports.
+  if [[ -z $_FUXX_AS_PING ]] && (( _FUXX_AS_UNREAD > 2048 )); then
+    local id=$_FUXX_AS_NEXT_ID
+    _FUXX_AS_NEXT_ID=$(( id + 1 ))
+    _fuxx_as_send suggest "$id" async 0 / '' || { _fuxx_as_stop kill write-failed; return 0; }
+    _FUXX_AS_PING=$id
+  fi
+  return 0
+}
+
+# _fuxx_as_prompt_report <status> <history number> <entry> <cwd>: sends `ran` and `prev` when
+# the history number is new. Returns 1 when the core had to be stopped.
+_fuxx_as_prompt_report() {
+  local st=$1 n=$2 entry=$3 cwd=$4
   [[ -n $n && $n != "$_FUXX_AS_HISTNUM" ]] || return 0
   if [[ -z $_FUXX_AS_HISTNUM ]] && (( n > 1 )); then
     # The list was empty at the first prompt and now holds more than one entry: the history file
@@ -550,15 +624,7 @@ _fuxx_as_prompt_work() {
   _fuxx_as_now
   _fuxx_as_send ran "$cwd" "$st" "$REPLY" "$entry" \
     && _fuxx_as_send prev "$entry" "$st" \
-    || { _fuxx_as_stop kill write-failed; return 0; }
-  # Reports get no answer, so a ping (an empty `suggest`) now and then shows the core reads
-  # them; without one, the byte count above would stop a healthy core after a few dozen reports.
-  if [[ -z $_FUXX_AS_PING ]] && (( _FUXX_AS_UNREAD > 2048 )); then
-    local id=$_FUXX_AS_NEXT_ID
-    _FUXX_AS_NEXT_ID=$(( id + 1 ))
-    _fuxx_as_send suggest "$id" async 0 / '' || { _fuxx_as_stop kill write-failed; return 0; }
-    _FUXX_AS_PING=$id
-  fi
+    || { _fuxx_as_stop kill write-failed; return 1; }
   return 0
 }
 
@@ -581,6 +647,120 @@ _fuxx_as_hook_prompt() {
   fi
 }
 _fuxx_as_hook_prompt
+
+# ---- The host channel (design §5.5, M2) ----
+
+# REPLY = base64 (RFC 4648, padded) of $1's bytes, in pure bash (no fork per key).
+_fuxx_as_b64() {
+  local LC_ALL=C s=$1 t=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
+  local out='' i a b d n len=${#s}
+  for (( i = 0; i < len; i += 3 )); do
+    printf -v a '%d' "'${s:i:1}"
+    (( a < 0 )) && (( a += 256 ))
+    b=0 d=0
+    if (( i + 1 < len )); then printf -v b '%d' "'${s:i+1:1}"; (( b < 0 )) && (( b += 256 )); fi
+    if (( i + 2 < len )); then printf -v d '%d' "'${s:i+2:1}"; (( d < 0 )) && (( d += 256 )); fi
+    n=$(( a << 16 | b << 8 | d ))
+    out+=${t:n>>18&63:1}${t:n>>12&63:1}
+    if (( i + 1 < len )); then out+=${t:n>>6&63:1}; else out+='='; fi
+    if (( i + 2 < len )); then out+=${t:n&63:1}; else out+='='; fi
+  done
+  REPLY=$out
+}
+
+# REPLY = the bytes $1 (padded base64) encodes; returns 1 when it isn't valid base64.
+_fuxx_as_unb64() {
+  local LC_ALL=C s=$1 esc='' i k c x v n pad re='^[A-Za-z0-9+/]*={0,2}$'
+  (( ${#s} % 4 == 0 )) || return 1
+  [[ $s =~ $re ]] || return 1
+  for (( i = 0; i < ${#s}; i += 4 )); do
+    n=0 pad=0
+    for (( k = 0; k < 4; k++ )); do
+      c=${s:i+k:1}
+      printf -v x '%d' "'$c"
+      if (( x == 61 )); then (( pad++ )); v=0
+      elif (( x >= 65 && x <= 90 )); then v=$(( x - 65 ))
+      elif (( x >= 97 && x <= 122 )); then v=$(( x - 71 ))
+      elif (( x >= 48 && x <= 57 )); then v=$(( x + 4 ))
+      elif (( x == 43 )); then v=62
+      else v=63
+      fi
+      n=$(( n << 6 | v ))
+    done
+    (( pad && i + 4 < ${#s} )) && return 1
+    printf -v c '\\x%02x' $(( n >> 16 & 255 )); esc+=$c
+    if (( pad < 2 )); then printf -v c '\\x%02x' $(( n >> 8 & 255 )); esc+=$c; fi
+    if (( pad < 1 )); then printf -v c '\\x%02x' $(( n & 255 )); esc+=$c; fi
+  done
+  printf -v REPLY '%b' "$esc"
+}
+
+# _fuxx_as_host_osc <message> [n:<number> | s:<text> | '']...: REPLY = its OSC 7701.
+_fuxx_as_host_osc() {
+  local out=$'\e]7701;fuxx-completes;1;'$1 f
+  shift
+  for f in "$@"; do
+    case $f in
+      n:*) out+=";${f#n:}" ;;
+      *) _fuxx_as_b64 "${f#s:}"; out+=";$REPLY" ;;
+    esac
+  done
+  REPLY=$out$'\a'
+}
+
+# What `_fuxx_as_send` would tell a core, queued for the host: hello, ran, prev.
+_fuxx_as_host_queue() {
+  case $1 in
+    hello) _fuxx_as_host_osc hello "s:$3" "s:$4" "s:$5" "s:$6" "s:$7" ;;
+    ran) _fuxx_as_host_osc ran "s:$2" "n:$3" "n:$4" "s:$5" ;;
+    prev) _fuxx_as_host_osc prev "s:$2" "n:$3" ;;
+    *) return 0 ;;
+  esac
+  _FUXX_AS_HOST_Q+=("$REPLY")
+}
+
+# Writes what is queued to the terminal (never stdout).
+_fuxx_as_host_flush() {
+  (( ${#_FUXX_AS_HOST_Q[@]} )) || return 0
+  local m all=''
+  for m in "${_FUXX_AS_HOST_Q[@]}"; do all+=$m; done
+  _FUXX_AS_HOST_Q=()
+  printf '%s' "$all" 2>/dev/null >/dev/tty
+  return 0
+}
+
+# Sends the line at an explicit key (readline has no buffer-change hook). Over 1000 characters,
+# or holding 0x1F/0x1E, it is never sent.
+_fuxx_as_host_forward() {
+  local line=$READLINE_LINE id
+  (( ${#line} > 1000 )) && return 0
+  [[ $line == *[$'\x1f\x1e']* ]] && return 0
+  id=$_FUXX_AS_NEXT_ID
+  _FUXX_AS_NEXT_ID=$(( id + 1 ))
+  _FUXX_AS_HOST_ID=$id
+  _fuxx_as_point_chars
+  _fuxx_as_host_osc buffer "n:$id" "n:$REPLY" "s:$PWD" "s:$line"
+  printf '%s' "$REPLY" 2>/dev/null >/dev/tty
+}
+
+# `ESC [ 7701 ~` from the host, then base64 of `<id> US <buffer> US <cursor>` and BEL: reads the
+# rest within 50 ms and applies it only when the id is the last `buffer` sent; anything else is
+# read and dropped, so nothing stray is typed.
+_fuxx_as_host_accept() {
+  local payload text id cur
+  IFS= read -r -s -t 0.05 -d $'\a' payload 2>/dev/null || return 0
+  (( ${#payload} <= 8192 )) || return 0
+  _fuxx_as_unb64 "$payload" || return 0
+  text=$REPLY
+  [[ $text == *$'\x1f'*$'\x1f'* ]] || return 0
+  id=${text%%$'\x1f'*} cur=${text##*$'\x1f'}
+  text=${text#*$'\x1f'}
+  text=${text%$'\x1f'*}
+  [[ $id =~ ^[0-9]+$ && $cur =~ ^[0-9]+$ && $id == "$_FUXX_AS_HOST_ID" ]] || return 0
+  READLINE_LINE=$text
+  (( cur > ${#text} )) && cur=${#text}
+  _fuxx_as_set_point "$cur"
+}
 
 # ---- ble.sh (the user's decision, 2026-11-23: we feed its grey text; design §6 bash) ----
 
@@ -631,6 +811,13 @@ _fuxx_as_facts() {
     for k in ${_FUXX_AS_KEYS[@]+"${!_FUXX_AS_KEYS[@]}"}; do printf 'key=%s %s\n' "$k" "${_FUXX_AS_KEYS[$k]}"; done
   fi
   printf 'histfile=%s\n' "$hist"
+  if (( _FUXX_AS_HOST )); then
+    printf 'host=on\n'
+  elif [[ -n ${_FUXX_AS_HOST_WHY-} ]]; then
+    printf 'host=off:%s\n' "$_FUXX_AS_HOST_WHY"
+  else
+    printf 'host=off\n'
+  fi
 }
 
 # `fuxx-completes forget`, `doctor` and `why` typed at this prompt: the binary runs with this

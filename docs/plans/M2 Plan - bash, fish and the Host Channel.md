@@ -312,17 +312,17 @@ encode_accept(id: u64, buffer: &str, cursor: usize) -> Vec<u8>`; `pub fn decode_
 Option<Vec<u8>>`. Shell: `_fuxx_as_host_send <message> <fields…>`, the accept widget
 `fuxx-as-host-accept` (zsh) and `_fuxx_as_host_accept` (bash).
 
-- [ ] **Step 1: The OSC number re-check.** Look for 7701 in xterm's ctlseqs, iTerm2, WezTerm, kitty,
+- [x] **Step 1: The OSC number re-check.** Look for 7701 in xterm's ctlseqs, iTerm2, WezTerm, kitty,
   foot, Ghostty, VS Code (633), Windows Terminal, hterm, Konsole, rxvt-unicode, and tmux's passthrough
   rules; record the date, sources and result in design §5.5. A clash: stop and ask the user.
-- [ ] **Step 2: Failing tests** (`host.rs`): `base64_matches_rfc4648` (`""`, `"f"`→`Zg==`, `"fo"`→`Zm8=`,
+- [x] **Step 2: Failing tests** (`host.rs`): `base64_matches_rfc4648` (`""`, `"f"`→`Zg==`, `"fo"`→`Zm8=`,
   `"foo"`→`Zm9v`, `"foobar"`→`Zm9vYmFy`; bad input → `None`); `osc_round_trips_every_message`;
   `hostile_text_round_trips` (Review Focus 3: buffer `echo "a;b" '\a' é 🙂` and a cwd with `;` →
   the encoded body holds only `[A-Za-z0-9+/=;-]` and digits, and decodes equal);
   `other_namespaces_and_versions_are_ignored` (`7701;other;1;…`, `7701;fuxx-completes;2;…` → `None`);
   `scan_finds_messages_among_text` (other OSCs, plain text, a `ESC \` terminator, a cut-off
   sequence); `accept_round_trips`.
-- [ ] **Step 3: Failing tests** (pty; zsh on the zsh matrix, bash 4.0 and 5.3): `host_mode_forwards_facts_and_buffer`
+- [x] **Step 3: Failing tests** (pty; zsh on the zsh matrix, bash 4.0 and 5.3): `host_mode_forwards_facts_and_buffer`
   (`FUXX_COMPLETES_HOST=1`; type `git s` → `scan` gives `Hello { shell: "zsh" | "bash", … }`, and in zsh
   `Buffer { cursor: 5, buffer: "git s", cwd: home, .. }` (bash: after →); Enter → `Clear`; at the next
   line `Ran` and `Prev`); `host_mode_starts_no_core_and_draws_nothing` (recorder never sees `hello`;
@@ -334,8 +334,8 @@ Option<Vec<u8>>`. Shell: `_fuxx_as_host_send <message> <fields…>`, the accept 
   `no_sequence_without_the_variable` (unset → the screen never holds `\x1b]7701`);
   `tmux_falls_back_to_normal_mode` (Review Focus 5: `TMUX=/tmp/x` → no OSC, zsh ghost text works);
   `nothing_before_the_first_prompt` (no OSC before `READY> `).
-- [ ] **Step 4:** run (fail); implement; run (pass); zsh and bash matrices.
-- [ ] **Step 5:** gate. **Docs:** design §5.5 (encoding, accept read path as verified per version, the
+- [x] **Step 4:** run (fail); implement; run (pass); zsh and bash matrices.
+- [x] **Step 5:** gate. **Docs:** design §5.5 (encoding, accept read path as verified per version, the
   re-check), §6 zsh/bash host mode, §7 (`host` fact); README (host mode for terminal authors);
   roadmap. Commit `feat: the host channel over OSC 7701 (zsh, bash)`.
 

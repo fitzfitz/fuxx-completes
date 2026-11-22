@@ -742,6 +742,40 @@ pty the shell already writes to.
 - **fish** can't forward the buffer as you type (no buffer-change hook, §6). In host mode it
   still reports commands, through `fuxx-completes report`, which the host's core sees in the
   shared context file.
+- **The number re-checked (M2, 2026-11-23): no clash.** "7701" appears in none of: xterm's
+  ctlseqs (and `misc.c`), iTerm2's escape-code docs, WezTerm's docs and parser, kitty's protocol
+  extensions and parser, foot's README and parser, Ghostty's `osc.zig`, VS Code's shell
+  integration (633), Windows Terminal's parser, hterm's ControlSequences, Konsole's
+  `Vt102Emulation.cpp`, rxvt-unicode's docs and `command.C`, tmux's `input.c`. The near neighbour
+  is mintty, which uses OSC 7704, 7721, 7750, 7770–7777 and 77119 and several 77xx DEC modes, but
+  not 7701 in OSC or CSI. tmux drops an unknown OSC and an unknown `CSI … ~` (only its DCS
+  passthrough with `allow-passthrough` gets through), which is why tmux and screen mean normal
+  mode. `CSI 7701 ~` is shaped like a function key (`CSI 15 ~` is F5); no terminal sends it.
+- **As built (M2 Task 6, AI's calls).** The codec is `core/src/host.rs` (`HostMessage`,
+  `encode_osc`, `decode_osc`, `scan`, `encode_accept`, `decode_accept`, `base64_encode`,
+  `base64_decode`): `ESC ] 7701 ; fuxx-completes ; 1 ; <message> ; <fields…> BEL`, numbers in
+  digits (a `-` when negative), every other field base64 (RFC 4648, padded; empty stays empty);
+  `hello` (shell, version, history format, history path, libraries as a comma list), `buffer` (id,
+  cursor in code points, cwd, buffer), `clear`, `ran` (cwd, status, time, command), `prev`
+  (command, status; empty = unknown). `scan` takes `BEL` or `ESC \` as the end and skips other
+  OSCs and a cut-off one. The accept is `ESC [ 7701 ~`, base64 of `<id> US <buffer> US <cursor>`,
+  `BEL`. Both adapters encode and decode base64 in pure shell (no fork per key), write only to
+  the terminal (`$TTY` in zsh, `/dev/tty` in bash) and never send a buffer over 1000 characters
+  or holding `0x1F`/`0x1E`. **zsh:** `hello`, `ran`, `prev` queue at `precmd` and go at
+  `zle-line-init`; `buffer` goes from the wrapped widgets whenever the line or cursor changed;
+  `clear` at line-finish; no core is started and nothing is drawn. **bash:** `hello` is queued at
+  the first prompt (so nothing comes before it) and goes at the next prompt or explicit key; each
+  later prompt sends `clear`, then `ran` and `prev` for a saved command; → and End at the end of
+  the line send `buffer` and insert nothing (the host draws and accepts); under ble.sh no keys
+  are bound. **The accept read path, verified on zsh 5.3.1, 5.8.1, 5.9 and bash 4.0 and 5.3**
+  (tests `accept_from_host_sets_the_line`, `stale_or_broken_accept_does_nothing`): zsh's widget
+  reads the rest with `read -k 1` inside ZLE, bash's `bind -x` function with `read -s -t 0.05 -d
+  BEL` (on bash before 4.3 the 7-byte CSI is a readline macro for `\C-x\C-z`); both stop after
+  50 ms or 8 KiB and apply only an id that matches the last `buffer` sent. A late, stale or broken
+  accept is read and dropped, so nothing stray is typed. Found while testing: bash's `read`
+  changes the terminal's settings with `TCSADRAIN`, so it waits until the terminal has read the
+  shell's output; a real terminal does, and the tests' fake host now keeps reading while it
+  waits. The doctor fact is `host=on`, `off` or `off:tmux`; `off:no-accept` was not needed.
 
 ### 5.6 The adapters
 
@@ -1091,7 +1125,8 @@ Honest about what each shell allows.
   is left alone rather than run as a widget name. The settings code keeps its variables local and
   does no arithmetic on user values, so it prints nothing even with hostile user variables.
 - **Host mode:** with `FUXX_COMPLETES_HOST=1`, the same wrapped widgets forward the buffer over the
-  host channel instead of drawing (§5.5).
+  host channel instead of drawing (§5.5; as built in M2: no core, `ESC [ 7701 ~` bound to
+  `fuxx-as-host-accept` in `emacs` and `viins` only where free).
 - **Limits:** a menu below the line pushes the screen and can't overlap other text; very long
   buffers and multi-line prompts need testing.
 
@@ -1152,7 +1187,8 @@ Honest about what each shell allows.
   converted with `LC_ALL=C` lengths. `CDPATH` goes along split on `:` (left off as zsh's rule,
   §5.4). The `fuxx-completes` function passes `why --format bash --cwd $PWD --histfile`.
 - **Host mode:** bash can forward the buffer only at the explicit keys (there is no buffer-change
-  hook in plain readline), and binds the "accept from host" key (§5.5).
+  hook in plain readline), and binds the "accept from host" key (§5.5; built in M2, only where
+  free, in `emacs` and `vi-insert`).
 - **Tab:** bash's `complete` is left alone by default.
 
 ### fish
@@ -1214,8 +1250,8 @@ name exists): it runs the binary with the adapter's copy of `FUXX_PLUGIN_DATA` (
 `forget` typed in fuxx would wipe the wrong folder, since fuxx unsets the variable after
 sourcing) and hands `doctor` the shell's facts as `name=value` lines. The report, one fact per
 line: version; shell and version; state (`on`, or `off` with why); `force`; which copy runs and
-which copies stayed off; each key bound or kept (with the user's widget); host mode (not built
-until M2); the data folder and where its path came from; the context files' count and size and
+which copies stayed off; each key bound or kept (with the user's widget); host mode (M2: `on`,
+`off`, or `off (tmux)`; shown only with a shell's facts); the data folder and where its path came from; the context files' count and size and
 this shell's own file against the 4 MiB cap; whether the secret exists; the suggestion list's
 settings with where each came from (fuxx Settings, the shell, or the default; M1c); and a
 `shglob` warning

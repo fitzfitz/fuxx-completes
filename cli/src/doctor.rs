@@ -96,7 +96,14 @@ pub fn report(facts: Option<&str>, data: Option<&DataDir>, version: &str) -> Str
         };
         line(label, &format!("{value} ({source})"));
     }
-    line("host mode", "not built yet (M2)");
+    // The host channel (M2, design §5.5): `host=on`, `off`, or `off:<why>`.
+    if !facts.is_empty() {
+        let host = match get("host").unwrap_or("off").split_once(':') {
+            Some((state, why)) => format!("{state} ({why})"),
+            None => get("host").unwrap_or("off").to_string(),
+        };
+        line("host mode", &host);
+    }
     match data {
         None => line("data", "none (no HOME)"),
         Some(d) => {
@@ -255,7 +262,7 @@ mod tests {
             ),
             "{r}"
         );
-        assert!(has(&r, "host mode    not built yet (M2)"), "{r}");
+        assert!(!r.contains("host mode"), "{r}");
         let d = format!(
             "data         {} (from XDG_DATA_HOME)",
             dir.path().join("d").display()
@@ -294,6 +301,24 @@ mod tests {
             "1",
         );
         assert!(has(&r, "reporting    off (private-mode)"), "{r}");
+    }
+
+    #[test]
+    fn report_shows_host_mode() {
+        let r = report(
+            Some("shell=zsh\nversion=5.9\nstate=on\nhost=on\n"),
+            None,
+            "1",
+        );
+        assert!(has(&r, "host mode    on"), "{r}");
+        let r = report(
+            Some("shell=zsh\nversion=5.9\nstate=on\nhost=off:tmux\n"),
+            None,
+            "1",
+        );
+        assert!(has(&r, "host mode    off (tmux)"), "{r}");
+        let r = report(Some("shell=zsh\nversion=5.9\nstate=on\n"), None, "1");
+        assert!(has(&r, "host mode    off"), "{r}");
     }
 
     #[test]
