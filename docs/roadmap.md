@@ -30,6 +30,11 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1c Task 5: doctor and the list's speed.** `doctor` shows the list
+  settings and where each came from (`list         on (fuxx Settings)`, `list delay   3 s
+  (default)`, …). `cli/tests/latency.rs` times the list of 5 on the 100,000-line history (release):
+  p50 4 µs, p95 26 µs. `design.md` §3, §7. Test first, seen failing: the doctor lines.
+
 - **2026-11-22** — **M1c Task 4: the list keys.** A keymap of our own while the list shows (a
   fresh copy of the one it opened over): ↓/↑ (the ghost text follows), ⌥1–⌥5 (also `¡ ™ £ ¢ ∞`),
   Enter and Tab insert the highlighted item and run nothing, Esc closes and then does what Esc did

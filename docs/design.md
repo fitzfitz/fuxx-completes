@@ -125,7 +125,9 @@ serve thread (about 8 ms for 100,000 entries); moving it to the reader is a know
 the first request in the cold folder took 13 µs (history only, detection on the worker), the
 folder was warm about 90 ms later, and warm answers took p50 5 µs, p95 0.26 ms (after the review
 fixes, measured truly cold). The release binary grew from 502,800 to 602,496 bytes (+97 KB of the
-150 KB budget; `cli/tests/size.rs` keeps it there). If a request misses its
+150 KB budget; `cli/tests/size.rs` keeps it there). **M1c, measured 2026-11-22:** building the list of 5 on
+the same 100,000-line history (what the core does when the pause is over; an empty line and 1–6
+typed characters) took p50 4 µs, p95 26 µs, max 0.45 ms. If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
@@ -1002,7 +1004,9 @@ sourcing) and hands `doctor` the shell's facts as `name=value` lines. The report
 line: version; shell and version; state (`on`, or `off` with why); `force`; which copy runs and
 which copies stayed off; each key bound or kept (with the user's widget); host mode (not built
 until M2); the data folder and where its path came from; the context files' count and size and
-this shell's own file against the 4 MiB cap; whether the secret exists; and a `shglob` warning
+this shell's own file against the 4 MiB cap; whether the secret exists; the suggestion list's
+settings with where each came from (fuxx Settings, the shell, or the default; M1c); and a
+`shglob` warning
 (§16). "The core's last error" is the adapter's reason for going off: `no-binary`,
 `start-failed`, `hung`, `exited`, `protocol`, `write-failed`, `conflict:warp`,
 `conflict:zsh-autosuggestions`.
