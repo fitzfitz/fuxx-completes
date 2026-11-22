@@ -31,6 +31,11 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **v0.0.13 test release (the user: "publish").** M2's build: the zip carries the
+  same three things as before (`fuxx-plugin.conf`, `bin/`, the zsh adapter in `shell/`), since fuxx
+  sources only zsh; the bash and fish adapters are in the repo (`adapters/`). Binary 718,752 bytes.
+  Waiting for the user's check.
+
 - **2026-11-23** — **M2 Task 7: measured, reviewed, fixed.** Release build: bash `sync` requests
   on a 100,000-entry bash history p95 36 µs (round trip through the serve loop), suggestions
   p95 103 µs, the fix p95 4.8 ms; the binary is 718,752 bytes (+16,528 over M1d, under 768 KB).
