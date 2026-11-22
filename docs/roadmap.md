@@ -12,7 +12,7 @@ Building starts after fuxx's v0.5.0 release.
 | M0 | Core + history + zsh adapter | ✅ done 2026-11-21 (the user's check: "close m0, all good") |
 | M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
-| M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ⬜ planned next |
+| M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | 🟨 planned ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md)), waiting for the user's go |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
@@ -29,6 +29,10 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M1c planned.** [`plans/M1c Plan - Suggestion List.md`](plans/M1c%20Plan%20-%20Suggestion%20List.md):
+  6 tasks (the list in the core; the wire and the core's pause timer; drawing under the line;
+  the list keys; doctor and latency; review and the user's check).
 
 - **2026-11-22** — **M1b done.** The user installed v0.0.8 in fuxx and checked it: "0.0.8 works".
   M1b is ✅ and merged to `main`. Next: the M1c plan (the suggestion list).
