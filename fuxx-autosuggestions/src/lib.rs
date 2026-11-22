@@ -16,8 +16,9 @@
 
 use fuxx_completes_core::cd_target::{classify, CdKind, Place};
 use fuxx_completes_core::history::{History, Verdict, CHECK_BUDGET};
-use fuxx_completes_core::rank::walk;
 pub use fuxx_completes_core::rank::Ranking;
+use fuxx_completes_core::rank::{follows_of, walk};
+use std::time::Instant;
 
 /// The text to show after `buffer`, or None. None for an empty buffer, no match, or an exact match.
 /// A `cd`/`pushd` to a folder that certainly doesn't exist from `place` is passed over for the
@@ -28,6 +29,19 @@ pub use fuxx_completes_core::rank::Ranking;
 /// folder's history, then the first of `projects` (the project's commands) starting with the
 /// typed text and longer than it, then the rest of history, walked as one sequence.
 pub fn suggestion<'a>(
+    history: &'a History,
+    buffer: &str,
+    place: &Place,
+    ranking: &Ranking,
+    projects: &'a [String],
+) -> Option<&'a str> {
+    let entry = best_entry(history, buffer, place, ranking, projects)?;
+    let rest = &entry[buffer.len()..];
+    (!rest.is_empty()).then_some(rest)
+}
+
+/// The whole line the ghost text completes to (see `suggestion`).
+fn best_entry<'a>(
     history: &'a History,
     buffer: &str,
     place: &Place,
@@ -54,9 +68,65 @@ pub fn suggestion<'a>(
         .ranked_with_prefix(buffer, ranking)
         .filter(|c| !here.contains(c));
     let candidates = here.iter().copied().chain(project).chain(others);
-    let entry = walk(candidates, CHECK_BUDGET, judge)?;
-    let rest = &entry[buffer.len()..];
-    (!rest.is_empty()).then_some(rest)
+    walk(candidates, CHECK_BUDGET, judge)
+}
+
+/// The suggestion list (M1c, `docs/superpowers/specs/2026-11-22-suggestion-list-design.md`): up to
+/// `max` whole command lines. For a typed buffer, item 1 is the line the ghost text completes to,
+/// then the same sequence (this folder's history, the project's commands, the rest) without `cd`s
+/// to missing folders or the buffer itself; on an empty line, what usually follows the previous
+/// command, then this folder's history, the project's commands and the newest history. Distinct,
+/// within the walk's time budget.
+pub fn suggestion_list<'a>(
+    history: &'a History,
+    buffer: &str,
+    place: &Place,
+    ranking: &Ranking,
+    projects: &'a [String],
+    max: usize,
+) -> Vec<&'a str> {
+    let mut out: Vec<&'a str> = Vec::new();
+    if max == 0 {
+        return out;
+    }
+    let start = Instant::now();
+    if let Some(first) = best_entry(history, buffer, place, ranking, projects) {
+        if first != buffer {
+            out.push(first);
+        }
+    }
+    let follows = if buffer.is_empty() {
+        follows_of(history, "", ranking)
+    } else {
+        Vec::new()
+    };
+    let here = history.ranked_here(buffer, ranking);
+    let project = projects
+        .iter()
+        .filter(|p| p.len() > buffer.len() && p.starts_with(buffer))
+        .map(String::as_str);
+    let others = history
+        .ranked_with_prefix(buffer, ranking)
+        .filter(|c| !here.contains(c));
+    for c in follows
+        .iter()
+        .copied()
+        .chain(here.iter().copied())
+        .chain(project)
+        .chain(others)
+    {
+        if out.len() >= max || start.elapsed() >= CHECK_BUDGET {
+            break;
+        }
+        if c.is_empty() || c == buffer || out.contains(&c) {
+            continue;
+        }
+        if classify(c, place) == CdKind::Missing {
+            continue;
+        }
+        out.push(c);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -409,5 +479,80 @@ mod tests {
         let p = cargo();
         let r = Ranking::none(Path::new("/p"));
         assert_eq!(suggestion(&h, "cargo t", &nowhere(), &r, &p), Some("est"));
+    }
+
+    // ---- M1c: the suggestion list ----
+
+    #[test]
+    fn list_starts_with_the_ghost_text() {
+        let h = hist(&["git status", "git stash", "git push"]);
+        let r = Ranking::none(Path::new("/p"));
+        assert_eq!(
+            suggestion_list(&h, "git s", &nowhere(), &r, &[], 5),
+            ["git stash", "git status"]
+        );
+    }
+
+    #[test]
+    fn list_is_capped_and_distinct() {
+        let entries: Vec<String> = (0..8).map(|i| format!("echo {i}")).collect();
+        let mut all: Vec<&str> = entries.iter().map(String::as_str).collect();
+        all.extend(["echo 7", "echo 6"]);
+        let h = hist(&all);
+        let r = Ranking::none(Path::new("/p"));
+        let l = suggestion_list(&h, "echo", &nowhere(), &r, &[], 5);
+        assert_eq!(l, ["echo 6", "echo 7", "echo 5", "echo 4", "echo 3"]);
+        assert!(suggestion_list(&h, "echo", &nowhere(), &r, &[], 0).is_empty());
+    }
+
+    #[test]
+    fn list_skips_missing_cd_targets_and_the_buffer_itself() {
+        let h = hist(&["cd /usr", "cd /zz-fuxx-surely-missing", "make", "make test"]);
+        let r = Ranking::none(Path::new("/p"));
+        assert_eq!(
+            suggestion_list(&h, "cd ", &nowhere(), &r, &[], 5),
+            ["cd /usr"]
+        );
+        assert_eq!(
+            suggestion_list(&h, "make", &nowhere(), &r, &[], 5),
+            ["make test"]
+        );
+    }
+
+    #[test]
+    fn list_follows_the_three_steps() {
+        let (h, ix) = ctx(
+            &["cargo test --release", "cargo tree"],
+            &[("cargo test --release", "/p", 0)],
+        );
+        let p = vec!["cargo build".to_string()];
+        let l = suggestion_list(&h, "cargo ", &nowhere(), &here(&ix), &p, 5);
+        assert_eq!(l, ["cargo test --release", "cargo build", "cargo tree"]);
+    }
+
+    #[test]
+    fn empty_line_list_order() {
+        let (h, ix) = ctx(
+            &["ls -la", "git commit", "make here"],
+            &[("make here", "/p", 0)],
+        );
+        let mut succ = fuxx_completes_core::rank::Successors::new();
+        succ.record("git add .", "git commit");
+        let r = Ranking {
+            index: Some(&ix),
+            cwd: Path::new("/p"),
+            previous: Some("git add ."),
+            successors: Some(&succ),
+        };
+        let p = vec!["cargo build".to_string()];
+        let l = suggestion_list(&h, "", &nowhere(), &r, &p, 5);
+        assert_eq!(l, ["git commit", "make here", "cargo build", "ls -la"]);
+    }
+
+    #[test]
+    fn empty_line_without_anything_is_empty() {
+        let h = hist(&[]);
+        let r = Ranking::none(Path::new("/p"));
+        assert!(suggestion_list(&h, "", &nowhere(), &r, &[], 5).is_empty());
     }
 }

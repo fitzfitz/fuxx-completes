@@ -472,6 +472,12 @@ now count every distinct candidate passed over, rejected or held: after 50 the w
 held one (none held: no suggestion, as before); once 50 ms have passed it returns the held one
 (none held: the next candidate unchecked, as before) (**AI's calls**).
 
+**The suggestion list (M1c, AI's calls).** Up to N whole lines: for a typed buffer, item 1 is
+the line the ghost text completes to, then the same sequence (this folder's history, the
+project's commands, the rest) without `cd`s to missing folders or the typed text itself; on an
+empty line, what usually follows the previous command, then this folder's history, the project's
+commands, then the newest history. Distinct, within the walk's 50 ms budget.
+
 **Menu items** are ordered by kind (subcommands, then options, then argument values; open to
 change), then by prefix match quality, then by how often the user picked them (counted in memory
 only; persisting them would need the user to widen §5.7 first).

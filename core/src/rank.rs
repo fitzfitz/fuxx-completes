@@ -156,7 +156,7 @@ type TierOneRank = (bool, u32, i64, (bool, u64));
 
 /// The history entries starting with `prefix` that followed the previous command in this
 /// session, newest pair first.
-fn follows_of<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> Vec<&'a str> {
+pub fn follows_of<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> Vec<&'a str> {
     let (Some(p), Some(s)) = (ranking.previous, ranking.successors) else {
         return Vec::new();
     };

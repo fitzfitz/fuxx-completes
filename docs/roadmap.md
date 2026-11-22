@@ -30,6 +30,12 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1c Task 1: the list in the core.** `fuxx_autosuggestions::suggestion_list`
+  (item 1 = the ghost text's line, then the three-step sequence; on an empty line, follows,
+  this folder, project, newest), sharing `best_entry` with `suggestion`; `rank::follows_of` public.
+  `design.md` §5.4. Tests first, seen failing (missing function): the ghost first, capped and
+  distinct, missing `cd`s and the buffer skipped, the three steps, the empty-line order, empty.
+
 - **2026-11-22** — **M1c planned.** [`plans/M1c Plan - Suggestion List.md`](plans/M1c%20Plan%20-%20Suggestion%20List.md):
   6 tasks (the list in the core; the wire and the core's pause timer; drawing under the line;
   the list keys; doctor and latency; review and the user's check).
