@@ -480,6 +480,25 @@ project's commands, the rest) without `cd`s to missing folders or the typed text
 empty line, what usually follows the previous command, then this folder's history, the project's
 commands, then the newest history. Distinct, within the walk's 50 ms budget.
 
+**This repo's history (M1d §4.3, AI's calls).** `core/src/repo.rs`. A folder's **repo key**
+is found by walking up at most 8 folders (never looking at `$HOME` or `/`, as project
+detection; a dotfiles `.git` at home must not join every folder) to the first `.git`: a folder
+is the key; a file `gitdir: X` names X (relative to that folder), or, when X sits under
+`<common>/worktrees/` and `X/commondir` exists, the common folder, so every worktree of a repo
+shares one key; keys are canonical paths. A folder that no longer exists (a removed worktree),
+an unreadable or garbage `.git` file has no key. Keys are remembered for 256 folders (least
+recently used dropped) and trusted for 60 s. The repo's folders are the context index's folders
+under one of its roots (the main worktree, the parent of a `.git` key, and each
+`<key>/worktrees/*/gitdir`'s parent) whose own key is the same (so a nested repo stays out); the
+session merges their tallies (successes, failures, newest) and keeps them while the cwd and the
+record count stay the same. The order is now: this folder's history → **this repo's history**
+(commands with a success in the repo's other folders and no record in the cwd, ranked like tier
+1: follows, successes there with no boost for `cd`/`pushd`/`open`, the newest there, recency) →
+project commands → the rest; the empty-line list puts the repo after this folder's history too.
+A line that only failed in the cwd stays failed-only even if it succeeded elsewhere in the repo
+(this folder wins). Known limit: a folder reached through a symlink compares by its path as
+recorded, so it can miss its repo's records.
+
 **Lines never offered as they are (M1d, the user's pick 2026-11-22; spec
 `docs/superpowers/specs/2026-11-22-safety-and-polish-design.md`).** `core/src/safety.rs`.
 *Secrets:* a line that looks like it holds a secret is never ghost text, a list item or a fix;

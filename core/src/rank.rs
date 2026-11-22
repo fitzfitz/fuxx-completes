@@ -10,7 +10,7 @@ use crate::context::Key;
 use crate::history::History;
 pub use crate::history::{Verdict, CHECK_BUDGET, MAX_SKIPPED};
 use crate::safety::is_dangerous;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -68,6 +68,9 @@ pub struct Ranking<'r> {
     /// The command just run (the adapter's `prev`); `None` when unknown.
     pub previous: Option<&'r str>,
     pub successors: Option<&'r Successors>,
+    /// The merged tallies of the records in the other folders of the cwd's repo (M1d §4.3);
+    /// `None` outside a repo.
+    pub repo: Option<&'r HashMap<Key, Tally>>,
 }
 
 impl<'r> Ranking<'r> {
@@ -78,6 +81,7 @@ impl<'r> Ranking<'r> {
             cwd,
             previous: None,
             successors: None,
+            repo: None,
         }
     }
 }
@@ -127,6 +131,8 @@ impl<'a, 'r> Ranked<'a, 'r> {
         }
         tier1.sort_by_key(|t| std::cmp::Reverse(t.0));
         let mut head: Vec<&'a str> = tier1.into_iter().map(|t| t.1).collect();
+        // Then this repo's history (M1d §4.3).
+        head.extend(repo_order(history, prefix, &ranking));
         // Then the tier-2 commands that followed the previous one, newest first.
         let mut tier2_follows: Vec<&'a str> = follows
             .into_iter()
@@ -212,6 +218,39 @@ pub fn here_order<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> 
         let last = if tally.ok > 0 { tally.last_time } else { 0 };
         let f = follows.contains(&text);
         ranked.push(((tier, (f, freq, last, history.recency(key))), text));
+    }
+    ranked.sort_by_key(|r| std::cmp::Reverse(r.0));
+    ranked.into_iter().map(|r| r.1).collect()
+}
+
+/// This repo's history for `prefix` (M1d §4.3).
+/// Successful records in the repo's other folders, ranked like tier 1 (follows, successes there
+/// with no boost for `cd`/`pushd`/`open`, the newest there, recency). A command with any record
+/// in the cwd stays out: this folder wins (tier 1, its neutral runs, or failed-only here).
+pub fn repo_order<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> Vec<&'a str> {
+    let Some(repo) = ranking.repo.filter(|_| history.is_keyed()) else {
+        return Vec::new();
+    };
+    let here = ranking.index.and_then(|ix| ix.in_folder(ranking.cwd));
+    let follows = follows_of(history, prefix, ranking);
+    let mut ranked: Vec<(TierOneRank, &'a str)> = Vec::new();
+    for (&key, tally) in repo {
+        if tally.ok == 0 || here.is_some_and(|h| h.contains_key(&key)) {
+            continue;
+        }
+        let Some(text) = history
+            .text_for(key)
+            .filter(|t| t.starts_with(prefix) && !is_dangerous(t))
+        else {
+            continue;
+        };
+        let freq = if no_frequency_boost(text) {
+            1
+        } else {
+            tally.ok
+        };
+        let f = follows.contains(&text);
+        ranked.push(((f, freq, tally.last_time, history.recency(key)), text));
     }
     ranked.sort_by_key(|r| std::cmp::Reverse(r.0));
     ranked.into_iter().map(|r| r.1).collect()
@@ -332,6 +371,7 @@ mod tests {
             cwd: Path::new(cwd),
             previous: None,
             successors: None,
+            repo: None,
         }
     }
 
@@ -474,6 +514,7 @@ mod tests {
             cwd: Path::new("/p"),
             previous: Some("git add ."),
             successors: Some(&succ),
+            repo: None,
         };
         assert_eq!(order(&h, "git c", &r), ["git commit", "git checkout"]);
     }
@@ -564,5 +605,45 @@ mod tests {
         assert_eq!(order(&h, "", &at(&ix, "/p")), ["ls x", "rm -rf a"]);
         let (h, ix) = setup(&["ls x", "rm -rf a"], &[("rm -rf a", "/p", 1, 1)]);
         assert_eq!(order(&h, "", &at(&ix, "/p")), ["rm -rf a", "ls x"]);
+    }
+
+    fn repo_of(recs: &[(&str, u32, u32, i64)]) -> HashMap<Key, Tally> {
+        recs.iter()
+            .map(|&(c, ok, failed, last_time)| {
+                (
+                    secret().key_of(c),
+                    Tally {
+                        ok,
+                        failed,
+                        last_time,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// M1d §4.3: this folder, then this repo, then the rest.
+    #[test]
+    fn repo_tier_sits_between_here_and_the_rest() {
+        let (h, ix) = setup(&["make a", "make b", "make c"], &[("make a", "/p", 0, 1)]);
+        let repo = repo_of(&[("make b", 1, 0, 5), ("make a", 4, 0, 9)]);
+        let mut r = at(&ix, "/p");
+        r.repo = Some(&repo);
+        assert_eq!(order(&h, "make ", &r), ["make a", "make b", "make c"]);
+        assert_eq!(repo_order(&h, "make ", &r), ["make b"]);
+        // More successes in the repo first.
+        let repo = repo_of(&[("make b", 1, 0, 9), ("make c", 3, 0, 1)]);
+        r.repo = Some(&repo);
+        assert_eq!(repo_order(&h, "make ", &r), ["make c", "make b"]);
+    }
+
+    #[test]
+    fn failed_here_stays_failed_only() {
+        let (h, ix) = setup(&["make b", "make a"], &[("make b", "/p", 1, 5)]);
+        let repo = repo_of(&[("make b", 3, 0, 9)]);
+        let mut r = at(&ix, "/p");
+        r.repo = Some(&repo);
+        assert_eq!(order(&h, "make", &r), ["make a", "make b"]);
+        assert!(repo_order(&h, "make", &r).is_empty());
     }
 }

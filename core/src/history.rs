@@ -157,6 +157,11 @@ impl History {
         crate::rank::here_order(self, prefix, ranking)
     }
 
+    /// This repo's history for `prefix` (see `rank::repo_order`).
+    pub fn ranked_repo<'a>(&'a self, prefix: &str, ranking: &Ranking) -> Vec<&'a str> {
+        crate::rank::repo_order(self, prefix, ranking)
+    }
+
     /// Gives every entry its key under `secret`, or drops all keys (`None`).
     pub fn set_secret(&mut self, secret: Option<&Secret>) {
         self.secret = secret.cloned();

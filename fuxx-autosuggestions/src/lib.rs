@@ -61,18 +61,20 @@ fn best_entry<'a>(
     // One walk, three steps (M1b, design §5.4), so M0's `cd` rules and its one budget hold across
     // them: this folder's history; the project's commands longer than the typed text; the rest.
     let here = history.ranked_here(buffer, ranking);
+    let repo = history.ranked_repo(buffer, ranking);
     let project = projects
         .iter()
         .filter(|p| p.len() > buffer.len() && p.starts_with(buffer))
         .map(String::as_str);
     let others = history
         .ranked_with_prefix(buffer, ranking)
-        .filter(|c| !here.contains(c));
+        .filter(|c| !here.contains(c) && !repo.contains(c));
     // Hidden lines (M1d) leave before the walk: they never count toward its bounds and are never
     // returned unchecked by its budget.
     let candidates = here
         .iter()
         .copied()
+        .chain(repo.iter().copied())
         .chain(project)
         .chain(others)
         .filter(|c| !hidden_for(c, buffer));
@@ -109,17 +111,19 @@ pub fn suggestion_list<'a>(
         Vec::new()
     };
     let here = history.ranked_here(buffer, ranking);
+    let repo = history.ranked_repo(buffer, ranking);
     let project = projects
         .iter()
         .filter(|p| p.len() > buffer.len() && p.starts_with(buffer))
         .map(String::as_str);
     let others = history
         .ranked_with_prefix(buffer, ranking)
-        .filter(|c| !here.contains(c));
+        .filter(|c| !here.contains(c) && !repo.contains(c));
     for c in follows
         .iter()
         .copied()
         .chain(here.iter().copied())
+        .chain(repo.iter().copied())
         .chain(project)
         .chain(others)
     {
@@ -346,6 +350,7 @@ mod tests {
             cwd: &k.kerja,
             previous: None,
             successors: None,
+            repo: None,
         };
         assert_eq!(suggestion(&h, "cd ", &k.place(), &r, &[]), Some("proj"));
         // A tier-1 cd to a folder that isn't there is passed over for the next match.
@@ -360,6 +365,7 @@ mod tests {
             cwd: &k.kerja,
             previous: None,
             successors: None,
+            repo: None,
         };
         assert_eq!(suggestion(&h, "cd ", &k.place(), &r, &[]), Some("~"));
         // And a plain command ranked first by context is suggested over a newer one.
@@ -372,6 +378,7 @@ mod tests {
             cwd: &k.kerja,
             previous: None,
             successors: None,
+            repo: None,
         };
         assert_eq!(suggestion(&h, "make ", &k.place(), &r, &[]), Some("test"));
     }
@@ -406,6 +413,7 @@ mod tests {
             cwd: Path::new("/p"),
             previous: None,
             successors: None,
+            repo: None,
         }
     }
 
@@ -551,6 +559,7 @@ mod tests {
             cwd: Path::new("/p"),
             previous: Some("git add ."),
             successors: Some(&succ),
+            repo: None,
         };
         let p = vec!["cargo build".to_string()];
         let l = suggestion_list(&h, "", &nowhere(), &r, &p, 5);
@@ -614,8 +623,41 @@ mod tests {
             cwd: Path::new("/p"),
             previous: Some("git add ."),
             successors: Some(&succ),
+            repo: None,
         };
         let list = suggestion_list(&h, "", &nowhere(), &r, &[], 5);
         assert_eq!(list, ["git status", "git add ."]);
+    }
+
+    /// M1d §4.3: the repo's history comes before the project's commands.
+    #[test]
+    fn repo_history_beats_project_commands() {
+        let (h, ix) = ctx(&["cargo tree"], &[]);
+        let s = Sec::from_bytes([3; 32]);
+        let repo: std::collections::HashMap<_, _> = [(
+            s.key_of("cargo tree"),
+            fuxx_completes_core::context::index::Tally {
+                ok: 1,
+                failed: 0,
+                last_time: 1,
+            },
+        )]
+        .into_iter()
+        .collect();
+        let mut r = here(&ix);
+        assert_eq!(
+            suggestion(&h, "cargo t", &nowhere(), &r, &cargo()),
+            Some("est")
+        );
+        r.repo = Some(&repo);
+        assert_eq!(
+            suggestion(&h, "cargo t", &nowhere(), &r, &cargo()),
+            Some("ree")
+        );
+        let projects = cargo();
+        let list = suggestion_list(&h, "cargo ", &nowhere(), &r, &projects, 5);
+        assert_eq!(list[0], "cargo tree");
+        let list = suggestion_list(&h, "", &nowhere(), &r, &projects, 5);
+        assert_eq!(list[0], "cargo tree");
     }
 }

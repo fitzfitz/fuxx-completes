@@ -31,6 +31,13 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1d Task 3: repo and worktree ranking.** `core/src/repo.rs`: a folder's
+  repo key (the git folder all its worktrees share), cached for 256 folders and 60 s; the
+  session merges the records of the repo's other folders, and the ranking puts **this repo's
+  history** between this folder's and the project's commands (ghost text, the list, the
+  empty-line list). Odd layouts (bare repos, submodules, a removed worktree, `.git` at home,
+  unreadable files) have no or their own key. `design.md` §5.4. Tests first, seen failing.
+
 - **2026-11-22** — **M1d Task 2: the dangerous-command guard.** `safety::danger_reach` over a
   const table (spec §4.2's list) and the first simple command's words with byte offsets
   (`cd_target::command_words`); a dangerous line gets no lift of any kind and is shown only

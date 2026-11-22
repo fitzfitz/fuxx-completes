@@ -33,6 +33,7 @@ impl Tally {
 pub struct ContextIndex {
     folders: HashMap<PathBuf, HashMap<Key, Tally>>,
     all: HashMap<Key, Tally>,
+    records: u64,
 }
 
 impl ContextIndex {
@@ -44,6 +45,17 @@ impl ContextIndex {
             .or_default()
             .add(r);
         self.all.entry(r.key).or_default().add(r);
+        self.records += 1;
+    }
+
+    /// Every folder with records, and its tallies.
+    pub fn folders(&self) -> impl Iterator<Item = (&Path, &HashMap<Key, Tally>)> {
+        self.folders.iter().map(|(f, t)| (f.as_path(), t))
+    }
+
+    /// How many records were added (a cheap way to tell whether the index changed).
+    pub fn records(&self) -> u64 {
+        self.records
     }
 
     /// The tallies of the commands that ran in `folder`.

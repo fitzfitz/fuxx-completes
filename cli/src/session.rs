@@ -2,15 +2,19 @@
 //! each message is answered.
 
 use fuxx_completes_core::cd_target::Place;
+use fuxx_completes_core::context::index::Tally;
 use fuxx_completes_core::context::secret::Secret;
 use fuxx_completes_core::context::store::{ContextStore, CAP};
+use fuxx_completes_core::context::Key;
 use fuxx_completes_core::context::{data_dir_from_env, DataDir};
 use fuxx_completes_core::history::{History, HistoryFormat};
 use fuxx_completes_core::history_file::HistoryFile;
 use fuxx_completes_core::projects::cache::ProjectCache;
 use fuxx_completes_core::protocol::{DecodeError, Request, Response, PROTOCOL_VERSION};
 use fuxx_completes_core::rank::{Ranking, Successors};
-use std::path::PathBuf;
+use fuxx_completes_core::repo::RepoCache;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// A list to push once the pause is over (M1c): for the newest `suggest` only.
@@ -20,6 +24,14 @@ struct PendingList {
     cwd: PathBuf,
     cdpath: Option<Vec<PathBuf>>,
     due: Instant,
+}
+
+/// The merged tallies of the cwd's repo (M1d §4.3), kept while the cwd and the records stay the
+/// same.
+struct RepoView {
+    cwd: PathBuf,
+    records: u64,
+    tallies: Option<HashMap<Key, Tally>>,
 }
 
 /// Longest suggestion text sent back, in characters (same cap as the adapter's buffer).
@@ -48,6 +60,9 @@ pub struct Session {
     list_delay: Duration,
     list_empty: bool,
     pending: Option<PendingList>,
+    /// Repo keys of folders, and the cwd's repo tallies (M1d), memory only.
+    repos: RepoCache,
+    repo_view: Option<RepoView>,
 }
 
 impl Session {
@@ -68,6 +83,8 @@ impl Session {
             list_delay: Duration::from_secs(3),
             list_empty: true,
             pending: None,
+            repos: RepoCache::new(),
+            repo_view: None,
         }
     }
 
@@ -116,6 +133,7 @@ impl Session {
                 ..
             } => {
                 self.refresh();
+                self.update_repo(&cwd);
                 let place = Place {
                     cwd: &cwd,
                     home: self.home.as_deref(),
@@ -126,6 +144,7 @@ impl Session {
                     cwd: &cwd,
                     previous: self.previous.as_deref(),
                     successors: Some(&self.successors),
+                    repo: self.repo_view.as_ref().and_then(|v| v.tallies.as_ref()),
                 };
                 // Longer than the adapter's own 1000-character buffer cap: drawing it stalls ZLE
                 // (a 200 KB entry took about 200 ms), so answer "no suggestion".
@@ -203,6 +222,7 @@ impl Session {
         }
         let p = self.pending.take()?;
         self.refresh();
+        self.update_repo(&p.cwd);
         let place = Place {
             cwd: &p.cwd,
             home: self.home.as_deref(),
@@ -213,6 +233,7 @@ impl Session {
             cwd: &p.cwd,
             previous: self.previous.as_deref(),
             successors: Some(&self.successors),
+            repo: self.repo_view.as_ref().and_then(|v| v.tallies.as_ref()),
         };
         let projects = self.projects.candidates(&p.cwd, self.home.as_deref());
         let items: Vec<String> = fuxx_autosuggestions::suggestion_list(
@@ -231,6 +252,28 @@ impl Session {
         .map(str::to_owned)
         .collect();
         (!items.is_empty()).then_some(Response::List { id: p.id, items })
+    }
+
+    /// The cwd's repo tallies, looked up again when the cwd or the records changed.
+    fn update_repo(&mut self, cwd: &Path) {
+        let Some(index) = self.store.as_ref().map(ContextStore::index) else {
+            self.repo_view = None;
+            return;
+        };
+        let records = index.records();
+        if self
+            .repo_view
+            .as_ref()
+            .is_some_and(|v| v.cwd == cwd && v.records == records)
+        {
+            return;
+        }
+        let tallies = self.repos.tallies(index, cwd, self.home.as_deref());
+        self.repo_view = Some(RepoView {
+            cwd: cwd.to_path_buf(),
+            records,
+            tallies,
+        });
     }
 
     /// Before an answer: the context files (a `forget`, a secret another core made, new
@@ -833,5 +876,42 @@ mod tests {
             Some(Response::List { id: 2, items }) => assert_eq!(items, ["git status"]),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// M1d §4.3: a worktree learns from the main checkout's subfolders.
+    #[test]
+    fn a_worktree_learns_from_the_main_checkout() {
+        let c = Ctx::new(&["make deploy", "make lint"]);
+        let base = c.p.clone();
+        let main = base.join("main");
+        let wt = base.join("wt");
+        let admin = main.join(".git/worktrees/wt");
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::create_dir_all(main.join("sub")).unwrap();
+        std::fs::create_dir_all(&wt).unwrap();
+        std::fs::write(
+            admin.join("gitdir"),
+            format!("{}\n", wt.join(".git").display()),
+        )
+        .unwrap();
+        std::fs::write(admin.join("commondir"), "../..\n").unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
+        let mut s = c.session();
+        assert_eq!(
+            ask_until(&mut s, "make ", &wt, Some("lint")).as_deref(),
+            Some("lint")
+        );
+        s.handle(ran_in(&main.join("sub"), "make deploy"));
+        // A newer run outside the repo.
+        s.handle(ran_in(Path::new("/"), "make lint"));
+        assert_eq!(
+            ask_until(&mut s, "make ", &wt, Some("deploy")).as_deref(),
+            Some("deploy")
+        );
+        // Outside the repo the newest wins.
+        assert_eq!(
+            ask_until(&mut s, "make ", &base, Some("lint")).as_deref(),
+            Some("lint")
+        );
     }
 }
