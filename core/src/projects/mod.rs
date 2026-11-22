@@ -57,6 +57,7 @@ pub struct ProjectType {
     pub from: &'static [Source],
 }
 
+pub mod cache;
 pub mod detect;
 pub mod readers;
 

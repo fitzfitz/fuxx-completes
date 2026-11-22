@@ -29,6 +29,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1b Task 4: the project cache.** `core/src/projects/cache.rs`:
+  `ProjectCache::candidates` serves a fresh entry (a few `stat`s), starts a detection on one
+  worker thread for a missing or stale one (50 ms budget) and serves the stale entry meanwhile; 64
+  folders, least recently used dropped. `design.md` §3. Tests first, seen failing (missing
+  items): cold then filled, fresh not re-detected, a changed script and a deleted Makefile picked
+  up, stale served while re-detecting, the 64-folder limit, one detection in flight, 1,000 warm
+  calls under 50 ms.
+
 - **2026-11-22** — **M1b Task 3: detection.** `core/src/projects/detect.rs`: the walk-up (8
   folders, `$HOME` and `/` never scanned, stop after `.git`), matching, `beats` per folder,
   candidates nearest first, stamps, the deadline. Fixtures for all 39 ecosystems

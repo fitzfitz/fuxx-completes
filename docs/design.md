@@ -120,7 +120,11 @@ budget the adapter shows nothing for that keystroke; it does not wait.
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
 candidates. Detecting a folder's projects runs on a worker thread with a 50 ms cap; the first
 request in a never-seen folder answers from history only while it runs, later ones use the
-in-memory cache (64 folders, least recently used dropped). Files over 256 KB are skipped. The
+in-memory cache (64 folders, least recently used dropped). Files over 256 KB are skipped. **As
+built (M1b):** an entry is fresh while every listed folder's and read file's (mtime, size) is
+unchanged (a few `stat`s per answer); a missing or stale entry is (re)detected on one worker
+thread, one detection at a time per shell, and a stale entry is still served meanwhile, so an
+edited `package.json` shows up one answer later. Nothing about projects is written to disk. The
 whole feature adds at most **150 KB** to the release binary, measured before and after; mapping
 data is compiled in, and minimal hand-written readers are preferred over general parsers.
 
