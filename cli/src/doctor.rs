@@ -23,7 +23,7 @@ pub fn report(facts: Option<&str>, data: Option<&DataDir>, version: &str) -> Str
     if facts.is_empty() {
         line(
             "shell",
-            "run this inside zsh or bash with fuxx-autosuggestions loaded for shell facts",
+            "run this inside zsh, bash or fish with fuxx-autosuggestions loaded for shell facts",
         );
     } else {
         line(
@@ -37,9 +37,17 @@ pub fn report(facts: Option<&str>, data: Option<&DataDir>, version: &str) -> Str
         let state = match (get("state").unwrap_or(""), get("why").unwrap_or("")) {
             ("" | "starting", _) => "starting (no prompt yet)".to_string(),
             (s, "") => s.to_string(),
+            (s, "fish-has-its-own") => format!("{s} (fish has its own autosuggestions)"),
             (s, why) => format!("{s} ({why})"),
         };
         line("state", &state);
+        // fish (M2): its commands still go to the context file through `report`.
+        if let Some(r) = get("reporting") {
+            match r.split_once(':') {
+                Some((onoff, why)) => line("reporting", &format!("{onoff} ({why})")),
+                None => line("reporting", r),
+            }
+        }
         if get("force") == Some("1") {
             line("force", "on (FUXX_AUTOSUGGESTIONS_FORCE=1)");
         }
@@ -243,7 +251,7 @@ mod tests {
         assert!(
             has(
                 &r,
-                "shell        run this inside zsh or bash with fuxx-autosuggestions loaded for shell facts"
+                "shell        run this inside zsh, bash or fish with fuxx-autosuggestions loaded for shell facts"
             ),
             "{r}"
         );
@@ -268,6 +276,24 @@ mod tests {
         assert!(has(&r, "shell        bash 5.3.0(1)-release"), "{r}");
         assert!(has(&r, "state        on"), "{r}");
         assert!(has(&r, "keys         emacs \\e[C bound"), "{r}");
+    }
+
+    #[test]
+    fn report_with_fish_facts() {
+        let facts = "shell=fish\nversion=3.7.1\nstate=off\nwhy=fish-has-its-own\nreporting=on\n";
+        let r = report(Some(facts), None, "1");
+        assert!(has(&r, "shell        fish 3.7.1"), "{r}");
+        assert!(
+            has(&r, "state        off (fish has its own autosuggestions)"),
+            "{r}"
+        );
+        assert!(has(&r, "reporting    on"), "{r}");
+        let r = report(
+            Some("shell=fish\nversion=4.0\nstate=off\nwhy=fish-has-its-own\nreporting=off:private-mode\n"),
+            None,
+            "1",
+        );
+        assert!(has(&r, "reporting    off (private-mode)"), "{r}");
     }
 
     #[test]

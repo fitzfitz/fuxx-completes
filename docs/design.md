@@ -646,7 +646,13 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
 - **Short-lived commands** besides `serve`:
   - `fuxx-completes report` (command, cwd, exit status, time, history file): appends one record to
     the context file and exits. Used by fish, which can't keep a `serve` process (§6). It loads no
-    history: the key needs only the command text and the secret (§5.7).
+    history: the key needs only the command text and the secret (§5.7). **As built (M2, AI's
+    calls):** `fuxx-completes report --cwd DIR --status N [--time SECS] --histfile FILE [--]
+    COMMAND` (the remaining words joined by spaces; no `--time` = now); it makes the secret if
+    there is none, appends one record to `context/<own_file_id>` under the shared lock, retrying a
+    busy lock for at most 100 ms and then dropping the record, and then trims the file if it is
+    past the cap (`store::trim_to_cap`). It never prints; it exits 0 (also with no data folder),
+    2 on a usage error.
   - `fuxx-completes complete …`: one menu answer for fish's `complete -a` (§6).
   - `fuxx-completes forget`: wipes the context file (§5.7).
   - `fuxx-completes doctor` (§7).
@@ -804,7 +810,8 @@ The user decided on 2026-11-09 that context data lives in a small local file. Th
   `fuxx-completes report` loads no history, so it can't prune by history; it keeps only the 4 MiB
   cap. A fish command deleted from fish's history keeps its records (key, folder, status, time;
   no text, and they can't be turned back into text without the history) until the cap drops
-  them. **Settled in M1 (AI's calls):** the cap is 4 MiB a
+  them. **As built (M2):** `store::trim_to_cap` keeps every key and drops only the oldest
+  records past 4 MiB, down to 3 MiB, under the exclusive lock (`try_lock`; busy = skipped). **Settled in M1 (AI's calls):** the cap is 4 MiB a
   file; a compaction that has to trim goes down to 3 MiB, so the next one isn't one append away;
   a compaction that would remove nothing leaves the file alone. It runs on a worker thread, and
   only after a complete read of the history file: a missing or unreadable history would
@@ -882,6 +889,10 @@ user typed, so they reveal nothing the shell was told not to keep.
 - **fish:** a `fish_postexec` handler reports the command unless it starts with a space, fish is
   in private mode (`fish --private`, `fish_private_mode` set), or, on fish 4.0+, a user's
   `fish_should_add_to_history` says no (when that function exists it decides alone, as in fish).
+  **As built (M2, AI's calls):** also not when `fish_history` is set empty (fish saves nothing),
+  for a line over 1000 characters, or in Warp; the folder is the one saved at `fish_preexec`;
+  the history file named to `report` is `${XDG_DATA_HOME:-$HOME/.local/share}/fish/<name>_history`
+  with `<name>` from `fish_history` (`default` or unset = `fish`).
 - **Re-reading the history file.** Before answering, the core checks the history file's size and
   modification time. If the file only grew, it reads the new part; otherwise it re-reads the
   whole file off the typing path and swaps the index in when done. So deletions such as
@@ -1167,6 +1178,14 @@ Honest about what each shell allows.
   above the other.
 - **Host mode:** fish has no buffer-change hook, so it can't forward the buffer as you type.
   Commands still reach a host through `report` and the shared context file.
+- **As built (M2):** `adapters/fish/fuxx-autosuggestions.fish` (for `conf.d/` or `source`):
+  interactive only; the double-load guard by the resolved path; `fish_preexec` saves `$PWD`,
+  `fish_postexec` runs `command env [FUXX_PLUGIN_DATA=…] $bin report … >/dev/null 2>&1 &` and
+  `disown $last_pid`, so the prompt never waits and fish prints no job line (checked on fish
+  4.9.3 with a report that takes a second). It never starts `serve`. A `fuxx-completes` function
+  (only when none exists) hands `doctor` the facts `shell=fish`, `version`, `state=off`,
+  `why=fish-has-its-own` and `reporting=on|off:<why>` (`warp`, `private-mode`, `history-off`,
+  `no-binary`). Tested on fish 4.9.3 only: 3.0.2 and 3.7.1 don't build here (§14).
 - **Limits:** no as-you-type menu in fish, no ghost text of ours. Stated plainly in the README.
 
 ### Other terminal apps and fuxx
@@ -1207,7 +1226,8 @@ settings with where each came from (fuxx Settings, the shell, or the default; M1
 **`why` and `doctor --report` (M1d §4.5, AI's calls).** The usage line is now `usage:
 fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE`
 (M2 adds `--format zsh|bash`, the history file's format, default `zsh`; the bash function passes
-`--format bash`).
+`--format bash`; and `| report --cwd DIR --status N [--time SECS] --histfile FILE [--] COMMAND`,
+§5.5). `doctor` (M2) also shows `reporting` for fish, and its hint names zsh, bash and fish.
 `fuxx-completes why <line>` (the shell function passes `--cwd $PWD`, `--histfile` with
 `$HISTFILE` when set, and `--`; the remaining words are joined by spaces, so quote a line whose
 spacing matters) loads what `serve` loads (history, waiting at most 5 s for it, the context

@@ -31,6 +31,16 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M2 Task 5: fish reports through `fuxx-completes report`.** The binary gains
+  `report` (one record, no history load, never prints; a busy lock is retried for 100 ms; the
+  file is trimmed past its 4 MiB cap, U2 = F1) and `doctor` shows fish's `reporting` fact.
+  `adapters/fish/fuxx-autosuggestions.fish` reports each command fish keeps from
+  `fish_postexec`, in the background and disowned (the prompt never waits, no job lines), with
+  the folder it started in; nothing for a leading space, private mode, `fish_history` set empty,
+  a `fish_should_add_to_history` that says no (4.0+), or Warp. Tests seen failing first; 7 fish
+  tests pass on fish 4.9.3 (3.x doesn't build here). `design.md` §5.5, §5.7, §5.8, §6, §7;
+  `adapters/fish/README.md`, `README.md`.
+
 - **2026-11-23** — **M2 Task 4: ble.sh shows our suggestions.** Under ble.sh 0.4+ the bash adapter
   registers a source first in ble.sh's auto-complete list, so ble.sh's grey text is our ranking
   (a `git stash` that worked here beats a newer `git status`); it polls the core every 5 ms for

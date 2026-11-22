@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const BIN: &str = env!("CARGO_BIN_EXE_fuxx-completes");
-const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--format zsh|bash] [--cwd DIR] [--histfile FILE] [--] LINE";
+const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--format zsh|bash] [--cwd DIR] [--histfile FILE] [--] LINE | report --cwd DIR --status N [--time SECS] --histfile FILE [--] COMMAND";
 
 fn run(home: &Path, env: &[(&str, &Path)], args: &[&str]) -> Output {
     let mut c = Command::new(BIN);
@@ -101,11 +101,215 @@ fn unknown_subcommand_prints_usage_exit_2() {
         &["doctor", "--shell-facts"][..],
         &["why"][..],
         &["why", "--cwd"][..],
+        &["report"][..],
+        &[
+            "report",
+            "--cwd",
+            "/x",
+            "--status",
+            "x",
+            "--histfile",
+            "/h",
+            "--",
+            "ls",
+        ][..],
+        &["report", "--status", "0", "--histfile", "/h", "--", "ls"][..],
+        &["report", "--cwd", "/x", "--status", "0", "--", "ls"][..],
+        &[
+            "report",
+            "--cwd",
+            "/x",
+            "--status",
+            "0",
+            "--histfile",
+            "/h",
+            "--",
+        ][..],
+        &[
+            "report",
+            "--cwd",
+            "/x",
+            "--status",
+            "0",
+            "--time",
+            "soon",
+            "--histfile",
+            "/h",
+            "--",
+            "ls",
+        ][..],
     ] {
         let out = run(home.path(), &[], args);
         assert_eq!(out.status.code(), Some(2), "{args:?}");
         assert_eq!(String::from_utf8_lossy(&out.stderr), format!("{USAGE}\n"));
     }
+}
+
+// ---- M2: report (fish) ----
+
+/// The records in the own file of history file `hist` under data root `root`.
+fn own_records(root: &Path, hist: &str) -> Vec<Record> {
+    let secret = Secret::load(root).unwrap().expect("a secret");
+    let id = fuxx_completes_core::context::store::own_file_id(&secret, Path::new(hist));
+    let bytes = std::fs::read(root.join("context").join(id)).unwrap_or_default();
+    bytes
+        .split(|&b| b == b'\n')
+        .filter_map(fuxx_completes_core::context::record::decode)
+        .collect()
+}
+
+/// Every byte of every file under `dir`, for "the text never lands on disk" checks.
+fn all_bytes(dir: &Path) -> Vec<u8> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(all_bytes(&p));
+        } else {
+            out.extend(std::fs::read(&p).unwrap_or_default());
+        }
+    }
+    out
+}
+
+#[test]
+fn report_appends_one_record() {
+    let home = tempfile::tempdir().unwrap();
+    let args = [
+        "report",
+        "--cwd",
+        "/x",
+        "--status",
+        "1",
+        "--time",
+        "5",
+        "--histfile",
+        "/h",
+        "--",
+        "make test",
+    ];
+    let out = run(home.path(), &[], &args);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty() && out.stderr.is_empty(), "{out:?}");
+    let root = home.path().join("xdg/fuxx-completes");
+    let recs = own_records(&root, "/h");
+    assert_eq!(recs.len(), 1, "{recs:?}");
+    let secret = Secret::load(&root).unwrap().unwrap();
+    assert_eq!(recs[0].key, secret.key_of("make test"));
+    assert_eq!((recs[0].status, recs[0].time), (1, 5));
+    assert_eq!(recs[0].folder, PathBuf::from("/x"));
+    let bytes = all_bytes(&root);
+    assert!(
+        !bytes.windows(9).any(|w| w == b"make test"),
+        "the command text is on disk"
+    );
+}
+
+#[test]
+fn report_without_time_uses_now() {
+    let home = tempfile::tempdir().unwrap();
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let out = run(
+        home.path(),
+        &[],
+        &[
+            "report",
+            "--cwd",
+            "/x",
+            "--status",
+            "0",
+            "--histfile",
+            "/h",
+            "--",
+            "ls",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let recs = own_records(&home.path().join("xdg/fuxx-completes"), "/h");
+    assert_eq!(recs.len(), 1);
+    assert!(
+        recs[0].time >= before && recs[0].time <= before + 5,
+        "{recs:?}"
+    );
+}
+
+#[test]
+fn report_is_silent_without_data() {
+    let out = Command::new(BIN)
+        .env_clear()
+        .args([
+            "report",
+            "--cwd",
+            "/x",
+            "--status",
+            "0",
+            "--histfile",
+            "/h",
+            "--",
+            "ls",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty() && out.stderr.is_empty(), "{out:?}");
+}
+
+#[test]
+fn report_usage_errors_exit_2() {
+    let home = tempfile::tempdir().unwrap();
+    let out = run(home.path(), &[], &["report", "--cwd", "/x"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(!home.path().join("xdg").exists(), "nothing written");
+}
+
+#[test]
+fn report_trims_past_the_cap() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("xdg/fuxx-completes");
+    let secret = Secret::load_or_create(&root).unwrap();
+    let id = fuxx_completes_core::context::store::own_file_id(&secret, Path::new("/h"));
+    let one = Record {
+        key: secret.key_of("old"),
+        folder: PathBuf::from("/p"),
+        status: 0,
+        time: 1,
+    };
+    let len = fuxx_completes_core::context::record::encode(&one).len() as u64;
+    let n = fuxx_completes_core::context::store::CAP / len + 50;
+    let recs: Vec<Record> = (0..n).map(|_| one.clone()).collect();
+    append(&root, &id, &recs).unwrap();
+    let out = run(
+        home.path(),
+        &[],
+        &[
+            "report",
+            "--cwd",
+            "/x",
+            "--status",
+            "0",
+            "--time",
+            "9",
+            "--histfile",
+            "/h",
+            "--",
+            "new",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0));
+    let size = std::fs::metadata(root.join("context").join(&id))
+        .unwrap()
+        .len();
+    assert!(
+        size <= fuxx_completes_core::context::store::TRIM_TO,
+        "{size}"
+    );
+    let recs = own_records(&root, "/h");
+    assert!(recs
+        .iter()
+        .any(|r| r.key == secret.key_of("new") && r.time == 9));
 }
 
 #[test]

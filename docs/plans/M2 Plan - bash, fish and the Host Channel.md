@@ -279,7 +279,7 @@ keys are not bound under ble.sh.
 `fuxx-completes` function (doctor facts: `shell=fish`, `version`, `state=off`,
 `why=fish-has-its-own`, `reporting=on|off:<why>`).
 
-- [ ] **Step 1: Failing tests** (`cli.rs`): `report_appends_one_record` (temp data; `report --cwd /x
+- [x] **Step 1: Failing tests** (`cli.rs`): `report_appends_one_record` (temp data; `report --cwd /x
   --status 1 --time 5 --histfile /h -- 'make test'` → the file `context/<own_file_id(secret, /h)>`
   holds one record with status 1, time 5, folder `/x`; no context file contains `make test`);
   `report_without_time_uses_now`; `report_is_silent_without_data` (no `HOME`: exit 0, no output);
@@ -294,8 +294,8 @@ keys are not bound under ble.sh.
   prompt within 300 ms; the screen never shows `has ended` or a job line); `never_starts_serve`
   (no `serve` in `wire.log`); `doctor_through_the_function` (`shell        fish 3.7.1`, `state
   off (fish has its own autosuggestions)`, `reporting    on`).
-- [ ] **Step 2:** run (fail); implement; run (pass on 3.0.2, 3.7.1, 4.9.3).
-- [ ] **Step 3:** gate + `scripts/test-fish-matrix.sh`. **Docs:** design §5.5 (`report` as built), §5.7
+- [x] **Step 2:** run (fail); implement; run (pass on 3.0.2, 3.7.1, 4.9.3).
+- [x] **Step 3:** gate + `scripts/test-fish-matrix.sh`. **Docs:** design §5.5 (`report` as built), §5.7
   (`report` and the cap; U2's stated limit), §5.8 and §6 fish (as built), §7 (usage line); 
   `adapters/fish/README.md`, `README.md`; roadmap. Commit `feat(fish): report commands through fuxx-completes report`.
 

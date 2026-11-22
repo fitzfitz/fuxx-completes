@@ -427,6 +427,25 @@ impl ContextStore {
 /// oldest (by time, then file order) down to `TRIM_TO`; writes the result to a temporary file
 /// (`0600`) and renames it over the old one. `Ok(true)` when the file was rewritten.
 pub fn compact(root: &Path, id: &str, keep: &HashSet<Key>) -> io::Result<bool> {
+    rewrite(root, id, Some(keep))
+}
+
+/// `fuxx-completes report`'s pruning (design §5.7; the user's decision U2 = F1, 2026-11-23): it
+/// loads no history, so it can't tell which records are stale and keeps every key; it only drops
+/// the oldest records once `<root>/context/<id>` is past `CAP`, down to `TRIM_TO`, under the
+/// exclusive lock taken with `try_lock` (busy: `Ok(false)`). `Ok(true)` when it rewrote the file.
+pub fn trim_to_cap(root: &Path, id: &str) -> io::Result<bool> {
+    let path = root.join(CONTEXT_DIR).join(id);
+    match fs::metadata(&path) {
+        Ok(m) if m.len() > CAP => rewrite(root, id, None),
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// `compact` (with `keep`) or `trim_to_cap` (without).
+fn rewrite(root: &Path, id: &str, keep: Option<&HashSet<Key>>) -> io::Result<bool> {
     let dir = root.join(CONTEXT_DIR);
     let lock = open_lock(&dir, id)?;
     match lock.try_lock() {
@@ -447,7 +466,7 @@ pub fn compact(root: &Path, id: &str, keep: &HashSet<Key>) -> io::Result<bool> {
     let mut kept: Vec<(Record, Vec<u8>)> = bytes
         .split(|&b| b == b'\n')
         .filter_map(decode)
-        .filter(|r| keep.contains(&r.key))
+        .filter(|r| keep.is_none_or(|k| k.contains(&r.key)))
         .map(|r| {
             let line = encode(&r);
             (r, line)
@@ -852,6 +871,34 @@ mod tests {
             "oldest went first"
         );
         assert_eq!(mode(&f.file(&id)), 0o600);
+    }
+
+    #[test]
+    fn trim_to_cap_keeps_every_key_and_trims_oldest() {
+        let f = Fixture::new();
+        let id = f.own();
+        let one = encode(&f.rec("a", "/p", 0, 0)).len() as u64;
+        let n = (CAP / one) + 100;
+        let mut recs: Vec<Record> = (0..n).map(|i| f.rec("a", "/p", 0, i as i64)).collect();
+        recs.push(f.rec("not-in-any-history", "/p", 0, i64::MAX));
+        append(&f.root, &id, &recs).unwrap();
+        assert!(trim_to_cap(&f.root, &id).unwrap());
+        let len = std::fs::metadata(f.file(&id)).unwrap().len();
+        assert!(len <= TRIM_TO, "{len}");
+        let left = f.lines(&id);
+        assert!(left.iter().any(|r| r.key == f.key("not-in-any-history")));
+        assert!(left.iter().all(|r| r.time != 0), "oldest went first");
+        assert_eq!(mode(&f.file(&id)), 0o600);
+    }
+
+    #[test]
+    fn trim_to_cap_under_the_cap_leaves_the_file() {
+        let f = Fixture::new();
+        let id = f.own();
+        append(&f.root, &id, &[f.rec("x", "/p", 0, 1)]).unwrap();
+        assert!(!trim_to_cap(&f.root, &id).unwrap());
+        assert_eq!(f.lines(&id).len(), 1);
+        assert!(!trim_to_cap(&f.root, "0123456789abcdef0123456789abcdef").unwrap());
     }
 
     #[test]

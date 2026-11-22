@@ -95,7 +95,7 @@ A menu while you type: commands, subcommands, flags, arguments, git branches, fi
 | --- | --- | --- |
 | **zsh** | Yes, as you type (first target) | Yes, as you type, below the line; Tab stays zsh's |
 | **bash** | Plain readline (bash 4.0+): built (M2), key-driven only: → or End at the end of the line inserts the best suggestion; it can't show ghost text. With ble.sh (bash 4.0+), ble.sh's own grey text shows ours | Key-driven |
-| **fish** | No: fish has its own, and ours stays off | On Tab, in fish's own pager, only for commands fish has no completions for |
+| **fish** | No: fish has its own, and ours stays off; your fish commands still count in your other shells (built, M2: `adapters/fish/`) | On Tab, in fish's own pager, only for commands fish has no completions for |
 
 Versions: zsh 5.3+, bash 4.0+ (with or without ble.sh), fish 3.0+. macOS first, Linux later, no
 Windows.

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--format zsh|bash] [--cwd DIR] [--histfile FILE] [--] LINE";
+const USAGE: &str = "usage: fuxx-completes serve | forget | doctor [--report] | why [--format zsh|bash] [--cwd DIR] [--histfile FILE] [--] LINE | report --cwd DIR --status N [--time SECS] --histfile FILE [--] COMMAND";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,6 +23,14 @@ fn main() -> ExitCode {
         ["doctor", "--shell-facts", facts, "--report"] => doctor(Some(facts), true),
         ["why", ref rest @ ..] => match why_args(rest) {
             Some(w) => why(w),
+            None => usage(),
+        },
+        // fish's reports (design §5.5): one record, no history load, never prints.
+        ["report", ref rest @ ..] => match fuxx_completes::report::parse(rest) {
+            Some(r) => {
+                fuxx_completes::report::report(data_dir_from_env(), r);
+                ExitCode::SUCCESS
+            }
             None => usage(),
         },
         _ => usage(),
