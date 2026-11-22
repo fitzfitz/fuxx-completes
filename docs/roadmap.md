@@ -5,14 +5,14 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M1c** (M1b done 2026-11-22; the M1c plan is written next).
+**Current milestone: M2** (M1c done 2026-11-22; the fuxx Settings piece waits until fuxx's other work is done, the user's call).
 
 | | Milestone | Status |
 | --- | --- | --- |
 | M0 | Core + history + zsh adapter | ✅ done 2026-11-21 (the user's check: "close m0, all good") |
 | M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
-| M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | 🟨 built and reviewed ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md)); v0.0.10 out, waiting for the user's check |
+| M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
@@ -29,6 +29,10 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M1c done.** The user checked v0.0.10 in fuxx: "all good", then "go ahead
+  close it". M1c is ✅ and merged to `main`. The fuxx Settings piece (declared plugin settings)
+  waits: another agent is working in fuxx right now, and the user doesn't want the flow disturbed.
 
 - **2026-11-22** — **v0.0.10 test release (the user: "deploy it directly").** The list's new
   look, tagged on the M1c branch like v0.0.9; `main` untouched.
