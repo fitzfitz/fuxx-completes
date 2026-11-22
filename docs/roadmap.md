@@ -31,6 +31,17 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M2 Task 3: the bash adapter.** `adapters/bash/fuxx-autosuggestions.bash`:
+  → and End at the end of the line insert the best suggestion (the fix on an empty line after a
+  failure), waiting at most 50 ms; mid-line they move as before; a user's binding is kept. A
+  `PROMPT_COMMAND` entry, put first, reports what bash saved (`ran`, `prev`) and hands the
+  command's `$?` on. Named pipes as in zsh, counted writes with a ping so a healthy core is never
+  stopped, no command substitution on the prompt path. Found on the way, and handled: bash before
+  4.4 redraws the prompt on a new line for every `bind -x` key (so → stays readline's there and
+  End inserts), bash 4.0 doesn't draw the first prompt after a command substitution in
+  `PROMPT_COMMAND`. 18 tests, seen failing first, pass on bash 4.0 and 5.3 (3.2 for staying off).
+  `design.md` §5.5, §5.8, §6, §7, §9; `adapters/bash/README.md`, `README.md`.
+
 - **2026-11-23** — **Chore: fuxx's Settings for the list.** fuxx v0.12.6 shipped declared plugin
   settings (its M11au), so `fuxx-plugin.conf` now carries the four lines of the M1c spec
   (`setting.list`, `list_empty`, `list_delay`, `list_size`); the adapter already reads

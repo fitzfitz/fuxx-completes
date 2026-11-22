@@ -1,26 +1,51 @@
 # bash adapter
 
-Not built yet. Planned for M2 (suggestions, host channel) and M7 (menu). Design:
-`docs/design.md` §3 and §6.
+`fuxx-autosuggestions.bash` (M2): the best suggestion from your history on an explicit key, from
+the same Rust core as the zsh plugin. Design: `docs/design.md` §3, §5.5, §5.8 and §6.
 
-What bash allows, honestly:
+## Install
 
-- **Plain readline has no way to show ghost text** as you type: no `POSTDISPLAY` equivalent and no
-  per-keystroke hook. We won't draw grey text behind readline's back.
-- **What works:** `bind -x` runs a function on a key and can read and set `READLINE_LINE` and
-  `READLINE_POINT`. So a key can insert the best suggestion, and a key can show a menu.
-- **A bounded wait, on explicit keys only.** Those keys ask the core synchronously and wait at most
-  50 ms; if the answer is late they do nothing. Keys that only type are never bound and never
-  wait. The menu blocks the line only while it is open.
-- **Plain readline needs bash 4.0 or later.** macOS ships bash 3.2, which lacks `READLINE_LINE`;
-  use Homebrew's bash, or ble.sh.
-- **ble.sh** runs on bash 3.0+, replaces readline and has its own grey auto-complete. Whether we
-  can feed it our suggestions is an open question for M2; if not, we stay off when ble.sh is
-  loaded.
-- **History:** a `PROMPT_COMMAND` function reports a command only when `history 1` shows a new
-  entry, so `HISTCONTROL` and `HISTIGNORE` are respected.
-- **Host channel (M2):** with `FUXX_COMPLETES_HOST=1`, the buffer goes to the terminal over OSC
-  7701 at the explicit keys (readline has no buffer-change hook), and `ESC [ 7701 ~` applies what
-  the terminal accepted.
+Put this at the **end** of `~/.bashrc`, with the `fuxx-completes` binary on `PATH` (or name it in
+`FUXX_COMPLETES_BIN`):
+
+```bash
+source /path/to/fuxx-completes/adapters/bash/fuxx-autosuggestions.bash
+```
+
+It starts its core at your first prompt and prints nothing, ever. `fuxx-completes doctor` (a
+shell function it defines when you have none of that name) shows what it found.
+
+## Keys
+
+- **→** at the end of the line inserts the best suggestion; anywhere else it moves one character,
+  as before.
+- **End** at the end of the line inserts it too; anywhere else it moves to the end.
+- On an **empty line right after a command failed**, the same keys insert the fix the core found
+  (`lss` → `ls`). Nothing is ever run for you.
+
+Each key waits **at most 50 ms** for the core; if the answer is late it does nothing. Keys that
+only type are never bound and never wait. A key you (or another plugin) bound to something else
+is left alone (`doctor` lists each key as `bound` or `kept`). Both emacs and vi insert mode;
+vi command mode is left alone.
+
+## What bash can't do (honestly)
+
+- **No grey text as you type.** Plain readline has no `POSTDISPLAY` and no per-keystroke hook,
+  and drawing behind readline's back breaks on redraw. ble.sh users get grey text (below).
+- **bash 4.0–4.3:** every `bind -x` key moves to a new line and redraws the prompt (fixed in bash
+  4.4), so there → is left to readline and only End inserts; each End press leaves the old line
+  above. bash before 4.3 can't `bind -x` a key longer than two bytes, so End is a readline macro
+  for a private `⌃X` sequence there (in vi insert mode `⌃X` then waits for a second key).
+- **macOS's `/bin/bash` 3.2 is too old:** the adapter stays off and `doctor` says
+  `bash-too-old`. Use a newer bash (Homebrew's, for example).
+- **History:** a `PROMPT_COMMAND` entry (put first, so it sees the command's `$?`, which it hands
+  on to the entries after it) reports a command when `history 1` shows a new entry. bash has
+  applied `HISTCONTROL` and `HISTIGNORE` by then, so hidden lines are never reported. A repeat
+  that `ignoredups` drops isn't counted again. An rc file that sets `PROMPT_COMMAND` again **after**
+  sourcing us removes our entry: nothing is reported and the core never starts.
+- The pipes to the core are inherited by programs you start (bash can't set close-on-exec), so a
+  daemon started from this shell keeps the core alive until the daemon ends.
+- A key pressed in the first moment after the shell starts may get nothing: the core is still
+  starting.
 - Stays off in Warp, whose own editor replaces readline.
 - bash's own `complete` setup and Tab are left alone.

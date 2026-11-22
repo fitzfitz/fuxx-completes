@@ -217,7 +217,7 @@ globals `_FUXX_AS_STATE` (`''`/`on`/`off`), `_FUXX_AS_WHY` (`no-binary`, `start-
 the text after the buffer, or returns 1), `_fuxx_as_key_right`, `_fuxx_as_key_end`,
 `_fuxx_as_prompt` (the `PROMPT_COMMAND` entry), `fuxx-completes`.
 
-- [ ] **Step 1: Failing tests** (`bash_adapter.rs`, bash 4.0 and 5.3): `right_arrow_at_the_end_inserts`
+- [x] **Step 1: Failing tests** (`bash_adapter.rs`, bash 4.0 and 5.3): `right_arrow_at_the_end_inserts`
   (history `git status`; `git s` →: buffer `git status`, point 10); `right_arrow_mid_line_moves`
   (`git s` ←← →: buffer `git s`, point 4); `end_inserts_at_the_end`; `multibyte_buffer_accepts_cleanly`
   (Review Focus 1: history `echo héllo wörld`; `echo hé` → → `echo héllo wörld`, point 16; with the
@@ -240,9 +240,9 @@ the text after the buffer, or returns 1), `_fuxx_as_key_right`, `_fuxx_as_key_en
   `hello` only; 300 commands run, each prompt returns, state ends `off`/`write-failed`);
   `second_copy_stays_off`; `doctor_and_why_through_the_function` (`shell        bash 5.3…`; `why`
   passes `--format bash --cwd <home> --histfile <home>/.bash_history`).
-- [ ] **Step 2:** run (fail); implement per the AI's calls above; run (pass on 4.0, 5.3; the
+- [x] **Step 2:** run (fail); implement per the AI's calls above; run (pass on 4.0, 5.3; the
   3.2 cases on `/bin/bash`).
-- [ ] **Step 3:** gate + `scripts/test-bash-matrix.sh`. **Docs:** design §5.5 (bash transport),
+- [x] **Step 3:** gate + `scripts/test-bash-matrix.sh`. **Docs:** design §5.5 (bash transport),
   §5.8 (bash reporting, `PROMPT_COMMAND` first), §6 bash (keys, cursor, limits: no ghost text,
   `ignoredups` repeats aren't counted, an rc that overwrites `PROMPT_COMMAND` after us turns
   reporting off), §7, §9; `adapters/bash/README.md` and `README.md` (install, keys, limits);

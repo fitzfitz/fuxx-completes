@@ -680,6 +680,21 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   review**). The
   adapter finds the binary through `FUXX_COMPLETES_BIN`, then `PATH` (**AI's call, M0**).
   bash has the same single-coproc concern; named pipes opened with `exec` are the likely choice there, settled in M2.
+  **bash as built (M2, AI's calls):** the same named pipes in a private `mkdir -m 700` folder,
+  opened read-write first (`exec {fd}<>` from bash 4.1; on 4.0 the first free descriptor from 10
+  up, found by duplicating it); the core starts from `/` in a subshell that becomes it, inside
+  `{ … & } 2>/dev/null` and then `disown`ed, so bash prints no `[1] pid` or `Done` line. bash
+  has no file-descriptor handler: lines from the core are read only when the shell asks (at each
+  prompt, without waiting, and at an explicit key), so `ready` is read, and the pipes unlinked, at
+  the next prompt or key; a core that never says `ready` leaves its empty folder in `$TMPDIR`.
+  bash can't open a descriptor non-blocking, so writes are counted as in zsh below 5.9 and refused
+  past 6 KiB unread. Reports get no answer, so when more than 2 KiB is unread the prompt sends a
+  ping (an empty `suggest`, answered and dropped at a later drain) to learn the core has read
+  them; a core that answers nothing is stopped (`write-failed`). bash can't set close-on-exec, so
+  programs the user starts inherit the pipes (as zsh 5.3.x, §16). No command substitution runs
+  on the prompt's path: in bash 4.0 one in `PROMPT_COMMAND` keeps the first prompt from being
+  drawn (checked 2026-11-23), so `history 1` and `date` are read through process substitution and
+  the binary is found with `hash`.
 - A shared per-user daemon on a Unix socket would save memory across many shells but adds
   lifecycle work (start, stop, stale sockets), and bash can't open a socket without an extra
   tool. Deferred until per-session processes prove too heavy.
@@ -852,7 +867,15 @@ user typed, so they reveal nothing the shell was told not to keep.
   reports the entry only if its history number is new since the last prompt. **Corrected in the M2
   plan (2026-11-22):** the function goes **first** (element 0 of a bash 5.1+ array, else prepended
   with `;`) and returns the status it found, because appended it would read the previous entry's
-  `$?` instead of the command's, and the entries after it still see the command's `$?`. bash has already
+  `$?` instead of the command's, and the entries after it still see the command's `$?`.
+  **As built (M2):** the string form gets our entry and a newline in front (a `;` would break a
+  string that starts with one); a command is reported (`ran`: the cwd saved at the previous
+  prompt, the status, the time, `history 1`'s text read with `HISTTIMEFORMAT` unset; then `prev`
+  with the text and status) only when `history 1` shows a new number, so an empty Enter, a line
+  `HISTCONTROL`/`HISTIGNORE` hid and a repeat `ignoredups` dropped send nothing (bash can't tell
+  them apart). The time is `EPOCHSECONDS` (5.0+), `printf '%(%s)T'` (4.2+), else one `date` at
+  setup plus `SECONDS`. An rc that sets `PROMPT_COMMAND` again after sourcing us turns reporting
+  (and the core) off. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working
   directory is the one saved at the previous prompt, where the command started.
 - **fish:** a `fish_postexec` handler reports the command unless it starts with a space, fish is
@@ -1086,6 +1109,22 @@ Honest about what each shell allows.
   inserts the best suggestion; on an empty line after a failed command the same key inserts the
   fix (the core already answers an empty `suggest` with it).
 - **History:** `PROMPT_COMMAND` with `history 1` (§5.8).
+- **As built (M2, AI's calls):** `adapters/bash/fuxx-autosuggestions.bash`, sourced at the end of
+  `~/.bashrc`; setup waits for the first prompt. Guards: interactive only; bash 4.0+ (else off,
+  `bash-too-old`); Warp (`conflict:warp`); the double-load guard by the resolved file path (§8).
+  **Keys:** → (`\e[C`, `\eOC`) and End (`\e[F`, `\eOF`, `\e[4~`) in `emacs` and `vi-insert`, each
+  only while bound to its default (`forward-char`, `end-of-line`) or unbound; a user's binding is
+  kept (`doctor` shows `kept`). At the end of the line they send `suggest … sync …` and insert the
+  answer (on an empty line after a failure, the fix); elsewhere → moves one character and End to
+  the end. Stale lines are drained first; the wait is 50 ms by `EPOCHREALTIME` (5.0+) or one
+  `read -t 0.05` (4.x, then only lines already there); a wrong id or a timeout does nothing, EOF
+  stops the core (`exited`). **Version limits:** before bash 4.4 every `bind -x` key moves to a
+  new line and redraws the prompt (bash `CHANGES`, 4.4-alpha ggg), so there → stays readline's
+  own and only End inserts; before 4.3 `bind -x` can't take a key longer than two bytes
+  (4.3-alpha pp), so End is a readline macro for a private sequence (`\C-x\C-]`; `\C-x\C-^` for →
+  is unused there). **Cursor:** code points on the wire; before 5.0 `READLINE_POINT` counts bytes,
+  converted with `LC_ALL=C` lengths. `CDPATH` goes along split on `:` (left off as zsh's rule,
+  §5.4). The `fuxx-completes` function passes `why --format bash --cwd $PWD --histfile`.
 - **Host mode:** bash can forward the buffer only at the explicit keys (there is no buffer-change
   hook in plain readline), and binds the "accept from host" key (§5.5).
 - **Tab:** bash's `complete` is left alone by default.
@@ -1148,7 +1187,7 @@ settings with where each came from (fuxx Settings, the shell, or the default; M1
 `shglob` warning
 (§16). "The core's last error" is the adapter's reason for going off: `no-binary`,
 `start-failed`, `hung`, `exited`, `protocol`, `write-failed`, `conflict:warp`,
-`conflict:zsh-autosuggestions`.
+`conflict:zsh-autosuggestions`, and for bash (M2) `bash-too-old` and `conflict:ble.sh`.
 
 **`why` and `doctor --report` (M1d §4.5, AI's calls).** The usage line is now `usage:
 fuxx-completes serve | forget | doctor [--report] | why [--cwd DIR] [--histfile FILE] [--] LINE`
@@ -1229,7 +1268,7 @@ the line.
 | **Another copy of fuxx-completes** already loaded in this shell (fuxx's plugin and the user's rc file both load it) | the second copy stays off (§8's double-load guard) |
 
 Detection runs at the first `precmd` (zsh) or first prompt, after the user's rc file has loaded
-everything. Staying off is silent at the prompt and shown by `doctor`. A user can force ours on
+everything (bash, M2: Warp and ble.sh are checked at every prompt, like zsh). Staying off is silent at the prompt and shown by `doctor`. A user can force ours on
 (not in Warp, where our widgets would never run). **Settled in M1 (AI's calls):** the zsh adapter
 checks at every `precmd` (two variable lookups), so a plugin loaded after the first prompt
 (zinit turbo, zsh-defer) stops a running core too; zsh-autosuggestions is seen through its

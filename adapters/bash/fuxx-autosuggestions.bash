@@ -1,0 +1,601 @@
+# fuxx-autosuggestions for bash: the best suggestion from history on an explicit key, asked of a
+# `fuxx-completes serve` core process. One self-contained file, sourced at the end of ~/.bashrc;
+# it finds everything through PATH or variables. Needs bash 4.0+ (plain readline). Design:
+# docs/design.md §3, §5.5, §5.8, §6 (bash).
+#
+# What it does: → and End at the end of the line insert the core's best suggestion (on an empty
+# line after a failed command, the fix), waiting at most 50 ms for it; elsewhere they move as
+# readline's forward-char and end-of-line do. A `PROMPT_COMMAND` entry reports each command bash
+# saved to history. Plain bash can't show grey text as you type (design §6).
+#
+# Rules this file keeps: it prints nothing (stderr of anything that could complain goes to
+# /dev/null); keys that only type are never bound and never wait; a key we bind waits at most
+# 50 ms (AGENTS rule 6's stated exception); a write never blocks; every variable is read with a
+# default, so `set -u` in the user's shell can't make it complain.
+#
+# Config, read at use and never required:
+#   FUXX_COMPLETES_BIN    the core binary (default: `fuxx-completes` on PATH)
+#   FUXX_PLUGIN_DATA      our data folder (as in zsh; design §8)
+#
+# Only one copy runs in a shell (design §8): a second copy sourced from another path stops
+# before defining anything.
+
+[[ $- == *i* ]] || return 0
+
+# The resolved path of this file, without a fork: the folder through `cd -P`, OLDPWD kept.
+_fuxx_as_here() {
+  local src=${BASH_SOURCE[1]-} dir old=${OLDPWD-} here=$PWD
+  [[ -n $src ]] || return 1
+  [[ $src == */* ]] && dir=${src%/*} || dir=.
+  CDPATH='' builtin cd -P -- "$dir" 2>/dev/null || return 1
+  REPLY=$PWD/${src##*/}
+  builtin cd -- "$here" 2>/dev/null
+  OLDPWD=$old
+  return 0
+}
+if _fuxx_as_here; then
+  if [[ -n ${_FUXX_AS_FILE-} && $_FUXX_AS_FILE != "$REPLY" ]]; then
+    case " ${_FUXX_AS_SECOND[*]-} " in
+      *" $REPLY "*) ;;
+      *) _FUXX_AS_SECOND+=("$REPLY") ;;
+    esac
+    return 0
+  fi
+  _FUXX_AS_FILE=$REPLY
+fi
+
+if [[ -z ${_FUXX_AS_STATE+set} ]]; then
+  # '' until the first prompt, then `on` or `off`; why it is off (design §7).
+  _FUXX_AS_STATE='' _FUXX_AS_WHY=''
+  _FUXX_AS_SECOND=()
+  _FUXX_AS_DATA=${FUXX_PLUGIN_DATA-}
+  _FUXX_AS_PID='' _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD='' _FUXX_AS_SPARE_FD=''
+  _FUXX_AS_DIR=''
+  _FUXX_AS_NEXT_ID=1
+  # Bytes the core may not have read yet (a write never blocks: design §5.5), the bytes sent
+  # since the newest `suggest`, its id, and whether that one was a ping.
+  _FUXX_AS_UNREAD=0 _FUXX_AS_SINCE_SUGGEST=0 _FUXX_AS_LAST_SUGGEST='' _FUXX_AS_PING=''
+  # Command reports (§5.8): the newest history number seen and where the next command starts.
+  _FUXX_AS_HISTNUM='' _FUXX_AS_CWD=$PWD
+  _FUXX_AS_T0='' _FUXX_AS_S0=0
+  _FUXX_AS_OWN_FN=0
+  if (( BASH_VERSINFO[0] < 4 )); then
+    _FUXX_AS_STATE=off _FUXX_AS_WHY=bash-too-old
+  else
+    # "<keymap> <key>" -> `bound` or `kept:<binding>`.
+    declare -gA _FUXX_AS_KEYS 2>/dev/null || declare -A _FUXX_AS_KEYS
+  fi
+fi
+
+# The bash version as one number, 4.0 -> 400, 5.3 -> 503.
+_FUXX_AS_V=$(( BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] ))
+
+# ---- Characters and bytes (bash before 5.0 counts READLINE_POINT in bytes) ----
+
+# REPLY = the byte length of $1.
+_fuxx_as_bytes() {
+  local LC_ALL=C
+  REPLY=${#1}
+}
+
+# REPLY = the first $2 bytes of $1.
+_fuxx_as_byte_prefix() {
+  local LC_ALL=C
+  REPLY=${1:0:$2}
+}
+
+# REPLY = READLINE_POINT in characters.
+_fuxx_as_point_chars() {
+  if (( _FUXX_AS_V >= 500 )); then
+    REPLY=$READLINE_POINT
+  else
+    _fuxx_as_byte_prefix "$READLINE_LINE" "$READLINE_POINT"
+    REPLY=${#REPLY}
+  fi
+}
+
+# Sets READLINE_POINT to the character offset $1.
+_fuxx_as_set_point() {
+  if (( _FUXX_AS_V >= 500 )); then
+    READLINE_POINT=$1
+  else
+    _fuxx_as_bytes "${READLINE_LINE:0:$1}"
+    READLINE_POINT=$REPLY
+  fi
+}
+
+# ---- The core and its pipes (design §5.5) ----
+
+_fuxx_as_unlink_pipes() {
+  [[ -n $_FUXX_AS_DIR ]] || return 0
+  command rm -f -- "$_FUXX_AS_DIR/req" "$_FUXX_AS_DIR/resp" 2>/dev/null
+  command rmdir -- "$_FUXX_AS_DIR" 2>/dev/null
+  _FUXX_AS_DIR=''
+  return 0
+}
+
+# _fuxx_as_close <fd>
+_fuxx_as_close() {
+  [[ -n ${1-} ]] && eval "exec $1>&-" 2>/dev/null
+  return 0
+}
+
+# _fuxx_as_open <mode: < > or <>> <file>: opens a descriptor; its number comes back in REPLY.
+# `exec {var}` exists from bash 4.1; on 4.0 the first free descriptor from 10 up is used.
+_fuxx_as_open() {
+  local mode=$1 file=$2 fd
+  if (( _FUXX_AS_V >= 401 )); then
+    eval "exec {fd}$mode\"\$file\"" 2>/dev/null || return 1
+  else
+    fd=10
+    # In use when it can be duplicated (bash's own `-e /dev/fd/N` says no for an open one).
+    while { true >&"$fd"; } 2>/dev/null; do
+      (( fd++ ))
+      (( fd < 250 )) || return 1
+    done
+    eval "exec $fd$mode\"\$file\"" 2>/dev/null || return 1
+  fi
+  REPLY=$fd
+}
+
+# Starts the core on two named pipes, as the zsh adapter does: both pipes are opened read-write
+# first so no open blocks; the core is started on them from `/` (it opens them by path); then
+# the shell opens its write end of `req` and read end of `resp`. The read-write holder on `resp`
+# and the pipes' names stay until `ready` is read (earlier would race the core's own opens).
+_fuxx_as_start() {
+  local bin=${FUXX_COMPLETES_BIN:-} dir ok=1
+  # No command substitution anywhere on the prompt's path: in bash 4.0 one in PROMPT_COMMAND
+  # keeps the first prompt from being drawn (checked 2026-11-23). PATH lookup through `hash`.
+  if [[ -z $bin ]] && hash fuxx-completes 2>/dev/null; then
+    bin=${BASH_CMDS[fuxx-completes]-}
+  fi
+  if [[ -z $bin || ! -x $bin || -d $bin ]]; then
+    _FUXX_AS_STATE=off _FUXX_AS_WHY=no-binary
+    return 0
+  fi
+  dir=${TMPDIR:-/tmp}
+  dir=${dir%/}/fuxx-completes.$$.$RANDOM
+  if ! command mkdir -m 700 -- "$dir" 2>/dev/null; then
+    _FUXX_AS_STATE=off _FUXX_AS_WHY=start-failed
+    return 0
+  fi
+  _FUXX_AS_DIR=$dir
+  if ! command mkfifo -m 600 -- "$dir/req" "$dir/resp" 2>/dev/null; then
+    _fuxx_as_unlink_pipes
+    _FUXX_AS_STATE=off _FUXX_AS_WHY=start-failed
+    return 0
+  fi
+  _fuxx_as_open '<>' "$dir/req" && _FUXX_AS_KEEPFD=$REPLY || ok=0
+  if (( ok )); then _fuxx_as_open '<>' "$dir/resp" && _FUXX_AS_SPARE_FD=$REPLY || ok=0; fi
+  if (( ok )); then
+    # A subshell that becomes the core: no `[1] pid` line (stderr of the group goes nowhere) and,
+    # disowned, no `Done` line. It doesn't keep our spare descriptors, starts from `/` so it
+    # never keeps the shell's folder busy, and gets the data folder fuxx named, or none.
+    {
+      (
+        builtin cd / 2>/dev/null
+        _fuxx_as_close "$_FUXX_AS_KEEPFD"
+        _fuxx_as_close "$_FUXX_AS_SPARE_FD"
+        if [[ -n $_FUXX_AS_DATA ]]; then export FUXX_PLUGIN_DATA=$_FUXX_AS_DATA; else unset FUXX_PLUGIN_DATA; fi
+        exec "$bin" serve <"$dir/req" >"$dir/resp" 2>/dev/null
+      ) &
+    } 2>/dev/null
+    _FUXX_AS_PID=$!
+    disown "$_FUXX_AS_PID" 2>/dev/null
+    _fuxx_as_open '>' "$dir/req" && _FUXX_AS_WFD=$REPLY || ok=0
+  fi
+  if (( ok )); then _fuxx_as_open '<' "$dir/resp" && _FUXX_AS_RFD=$REPLY || ok=0; fi
+  if (( ! ok )); then
+    _fuxx_as_stop kill start-failed
+    return 0
+  fi
+  local hist=${HISTFILE-}
+  [[ -n $hist && $hist != /* ]] && hist=$PWD/$hist
+  _FUXX_AS_STATE=on
+  if ! _fuxx_as_send hello 1 bash "$BASH_VERSION" bash "$hist" autosuggestions; then
+    _fuxx_as_stop kill write-failed
+    return 0
+  fi
+  # Time without a fork per prompt: EPOCHSECONDS (5.0+), printf %(%s)T (4.2+), else one `date`.
+  if (( _FUXX_AS_V < 402 )); then
+    read -r _FUXX_AS_T0 < <(command date +%s 2>/dev/null)
+    _FUXX_AS_S0=$SECONDS
+  fi
+  _fuxx_as_bind_keys
+}
+
+# `_fuxx_as_stop kill [why]`: the core may still be alive, so end it. `_fuxx_as_stop gone [why]`:
+# it is already gone (EOF), and its pid may belong to another process by now.
+_fuxx_as_stop() {
+  _fuxx_as_close "$_FUXX_AS_RFD"
+  _fuxx_as_close "$_FUXX_AS_WFD"
+  _fuxx_as_close "$_FUXX_AS_KEEPFD"
+  _fuxx_as_close "$_FUXX_AS_SPARE_FD"
+  if [[ ${1-} == kill && -n $_FUXX_AS_PID ]]; then
+    builtin kill "$_FUXX_AS_PID" 2>/dev/null
+  fi
+  _fuxx_as_unlink_pipes
+  _FUXX_AS_RFD='' _FUXX_AS_WFD='' _FUXX_AS_KEEPFD='' _FUXX_AS_SPARE_FD='' _FUXX_AS_PID=''
+  _FUXX_AS_UNREAD=0 _FUXX_AS_SINCE_SUGGEST=0 _FUXX_AS_LAST_SUGGEST='' _FUXX_AS_PING=''
+  _FUXX_AS_STATE=off
+  [[ -n ${2-} ]] && _FUXX_AS_WHY=$2
+  return 0
+}
+
+# _fuxx_as_send <kind> <fields...>: fields joined by 0x1F, a newline in a field written as 0x1E.
+# bash can't open a descriptor non-blocking, so the bytes the core may not have read yet are
+# counted (an answer to the newest `suggest` shows it read everything up to it) and a write that
+# could fill the pipe (a FIFO holds about 8 KiB on macOS) is refused: the caller stops the core.
+_fuxx_as_send() {
+  [[ -n $_FUXX_AS_WFD ]] || return 1
+  local f line='' sep='' nl=$'\n' rs=$'\x1e' us=$'\x1f'
+  for f in "$@"; do
+    line+=$sep${f//$nl/$rs}
+    sep=$us
+  done
+  line+=$nl
+  _fuxx_as_bytes "$line"
+  local len=$REPLY
+  (( _FUXX_AS_UNREAD > 0 && _FUXX_AS_UNREAD + len > 6144 )) && return 1
+  printf '%s' "$line" 2>/dev/null >&$_FUXX_AS_WFD || return 1
+  (( _FUXX_AS_UNREAD += len ))
+  if [[ $1 == suggest ]]; then
+    _FUXX_AS_SINCE_SUGGEST=0 _FUXX_AS_LAST_SUGGEST=$2
+  else
+    (( _FUXX_AS_SINCE_SUGGEST += len ))
+  fi
+  return 0
+}
+
+# Handles one line from the core; _FUXX_AS_RID/_FUXX_AS_RTEXT get a `suggestion`'s id and text.
+_fuxx_as_got() {
+  local line=$1 us=$'\x1f' kind rest
+  kind=${line%%"$us"*}
+  rest=${line#*"$us"}
+  _FUXX_AS_RID='' _FUXX_AS_RTEXT=''
+  case $kind in
+    ready)
+      _fuxx_as_unlink_pipes
+      _fuxx_as_close "$_FUXX_AS_SPARE_FD"
+      _FUXX_AS_SPARE_FD=''
+      [[ $rest == 1 ]] || { _fuxx_as_stop kill protocol; return 1; }
+      ;;
+    suggestion)
+      _FUXX_AS_RID=${rest%%"$us"*}
+      _FUXX_AS_RTEXT=${rest#*"$us"}
+      [[ $rest == *"$us"* ]] || _FUXX_AS_RTEXT=''
+      if [[ $_FUXX_AS_RID == "$_FUXX_AS_LAST_SUGGEST" ]]; then
+        # The core has read everything up to the newest `suggest`.
+        _FUXX_AS_UNREAD=$_FUXX_AS_SINCE_SUGGEST
+        _FUXX_AS_PING=''
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# Reads every line the core already sent, without waiting. EOF means the core is gone.
+_fuxx_as_drain() {
+  local line
+  while [[ -n $_FUXX_AS_RFD ]] && read -t 0 -u "$_FUXX_AS_RFD" 2>/dev/null; do
+    if ! IFS= read -r -u "$_FUXX_AS_RFD" line 2>/dev/null; then
+      _fuxx_as_stop gone exited
+      return 1
+    fi
+    _fuxx_as_got "$line" || return 1
+  done
+  [[ $_FUXX_AS_STATE == on ]]
+}
+
+# REPLY = Unix time in seconds, without a fork.
+_fuxx_as_now() {
+  if [[ -n ${EPOCHSECONDS-} ]]; then
+    REPLY=$EPOCHSECONDS
+  elif (( _FUXX_AS_V >= 402 )); then
+    printf -v REPLY '%(%s)T' -1
+  else
+    REPLY=$(( ${_FUXX_AS_T0:-0} + SECONDS - _FUXX_AS_S0 ))
+  fi
+}
+
+# Asks for the suggestion for the current line and waits at most 50 ms (design §3): REPLY gets
+# the text after the buffer, or the function returns 1 (no answer in time, none, or core gone).
+# A late answer is dropped by its id at the next drain.
+_fuxx_as_sync_suggest() {
+  REPLY=''
+  [[ $_FUXX_AS_STATE == on ]] || return 1
+  _fuxx_as_drain || return 1
+  local buffer=$READLINE_LINE
+  (( ${#buffer} > 1000 )) && return 1
+  [[ $buffer == *[$'\x1f\x1e']* ]] && return 1
+  local id=$_FUXX_AS_NEXT_ID cursor
+  _FUXX_AS_NEXT_ID=$(( id + 1 ))
+  _fuxx_as_point_chars
+  cursor=$REPLY
+  local -a f=(suggest "$id" sync "$cursor" "$PWD" "$buffer")
+  # CDPATH goes along, one folder per line (design §5.4); left off when `cd`/`pushd` is an
+  # alias or function, `cdable_vars` is on, or a folder holds a control character.
+  local cdp=${CDPATH-} nl=$'\n'
+  if [[ $cdp != *[[:cntrl:]]* ]] && ! shopt -q cdable_vars 2>/dev/null \
+     && _fuxx_as_plain cd && _fuxx_as_plain pushd; then
+    f+=("${cdp//:/$nl}")
+  fi
+  _fuxx_as_send "${f[@]}" || { _fuxx_as_stop kill write-failed; return 1; }
+  # Read until this request's answer or 50 ms. bash 5.0+ has a clock; 4.x waits once, then only
+  # takes lines already there.
+  local line t now deadline='' st
+  if [[ -n ${EPOCHREALTIME-} ]]; then
+    now=${EPOCHREALTIME//[!0-9]/}
+    deadline=$(( 10#$now + 50000 ))
+  fi
+  t=0.05
+  while :; do
+    IFS= read -r -t "$t" -u "$_FUXX_AS_RFD" line 2>/dev/null
+    st=$?
+    if (( st > 128 )); then
+      return 1   # timed out
+    elif (( st != 0 )); then
+      _fuxx_as_stop gone exited
+      return 1
+    fi
+    _fuxx_as_got "$line" || return 1
+    if [[ $_FUXX_AS_RID == "$id" ]]; then
+      REPLY=${_FUXX_AS_RTEXT//$'\x1e'/$nl}
+      [[ -n $REPLY ]]
+      return
+    fi
+    if [[ -n $deadline ]]; then
+      now=${EPOCHREALTIME//[!0-9]/}
+      (( 10#$now >= deadline )) && return 1
+      printf -v t '0.%06d' $(( deadline - 10#$now ))
+    else
+      read -t 0 -u "$_FUXX_AS_RFD" 2>/dev/null || return 1
+      t=0.001
+    fi
+  done
+}
+
+# True when `$1` runs bash's own builtin (no alias or function of that name).
+_fuxx_as_plain() {
+  [[ -z ${BASH_ALIASES[$1]+set} ]] && ! declare -F "$1" >/dev/null 2>&1
+}
+
+# ---- Keys (design §6 bash) ----
+
+# → (`\e[C`, `\eOC`): at the end of the line, inserts the suggestion; elsewhere moves one
+# character, as forward-char does.
+_fuxx_as_key_right() {
+  local len=${#READLINE_LINE}
+  _fuxx_as_point_chars
+  if (( REPLY < len )); then
+    _fuxx_as_set_point $(( REPLY + 1 ))
+  else
+    _fuxx_as_accept
+  fi
+}
+
+# End (`\e[F`, `\eOF`, `\e[4~`): at the end of the line, inserts the suggestion; elsewhere moves
+# to the end, as end-of-line does.
+_fuxx_as_key_end() {
+  local len=${#READLINE_LINE}
+  _fuxx_as_point_chars
+  if (( REPLY < len )); then
+    _fuxx_as_set_point "$len"
+  else
+    _fuxx_as_accept
+  fi
+}
+
+_fuxx_as_accept() {
+  _fuxx_as_sync_suggest || return 0
+  READLINE_LINE+=$REPLY
+  _fuxx_as_set_point "${#READLINE_LINE}"
+}
+
+# What `<keymap> <sequence>` was bound to when the keys were set up: REPLY = a function name,
+# `"<macro>"`, `-x:<cmd>`, or '' when unbound. bash 4.0 lists ESC sequences in meta form
+# (`\M-[C`). The listings come from `_fuxx_as_bind_keys`, in files: `bind` run in a subshell
+# initialises readline there, and on bash 4.0 the shell's next prompt is then not drawn.
+_fuxx_as_binding() {
+  local km=$1 seq=$2 alt line tag
+  alt=${seq/#\\e/\\M-}
+  REPLY=''
+  for tag in p x; do
+    [[ -f $_FUXX_AS_DIR/keys-$km-$tag ]] || continue
+    while IFS= read -r line; do
+      case $line in
+        "\"$seq\": "* | "\"$alt\": "*)
+          REPLY=${line#*\": }
+          [[ $tag == x ]] && REPLY=-x:$REPLY
+          return 0 ;;
+      esac
+    done < "$_FUXX_AS_DIR/keys-$km-$tag"
+  done
+  return 0
+}
+
+# The private two-key sequences that bash before 4.3 needs (it can't `bind -x` a longer one):
+# the key becomes a macro typing one of these.
+_FUXX_AS_PRIV_RIGHT='\C-x\C-^'
+_FUXX_AS_PRIV_END='\C-x\C-]'
+
+# _fuxx_as_bind_key <keymap> <sequence> <default function> <our function> <private sequence>:
+# binds only a key still on its default (or unbound), and records what happened.
+_fuxx_as_bind_key() {
+  local km=$1 seq=$2 def=$3 fn=$4 priv=$5 k="$1 $2"
+  _fuxx_as_binding "$km" "$seq"
+  if [[ -n $REPLY && $REPLY != "$def" ]]; then
+    _FUXX_AS_KEYS[$k]=kept:$REPLY
+    return 0
+  fi
+  if (( _FUXX_AS_V >= 403 )); then
+    bind -m "$km" -x "\"$seq\": $fn" 2>/dev/null
+  else
+    _fuxx_as_binding "$km" "$priv"
+    if [[ -n $REPLY && $REPLY != -x:* ]]; then
+      _FUXX_AS_KEYS[$k]=kept:private-sequence-taken
+      return 0
+    fi
+    bind -m "$km" -x "\"$priv\": $fn" 2>/dev/null
+    bind -m "$km" "\"$seq\": \"$priv\"" 2>/dev/null
+  fi
+  _FUXX_AS_KEYS[$k]=bound
+}
+
+# Binds the keys in emacs and vi-insert (vi command mode is left alone). Before bash 4.4 every
+# `bind -x` key redraws the prompt on a new line (bash CHANGES, 4.4-alpha ggg), so there → is
+# left to readline and only End inserts.
+_fuxx_as_bind_keys() {
+  local km seq
+  for km in emacs vi-insert; do
+    { bind -m "$km" -p; bind -m "$km" -s; } >"$_FUXX_AS_DIR/keys-$km-p" 2>/dev/null
+    (( _FUXX_AS_V >= 403 )) && bind -m "$km" -X >"$_FUXX_AS_DIR/keys-$km-x" 2>/dev/null
+    if (( _FUXX_AS_V >= 404 )); then
+      for seq in '\e[C' '\eOC'; do
+        _fuxx_as_bind_key "$km" "$seq" forward-char _fuxx_as_key_right "$_FUXX_AS_PRIV_RIGHT"
+      done
+    fi
+    for seq in '\e[F' '\eOF' '\e[4~'; do
+      _fuxx_as_bind_key "$km" "$seq" end-of-line _fuxx_as_key_end "$_FUXX_AS_PRIV_END"
+    done
+    command rm -f -- "$_FUXX_AS_DIR/keys-$km-p" "$_FUXX_AS_DIR/keys-$km-x" 2>/dev/null
+  done
+}
+
+# ---- The prompt (design §5.8, §9) ----
+
+_fuxx_as_conflict() {
+  REPLY=''
+  if [[ ${TERM_PROGRAM-} == WarpTerminal ]]; then
+    REPLY=conflict:warp
+  elif [[ -n ${BLE_VERSION-} ]]; then
+    REPLY=conflict:ble.sh
+  fi
+}
+
+# The `PROMPT_COMMAND` entry, which goes first so `$?` is the command's: it returns that status
+# again, so the entries after it see it too. Starts the core at the first prompt (after the rc
+# file); at later prompts reports the command bash saved, when `history 1` shows a new number
+# (bash has applied HISTCONTROL and HISTIGNORE by then; an empty Enter, a hidden line and an
+# ignored duplicate add none).
+_fuxx_as_prompt() {
+  local st=$?
+  _fuxx_as_prompt_work "$st"
+  return "$st"
+}
+
+_fuxx_as_prompt_work() {
+  local st=$1
+  [[ $_FUXX_AS_STATE == off ]] && return 0
+  # Coexistence (design §9), checked at every prompt.
+  _fuxx_as_conflict
+  if [[ -n $REPLY ]]; then
+    if [[ $_FUXX_AS_STATE == on ]]; then
+      _fuxx_as_stop kill "$REPLY"
+    else
+      _FUXX_AS_STATE=off _FUXX_AS_WHY=$REPLY
+    fi
+    return 0
+  fi
+  local h n entry cwd=$_FUXX_AS_CWD re='^ *([0-9]+)[ *] (.*)$'
+  _FUXX_AS_CWD=$PWD
+  # `history 1` prints "%5d%c %s": the number, `*` when the entry was edited, the entry.
+  local l
+  h=''
+  while IFS= read -r l || [[ -n $l ]]; do
+    h+=${h:+$'\n'}$l
+  done < <(unset HISTTIMEFORMAT; builtin history 1 2>/dev/null)
+  if [[ $h =~ $re ]]; then
+    n=${BASH_REMATCH[1]} entry=${BASH_REMATCH[2]}
+  else
+    n='' entry=''
+  fi
+  if [[ -z $_FUXX_AS_STATE ]]; then
+    _FUXX_AS_HISTNUM=$n
+    _fuxx_as_start
+    return 0
+  fi
+  [[ $_FUXX_AS_STATE == on ]] || return 0
+  _fuxx_as_drain || return 0
+  [[ -n $n && $n != "$_FUXX_AS_HISTNUM" ]] || return 0
+  _FUXX_AS_HISTNUM=$n
+  (( ${#entry} > 1000 )) && return 0
+  [[ $entry == *[$'\x1f\x1e']* ]] && return 0   # the wire can't carry them
+  _fuxx_as_now
+  _fuxx_as_send ran "$cwd" "$st" "$REPLY" "$entry" \
+    && _fuxx_as_send prev "$entry" "$st" \
+    || { _fuxx_as_stop kill write-failed; return 0; }
+  # Reports get no answer, so a ping (an empty `suggest`) now and then shows the core reads
+  # them; without one, the byte count above would stop a healthy core after a few dozen reports.
+  if [[ -z $_FUXX_AS_PING ]] && (( _FUXX_AS_UNREAD > 2048 )); then
+    local id=$_FUXX_AS_NEXT_ID
+    _FUXX_AS_NEXT_ID=$(( id + 1 ))
+    _fuxx_as_send suggest "$id" async 0 / '' || { _fuxx_as_stop kill write-failed; return 0; }
+    _FUXX_AS_PING=$id
+  fi
+  return 0
+}
+
+# Our entry goes first in PROMPT_COMMAND (an array from bash 5.1, else a string), once.
+_fuxx_as_hook_prompt() {
+  [[ $_FUXX_AS_STATE == off ]] && return 0
+  local decl
+  decl=$(declare -p PROMPT_COMMAND 2>/dev/null)
+  if [[ $decl == 'declare -a'* ]]; then
+    local e
+    for e in "${PROMPT_COMMAND[@]}"; do
+      [[ $e == _fuxx_as_prompt ]] && return 0
+    done
+    PROMPT_COMMAND=(_fuxx_as_prompt "${PROMPT_COMMAND[@]}")
+  else
+    case $'\n'${PROMPT_COMMAND-}$'\n' in
+      *$'\n'_fuxx_as_prompt$'\n'*) return 0 ;;
+    esac
+    PROMPT_COMMAND=_fuxx_as_prompt${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}
+  fi
+}
+_fuxx_as_hook_prompt
+
+# ---- doctor and why (design §7) ----
+
+# What this shell knows for `doctor`, one `name=value` per line.
+_fuxx_as_facts() {
+  local k hist=${HISTFILE-}
+  [[ -n $hist && $hist != /* ]] && hist=$PWD/$hist
+  printf '%s\n' shell=bash "version=$BASH_VERSION" "state=${_FUXX_AS_STATE:-starting}" \
+    "why=${_FUXX_AS_WHY-}" "file=${_FUXX_AS_FILE-}"
+  for k in ${_FUXX_AS_SECOND[@]+"${_FUXX_AS_SECOND[@]}"}; do printf 'second=%s\n' "$k"; done
+  printf 'data=%s\n' "${_FUXX_AS_DATA-}"
+  if (( BASH_VERSINFO[0] >= 4 )); then
+    for k in ${_FUXX_AS_KEYS[@]+"${!_FUXX_AS_KEYS[@]}"}; do printf 'key=%s %s\n' "$k" "${_FUXX_AS_KEYS[$k]}"; done
+  fi
+  printf 'histfile=%s\n' "$hist"
+}
+
+# `fuxx-completes forget`, `doctor` and `why` typed at this prompt: the binary runs with this
+# adapter's copy of FUXX_PLUGIN_DATA, `doctor` gets the shell's facts and `why` this folder and
+# history file. Defined only when the user has no function or alias of that name.
+if (( _FUXX_AS_OWN_FN )) || { ! declare -F fuxx-completes >/dev/null 2>&1 && ! alias fuxx-completes >/dev/null 2>&1; }; then
+  _FUXX_AS_OWN_FN=1
+  fuxx-completes() {
+    local bin=${FUXX_COMPLETES_BIN:-}
+    [[ -n $bin ]] || bin=$(type -P fuxx-completes 2>/dev/null)
+    if [[ -z $bin ]]; then
+      printf '%s\n' 'fuxx-completes: not found on PATH' >&2
+      return 127
+    fi
+    if [[ ${1-} == doctor ]]; then
+      shift
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" doctor --shell-facts "$(_fuxx_as_facts)" "$@"
+    elif [[ ${1-} == why ]]; then
+      shift
+      local hist=${HISTFILE-}
+      local -a hf=()
+      [[ -n $hist && $hist != /* ]] && hist=$PWD/$hist
+      [[ -n $hist ]] && hf=(--histfile "$hist")
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" why --format bash --cwd "$PWD" ${hf[@]+"${hf[@]}"} -- "$@"
+    else
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" "$@"
+    fi
+  }
+fi

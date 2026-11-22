@@ -41,6 +41,8 @@ pub struct BashState {
     pub state: String,
     /// `_FUXX_AS_WHY`
     pub why: String,
+    /// `_FUXX_AS_DIR`: the pipes' folder, until the adapter read the core's `ready`.
+    pub pipes: String,
 }
 
 pub struct BashHarness {
@@ -73,6 +75,9 @@ impl BashHarness {
         }
         std::fs::write(home_path.join(".bash_history"), hist).unwrap();
         std::fs::write(home_path.join(".inputrc"), "").unwrap();
+        // The adapter's pipe folder goes under the temp HOME, so a core that never says `ready`
+        // (a stub) leaves nothing behind in /tmp.
+        std::fs::create_dir_all(home_path.join("tmp")).unwrap();
 
         let plugin = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../adapters/bash/fuxx-autosuggestions.bash");
@@ -89,7 +94,7 @@ impl BashHarness {
              HISTFILE=$HOME/.bash_history; HISTSIZE=1000; HISTFILESIZE=1000; PS1='{PROMPT}'\n\
              [ -f '{plugin}' ] && source '{plugin}'\n\
              _fuxx_test_dump() {{\n\
-               printf '%s\\037%s\\037%s\\037%s\\037END' \"$READLINE_LINE\" \"$READLINE_POINT\" \"${{_FUXX_AS_STATE-}}\" \"${{_FUXX_AS_WHY-}}\" > \"$HOME/dump\"\n\
+               printf '%s\\037%s\\037%s\\037%s\\037%s\\037END' \"$READLINE_LINE\" \"$READLINE_POINT\" \"${{_FUXX_AS_STATE-}}\" \"${{_FUXX_AS_WHY-}}\" \"${{_FUXX_AS_DIR-}}\" > \"$HOME/dump\"\n\
              }}\n\
              # bind -x can't take a sequence longer than two keys before bash 4.3 (CHANGES 4.3-alpha pp):\n\
              # there the dump key is a macro for a two-key sequence bound with bind -x.\n\
@@ -106,13 +111,18 @@ impl BashHarness {
         std::fs::write(home_path.join(".bashrc"), rc).unwrap();
 
         let core = core_path(&home_path, opts.core_script, opts.core_bin);
-        let mut cmd = clean_command(&bash, &home_path);
-        cmd.args(["--noprofile", "--rcfile"])
+        // The pty library turns the terminal's echo off before the shell starts; a real terminal
+        // has it on, and readline before bash 4.4 echoes typed keys only when it is on, so turn
+        // it back on first.
+        let mut cmd = clean_command("/bin/sh", &home_path);
+        cmd.args(["-c", "stty echo 2>/dev/null; exec \"$@\"", "sh", &bash])
+            .args(["--noprofile", "--rcfile"])
             .arg(home_path.join(".bashrc"))
             .arg("-i")
             .env("INPUTRC", home_path.join(".inputrc"))
             .env("HISTFILE", home_path.join(".bash_history"))
             .env("BASH_SILENCE_DEPRECATION_WARNING", "1")
+            .env("TMPDIR", home_path.join("tmp"))
             .env("FUXX_COMPLETES_BIN", core);
         for (k, v) in &opts.env {
             cmd.env(k, v);
@@ -189,9 +199,11 @@ impl BashHarness {
     }
 
     fn parse_dump(&self, text: &str) -> BashState {
-        // line US point US state US why US END; the line may hold a US byte, so split from the right.
-        let mut it = text.rsplitn(5, US);
+        // line US point US state US why US pipes US END; the line may hold a US byte, so split
+        // from the right.
+        let mut it = text.rsplitn(6, US);
         let _end = it.next();
+        let pipes = it.next().unwrap_or("").to_string();
         let why = it.next().unwrap_or("");
         let state = it.next().unwrap_or("");
         let point: usize = it.next().unwrap_or("0").parse().unwrap_or(0);
@@ -209,6 +221,7 @@ impl BashHarness {
             point,
             state: state.to_string(),
             why: why.to_string(),
+            pipes,
         }
     }
 

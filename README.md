@@ -5,7 +5,7 @@ engine that doesn't rely on any shell's completion system.
 
 > **Status: pre-alpha: the zsh ghost text is built from source (M0) and waiting for a check in a
 > real terminal; nothing to install yet.** The design is in [`docs/design.md`](docs/design.md), the
-> progress in [`docs/roadmap.md`](docs/roadmap.md). The menu and bash and fish are not built.
+> progress in [`docs/roadmap.md`](docs/roadmap.md). The menu is not built; bash and fish are being built (M2).
 
 ## The two libraries
 
@@ -94,10 +94,10 @@ A menu while you type: commands, subcommands, flags, arguments, git branches, fi
 | | Ghost text | Menu |
 | --- | --- | --- |
 | **zsh** | Yes, as you type (first target) | Yes, as you type, below the line; Tab stays zsh's |
-| **bash** | Plain readline (bash 4.0+): key-driven only, it can't show ghost text. ble.sh (bash 3.0+): open question | Key-driven |
+| **bash** | Plain readline (bash 4.0+): built (M2), key-driven only: → or End at the end of the line inserts the best suggestion; it can't show ghost text. With ble.sh (bash 4.0+), ble.sh's own grey text shows ours | Key-driven |
 | **fish** | No: fish has its own, and ours stays off | On Tab, in fish's own pager, only for commands fish has no completions for |
 
-Versions: zsh 5.3+, bash 4.0+ (or 3.0+ with ble.sh), fish 3.0+. macOS first, Linux later, no
+Versions: zsh 5.3+, bash 4.0+ (with or without ble.sh), fish 3.0+. macOS first, Linux later, no
 Windows.
 
 Works in most terminals: Ghostty, iTerm, Terminal.app and others. **Not in Warp:** Warp's own input
@@ -107,7 +107,10 @@ already use zsh-autosuggestions or zsh-autocomplete, the matching fuxx library s
 takes ⌃R, ⌃T or Tab from you.
 
 In bash, the accept and menu keys may wait up to 50 ms for an answer (and do nothing if it's
-late); typing itself never waits, in any shell.
+late); typing itself never waits, in any shell. To use it in bash, put
+`source /path/to/adapters/bash/fuxx-autosuggestions.bash` at the end of `~/.bashrc` (with the
+`fuxx-completes` binary on `PATH`); [`adapters/bash/README.md`](adapters/bash/README.md) says
+what it can and can't do.
 
 ## Architecture
 
