@@ -32,6 +32,19 @@ vi command mode is left alone.
 
 - **No grey text as you type.** Plain readline has no `POSTDISPLAY` and no per-keystroke hook,
   and drawing behind readline's back breaks on redraw. ble.sh users get grey text (below).
+
+## With ble.sh
+
+[ble.sh](https://github.com/akinomyoga/ble.sh) (0.4 or later, on bash 4.0+) replaces readline
+and draws its own grey auto-complete. When it is loaded, this adapter feeds it: our best
+suggestion goes first in ble.sh's list, so ble.sh shows ours as its own grey text and its keys
+(→, End, ⌃E, ⌃F) take it. Load ble.sh as its README says (`source ble.sh --noattach` at the top
+of `~/.bashrc`, `ble-attach` at the end) and source this file before `ble-attach`. While ble.sh
+is idle our source waits at most 50 ms for the core, checking every 5 ms, and stops the moment you
+press a key. This uses an interface ble.sh's manual doesn't document (atuin uses the same one),
+so a ble.sh update could break it. If atuin's ble.sh source is there too, ours steps aside.
+The first command of a ble.sh session isn't reported (ble.sh loads the history after the first
+prompt), and the first line you type may get no grey text while ble.sh loads its completion code.
 - **bash 4.0–4.3:** every `bind -x` key moves to a new line and redraws the prompt (fixed in bash
   4.4), so there → is left to readline and only End inserts; each End press leaves the old line
   above. bash before 4.3 can't `bind -x` a key longer than two bytes, so End is a readline macro

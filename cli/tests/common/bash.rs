@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 pub const PROMPT: &str = "READY> ";
 const US: char = '\u{1f}';
 const DUMP_KEY: &str = "\x1b[9999~";
+/// Under ble.sh the dump is bound with `ble-bind -x` to ⌃X d.
+const BLE_DUMP_KEY: &str = "\x18d";
 
 #[derive(Default)]
 pub struct BashOpts {
@@ -29,6 +31,8 @@ pub struct BashOpts {
     pub bash: Option<String>,
     /// The terminal's size (columns, rows); default 120×40.
     pub size: Option<(u16, u16)>,
+    /// Run with the temp HOME before the shell starts (to seed data files).
+    pub setup: Option<fn(&Path)>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -48,6 +52,7 @@ pub struct BashState {
 pub struct BashHarness {
     pty: Pty,
     major: u32,
+    blesh: bool,
 }
 
 /// bash's major version (`BASH_VERSINFO[0]`).
@@ -75,6 +80,10 @@ impl BashHarness {
         }
         std::fs::write(home_path.join(".bash_history"), hist).unwrap();
         std::fs::write(home_path.join(".inputrc"), "").unwrap();
+        // ble.sh wants its cache folder to exist and USER set.
+        for d in [".cache", ".local/state"] {
+            std::fs::create_dir_all(home_path.join(d)).unwrap();
+        }
         // The adapter's pipe folder goes under the temp HOME, so a core that never says `ready`
         // (a stub) leaves nothing behind in /tmp.
         std::fs::create_dir_all(home_path.join("tmp")).unwrap();
@@ -84,7 +93,8 @@ impl BashHarness {
         let (ble_load, ble_attach) = if opts.blesh {
             (
                 format!("source '{}' --noattach\n", super::blesh_path()),
-                "[[ ${BLE_VERSION-} ]] && ble-attach\n".to_string(),
+                "[[ ${BLE_VERSION-} ]] && { ble-bind -x 'C-x d' _fuxx_test_dump; ble-attach; }\n"
+                    .to_string(),
             )
         } else {
             (String::new(), String::new())
@@ -110,6 +120,18 @@ impl BashHarness {
         );
         std::fs::write(home_path.join(".bashrc"), rc).unwrap();
 
+        if let Some(setup) = opts.setup {
+            setup(&home_path);
+        }
+        if opts.blesh {
+            // No character-width probing (it asks the terminal where the cursor is) and no paste
+            // detection (the harness types a line and Enter in one write).
+            std::fs::write(
+                home_path.join(".blerc"),
+                "bleopt char_width_mode=east\nbleopt accept_line_threshold=-1\n",
+            )
+            .unwrap();
+        }
         let core = core_path(&home_path, opts.core_script, opts.core_bin);
         // The pty library turns the terminal's echo off before the shell starts; a real terminal
         // has it on, and readline before bash 4.4 echoes typed keys only when it is on, so turn
@@ -123,15 +145,28 @@ impl BashHarness {
             .env("HISTFILE", home_path.join(".bash_history"))
             .env("BASH_SILENCE_DEPRECATION_WARNING", "1")
             .env("TMPDIR", home_path.join("tmp"))
+            .env("USER", "tester")
             .env("FUXX_COMPLETES_BIN", core);
+        if opts.blesh {
+            // ble.sh's caches (keymaps, terminfo) are shared by the tests, so it builds them once.
+            let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/blesh/test-cache");
+            std::fs::create_dir_all(&cache).unwrap();
+            cmd.env("XDG_CACHE_HOME", cache);
+        }
         for (k, v) in &opts.env {
             cmd.env(k, v);
         }
         let major = bash_major(&bash);
+        // (ble.sh asks the terminal for device attributes and the cursor position but doesn't
+        // wait for the answers; left unanswered, as script(1) leaves them.)
         let pty = Pty::spawn(cmd, opts.size, (home, home_path));
-        let mut b = BashHarness { pty, major };
+        let mut b = BashHarness {
+            pty,
+            major,
+            blesh: opts.blesh,
+        };
         assert!(
-            b.pty.wait_for(0, PROMPT, Duration::from_secs(10)),
+            b.pty.wait_for(0, PROMPT, Duration::from_secs(20)),
             "no prompt within 10 s; output so far: {:?}",
             b.screen_since_start()
         );
@@ -164,7 +199,7 @@ impl BashHarness {
     pub fn state(&mut self) -> BashState {
         let dump = self.home().join("dump");
         let _ = std::fs::remove_file(&dump);
-        self.send(DUMP_KEY);
+        self.send(if self.blesh { BLE_DUMP_KEY } else { DUMP_KEY });
         let end = Instant::now() + Duration::from_secs(3);
         loop {
             self.pty.pump();
@@ -208,7 +243,8 @@ impl BashHarness {
         let state = it.next().unwrap_or("");
         let point: usize = it.next().unwrap_or("0").parse().unwrap_or(0);
         let buffer = it.next().unwrap_or("").to_string();
-        let point = if self.major < 5 {
+        // ble.sh's READLINE_POINT counts characters in every bash.
+        let point = if self.major < 5 && !self.blesh {
             let bytes = buffer.as_bytes();
             String::from_utf8_lossy(&bytes[..point.min(bytes.len())])
                 .chars()

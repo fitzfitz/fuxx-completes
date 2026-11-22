@@ -169,6 +169,7 @@ has nowhere to go. For bash only:
 | Core answers a `sync` suggestion request | under 10 ms at p95 (same as above) |
 | Core answers a `sync` menu request | under 30 ms at p95; generators are never awaited, only cached generator values are included |
 | Keys that only type | never wait; the bash adapter binds no typing keys |
+| ble.sh's grey text (M2, the user's decision 2026-11-23) | our source runs inside ble.sh's idle task (never while a key waits), checks for the answer every 5 ms for at most 50 ms, and returns at once when a key arrives (ble.sh then goes on with the key) |
 
 The interactive bash menu blocks the line only while it is open: it is a modal loop the user
 opened with a key and closes with Enter or Esc. Each filter keystroke inside it is an explicit
@@ -1105,6 +1106,20 @@ Honest about what each shell allows.
   interface is ble.sh's internal one (the manual documents no way to add a source; atuin ships on
   the same one). The source waits for the core inside ble.sh's idle task, checking every 5 ms for
   at most 50 ms, and gives up the moment a key arrives (AGENTS rule 6's second stated wait).
+  **As built (M2 Task 4, AI's calls):** when `BLE_VERSION` is set and `_ble_version` is 0.4 or
+  later, the adapter registers `ble/complete/auto-complete/source:fuxx-autosuggestions` with
+  `ble/util/import/eval-after-load core-complete 'ble/array#unshift _ble_complete_auto_source
+  fuxx-autosuggestions'` and binds none of its plain-readline keys (ble.sh reads the keys). The
+  source answers only with the cursor at the end, sends `suggest … sync …` with ble.sh's line
+  and cursor (characters), and shows the answer with `ble/complete/auto-complete/enter h 0 <rest>
+  '' <whole line>`, as ble.sh's own history source does, so →, End, ⌃E and ⌃F take it; no answer
+  in time lets ble.sh's own sources try. Reports, the core and `doctor` work as in plain bash.
+  ble.sh before 0.4 is a conflict (`conflict:ble.sh`); atuin's ble.sh source
+  (`atuin-history` in the list) makes us step aside (`conflict:atuin`). Limits found: ble.sh
+  loads bash's history after the first prompt, so the first command of a ble.sh session is not
+  reported; ble.sh loads its completion module lazily, so the first line typed may get no grey
+  text; and on the bash 4.0 built here ble.sh 0.4.0-devel3 showed no grey text at all, its own
+  included (checked by hand 2026-11-23), so the ble.sh tests run on bash 5.3 (the plan's matrix).
 - **The list in bash (the user's decision, 2026-11-23, U3 = A1):** no list of 5. The explicit key
   inserts the best suggestion; on an empty line after a failed command the same key inserts the
   fix (the core already answers an empty `suggest` with it).

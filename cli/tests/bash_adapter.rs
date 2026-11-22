@@ -589,3 +589,171 @@ fn doctor_and_why_through_the_function() {
         format!("why --format bash --cwd {home} --histfile {home}/.bash_history -- git status");
     assert!(args.lines().any(|l| l == want), "{args:?}");
 }
+
+// ---- ble.sh (Task 4; the user's decision U1 = B2) ----
+
+fn blesh(opts: BashOpts) -> BashHarness {
+    BashHarness::start(BashOpts {
+        blesh: true,
+        ..opts
+    })
+}
+
+/// The plan's matrix pairs ble.sh with the newest bash (5.3); on the bash 4.0 built here ble.sh
+/// showed no grey text of its own either (checked by hand, 2026-11-23), so the ble.sh tests run
+/// only there.
+fn blesh_bash_ok() -> bool {
+    version() >= (5, 3)
+}
+
+/// ble.sh starts many processes; one ble.sh shell at a time keeps the other tests' timing sane.
+static BLE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn ble_lock() -> std::sync::MutexGuard<'static, ()> {
+    BLE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[test]
+fn blesh_shows_our_ranking() {
+    use fuxx_completes_core::context::record::Record;
+    use fuxx_completes_core::context::secret::Secret;
+    use fuxx_completes_core::context::store::{append, own_file_id};
+    if !blesh_bash_ok() {
+        return;
+    }
+    let _one = ble_lock();
+    // A record: `git stash` succeeded in this folder, so it ranks above the newer `git status`.
+    fn seed(home: &std::path::Path) {
+        let root = home.join(".local/share/fuxx-completes");
+        let secret = Secret::load_or_create(&root).unwrap();
+        let rec = Record {
+            key: secret.key_of("git stash"),
+            folder: home.to_path_buf(),
+            status: 0,
+            time: 1_700_000_100,
+        };
+        append(
+            &root,
+            &own_file_id(&secret, &home.join(".bash_history")),
+            &[rec],
+        )
+        .unwrap();
+    }
+    let mut b = blesh(BashOpts {
+        history: vec!["git stash", "git status"],
+        setup: Some(seed),
+        ..Default::default()
+    });
+    settle(&mut b);
+    b.send("git st");
+    assert!(b.wait_screen("ash"), "no grey text: {:?}", b.screen_now());
+    b.send(END);
+    let s = b.wait_state(|s| s.buffer == "git stash");
+    assert_eq!(s.point, 9);
+}
+
+#[test]
+fn blesh_gives_way_to_typing() {
+    if !blesh_bash_ok() {
+        return;
+    }
+    let _one = ble_lock();
+    let mut b = blesh(BashOpts {
+        core_script: Some(SLOW),
+        ..Default::default()
+    });
+    settle(&mut b);
+    let t = Instant::now();
+    b.send("abc");
+    let s = b.wait_state(|s| s.buffer == "abc");
+    assert!(
+        t.elapsed() < Duration::from_millis(300),
+        "{:?}",
+        t.elapsed()
+    );
+    assert_eq!(s.state, "on");
+    std::thread::sleep(Duration::from_millis(1300));
+    assert!(!b.screen_now().contains("tatus"), "a late answer was shown");
+}
+
+#[test]
+fn blesh_beside_atuin_stays_off() {
+    if !blesh_bash_ok() {
+        return;
+    }
+    let _one = ble_lock();
+    let mut b = blesh(BashOpts {
+        core_script: Some(RECORDER),
+        rc_after: "function ble/complete/auto-complete/source:atuin-history { return 1; }\n\
+                   ble/util/import/eval-after-load core-complete \
+                   'ble/array#unshift _ble_complete_auto_source atuin-history'"
+            .into(),
+        ..git_history()
+    });
+    settle(&mut b);
+    b.send("git s");
+    // No key while ble.sh is idle (a state dump is a key, and ble.sh asks its sources only when
+    // no key is waiting).
+    std::thread::sleep(Duration::from_millis(1000));
+    let s = b.state();
+    assert_eq!(
+        (s.state.as_str(), s.why.as_str()),
+        ("off", "conflict:atuin")
+    );
+    assert!(
+        !wire(&b).lines().any(|l| l.starts_with("suggest")),
+        "{:?}",
+        wire(&b)
+    );
+}
+
+#[test]
+fn blesh_reports_commands() {
+    if !blesh_bash_ok() {
+        return;
+    }
+    let _one = ble_lock();
+    let mut b = blesh(BashOpts {
+        core_script: Some(RECORDER),
+        ..Default::default()
+    });
+    let home = b.home().display().to_string();
+    settle(&mut b);
+    b.run("false");
+    b.run("echo two");
+    assert!(
+        poll(Duration::from_secs(3), || wire(&b)
+            .contains(&format!("{US}echo two"))),
+        "{:?}",
+        wire(&b)
+    );
+    let w = wire(&b);
+    assert!(
+        w.lines()
+            .any(|l| l.starts_with(&format!("ran{US}{home}{US}1{US}")) && l.ends_with("false")),
+        "{w:?}"
+    );
+}
+
+#[test]
+fn blesh_on_bash_3_2_stays_off() {
+    if !blesh_bash_ok() {
+        return; // it doesn't use the bash under test; once per matrix is enough
+    }
+    let _one = ble_lock();
+    let mut b = BashHarness::start(BashOpts {
+        bash: Some("/bin/bash".into()),
+        blesh: true,
+        ..git_history()
+    });
+    b.run("echo one");
+    // (ble.sh's `ble-bind -x` dump key doesn't work on bash 3.2; doctor tells the state.)
+    b.run("fuxx-completes doctor");
+    b.run("echo \"pid=[${_FUXX_AS_PID-}]\"");
+    let screen = printable(&b.screen_now());
+    assert!(
+        screen.contains("state        off (bash-too-old)"),
+        "{screen}"
+    );
+    assert!(screen.contains("pid=[]"), "no core started: {screen}");
+}

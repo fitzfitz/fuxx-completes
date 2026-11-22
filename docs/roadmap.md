@@ -31,6 +31,15 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M2 Task 4: ble.sh shows our suggestions.** Under ble.sh 0.4+ the bash adapter
+  registers a source first in ble.sh's auto-complete list, so ble.sh's grey text is our ranking
+  (a `git stash` that worked here beats a newer `git status`); it polls the core every 5 ms for
+  at most 50 ms inside ble.sh's idle task and gives way the moment a key arrives; beside atuin's
+  ble.sh source it steps aside. Found: ble.sh loads bash's history after the first prompt (a
+  baseline fix keeps that from being reported as a command), and on bash 4.0 ble.sh showed no
+  grey text even of its own, so the ble.sh tests run on bash 5.3 as planned. 23 bash tests pass
+  on 4.0 and 5.3 (ble.sh ones on 5.3). `design.md` §3, §6; `adapters/bash/README.md`.
+
 - **2026-11-23** — **M2 Task 3: the bash adapter.** `adapters/bash/fuxx-autosuggestions.bash`:
   → and End at the end of the line insert the best suggestion (the fix on an empty line after a
   failure), waiting at most 50 ms; mid-line they move as before; a user's binding is kept. A

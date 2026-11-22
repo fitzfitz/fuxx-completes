@@ -59,6 +59,7 @@ if [[ -z ${_FUXX_AS_STATE+set} ]]; then
   _FUXX_AS_HISTNUM='' _FUXX_AS_CWD=$PWD
   _FUXX_AS_T0='' _FUXX_AS_S0=0
   _FUXX_AS_OWN_FN=0
+  _FUXX_AS_BLE=''   # `fed` once our ble.sh source is registered, `atuin` when atuin's is there
   if (( BASH_VERSINFO[0] < 4 )); then
     _FUXX_AS_STATE=off _FUXX_AS_WHY=bash-too-old
   else
@@ -201,7 +202,8 @@ _fuxx_as_start() {
     read -r _FUXX_AS_T0 < <(command date +%s 2>/dev/null)
     _FUXX_AS_S0=$SECONDS
   fi
-  _fuxx_as_bind_keys
+  # Under ble.sh its own editor reads the keys: our source feeds its grey text instead.
+  [[ -n ${BLE_VERSION-} ]] || _fuxx_as_bind_keys
 }
 
 # `_fuxx_as_stop kill [why]`: the core may still be alive, so end it. `_fuxx_as_stop gone [why]`:
@@ -298,20 +300,20 @@ _fuxx_as_now() {
   fi
 }
 
-# Asks for the suggestion for the current line and waits at most 50 ms (design §3): REPLY gets
-# the text after the buffer, or the function returns 1 (no answer in time, none, or core gone).
-# A late answer is dropped by its id at the next drain.
+# _fuxx_as_sync_suggest <buffer> <cursor in characters> [ble]: asks for the suggestion and waits
+# at most 50 ms (design §3): REPLY gets the text after the buffer, or the function returns 1 (no
+# answer in time, none, or the core is gone). A late answer is dropped by its id at the next
+# drain. With `ble` (ble.sh's idle task, AGENTS rule 6's second stated wait) it checks every 5 ms
+# and returns 148 the moment a key is waiting.
 _fuxx_as_sync_suggest() {
+  local buffer=$1 cursor=$2 ble=${3-}
   REPLY=''
   [[ $_FUXX_AS_STATE == on ]] || return 1
   _fuxx_as_drain || return 1
-  local buffer=$READLINE_LINE
   (( ${#buffer} > 1000 )) && return 1
   [[ $buffer == *[$'\x1f\x1e']* ]] && return 1
-  local id=$_FUXX_AS_NEXT_ID cursor
+  local id=$_FUXX_AS_NEXT_ID
   _FUXX_AS_NEXT_ID=$(( id + 1 ))
-  _fuxx_as_point_chars
-  cursor=$REPLY
   local -a f=(suggest "$id" sync "$cursor" "$PWD" "$buffer")
   # CDPATH goes along, one folder per line (design §5.4); left off when `cd`/`pushd` is an
   # alias or function, `cdable_vars` is on, or a folder holds a control character.
@@ -321,18 +323,32 @@ _fuxx_as_sync_suggest() {
     f+=("${cdp//:/$nl}")
   fi
   _fuxx_as_send "${f[@]}" || { _fuxx_as_stop kill write-failed; return 1; }
-  # Read until this request's answer or 50 ms. bash 5.0+ has a clock; 4.x waits once, then only
-  # takes lines already there.
-  local line t now deadline='' st
+  # Read until this request's answer or 50 ms. bash 5.0+ has a clock; 4.x waits once (or, under
+  # ble.sh, ten 5 ms slices), then only takes lines already there.
+  local line t now deadline='' st slices=10
   if [[ -n ${EPOCHREALTIME-} ]]; then
     now=${EPOCHREALTIME//[!0-9]/}
     deadline=$(( 10#$now + 50000 ))
   fi
   t=0.05
+  [[ -n $ble ]] && t=0.005
   while :; do
+    if [[ -n $ble ]] && ble/decode/has-input; then
+      return 148
+    fi
     IFS= read -r -t "$t" -u "$_FUXX_AS_RFD" line 2>/dev/null
     st=$?
     if (( st > 128 )); then
+      if [[ -n $ble ]]; then
+        # One 5 ms slice is over: go on until 50 ms.
+        if [[ -n $deadline ]]; then
+          now=${EPOCHREALTIME//[!0-9]/}
+          (( 10#$now >= deadline )) && return 1
+        else
+          (( --slices > 0 )) || return 1
+        fi
+        continue
+      fi
       return 1   # timed out
     elif (( st != 0 )); then
       _fuxx_as_stop gone exited
@@ -347,8 +363,8 @@ _fuxx_as_sync_suggest() {
     if [[ -n $deadline ]]; then
       now=${EPOCHREALTIME//[!0-9]/}
       (( 10#$now >= deadline )) && return 1
-      printf -v t '0.%06d' $(( deadline - 10#$now ))
-    else
+      [[ -n $ble ]] || printf -v t '0.%06d' $(( deadline - 10#$now ))
+    elif [[ -z $ble ]]; then
       read -t 0 -u "$_FUXX_AS_RFD" 2>/dev/null || return 1
       t=0.001
     fi
@@ -387,7 +403,8 @@ _fuxx_as_key_end() {
 }
 
 _fuxx_as_accept() {
-  _fuxx_as_sync_suggest || return 0
+  _fuxx_as_point_chars
+  _fuxx_as_sync_suggest "$READLINE_LINE" "$REPLY" || return 0
   READLINE_LINE+=$REPLY
   _fuxx_as_set_point "${#READLINE_LINE}"
 }
@@ -468,8 +485,10 @@ _fuxx_as_conflict() {
   REPLY=''
   if [[ ${TERM_PROGRAM-} == WarpTerminal ]]; then
     REPLY=conflict:warp
-  elif [[ -n ${BLE_VERSION-} ]]; then
-    REPLY=conflict:ble.sh
+  elif [[ -n ${BLE_VERSION-} ]] && (( ${_ble_version:-0} < 400 )); then
+    REPLY=conflict:ble.sh   # ble.sh before 0.4 has no auto-complete source list to feed
+  elif [[ $_FUXX_AS_BLE == atuin ]]; then
+    REPLY=conflict:atuin
   fi
 }
 
@@ -518,6 +537,13 @@ _fuxx_as_prompt_work() {
   [[ $_FUXX_AS_STATE == on ]] || return 0
   _fuxx_as_drain || return 0
   [[ -n $n && $n != "$_FUXX_AS_HISTNUM" ]] || return 0
+  if [[ -z $_FUXX_AS_HISTNUM ]] && (( n > 1 )); then
+    # The list was empty at the first prompt and now holds more than one entry: the history file
+    # was loaded since (ble.sh loads it after the first prompt), so the newest entry may not have
+    # run here. Start counting from it.
+    _FUXX_AS_HISTNUM=$n
+    return 0
+  fi
   _FUXX_AS_HISTNUM=$n
   (( ${#entry} > 1000 )) && return 0
   [[ $entry == *[$'\x1f\x1e']* ]] && return 0   # the wire can't carry them
@@ -555,6 +581,41 @@ _fuxx_as_hook_prompt() {
   fi
 }
 _fuxx_as_hook_prompt
+
+# ---- ble.sh (the user's decision, 2026-11-23: we feed its grey text; design §6 bash) ----
+
+# ble.sh's auto-complete calls its sources in `_ble_complete_auto_source` order when the line has
+# been idle; ours goes first, so ble.sh draws our best suggestion as its own grey text (→, End,
+# ⌃E and ⌃F take it, as with ble.sh's own). The interface is ble.sh's internal one (atuin uses the
+# same). Returns 0 when shown, 1 for nothing (ble.sh then tries its own sources), 148 when a key
+# arrived meanwhile.
+function ble/complete/auto-complete/source:fuxx-autosuggestions {
+  [[ $_FUXX_AS_STATE == on && $_FUXX_AS_BLE == fed ]] || return 1
+  local s
+  for s in "${_ble_complete_auto_source[@]}"; do
+    if [[ $s == atuin-history ]]; then
+      # atuin feeds ble.sh too: two sources for one line, so we step aside (design §9).
+      _FUXX_AS_BLE=atuin
+      _fuxx_as_stop kill conflict:atuin
+      return 1
+    fi
+  done
+  (( _ble_edit_ind == ${#_ble_edit_str} )) || return 1
+  _fuxx_as_sync_suggest "$_ble_edit_str" "$_ble_edit_ind" ble
+  local ext=$?
+  (( ext == 0 )) || return "$ext"
+  ble/complete/auto-complete/enter h 0 "$REPLY" '' "$_ble_edit_str$REPLY"
+}
+
+# Registers the source once ble.sh has loaded its completion module (bash 4.0+, ble.sh 0.4+).
+_fuxx_as_hook_blesh() {
+  [[ -n ${BLE_VERSION-} && $_FUXX_AS_STATE != off && -z ${_FUXX_AS_BLE-} ]] || return 0
+  (( ${_ble_version:-0} >= 400 )) || return 0
+  _FUXX_AS_BLE=fed
+  ble/util/import/eval-after-load core-complete \
+    'ble/array#unshift _ble_complete_auto_source fuxx-autosuggestions' 2>/dev/null
+}
+_fuxx_as_hook_blesh
 
 # ---- doctor and why (design §7) ----
 

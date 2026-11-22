@@ -71,7 +71,7 @@ impl Pty {
         }
     }
 
-    /// From now on, answer primary device attributes (`ESC [ c`, `ESC [ 0 c`) and cursor
+    /// From now on, answer device attributes (`ESC [ c`, `ESC [ 0 c`, `ESC [ > c`) and cursor
     /// position (`ESC [ 6 n`) queries as a VT220-class terminal would.
     pub fn answer_queries(&mut self) {
         self.answer_queries = true;
@@ -81,9 +81,10 @@ impl Pty {
         if !self.answer_queries {
             return;
         }
-        const QUERIES: [(&[u8], &[u8]); 3] = [
+        const QUERIES: [(&[u8], &[u8]); 4] = [
             (b"\x1b[0c", b"\x1b[?62;22c"),
             (b"\x1b[c", b"\x1b[?62;22c"),
+            (b"\x1b[>c", b"\x1b[>0;0;0c"),
             (b"\x1b[6n", b"\x1b[1;1R"),
         ];
         // A query counts once: when its last byte is past what the previous scan saw. Starting

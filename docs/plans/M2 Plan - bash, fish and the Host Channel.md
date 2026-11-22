@@ -257,17 +257,17 @@ fuxx-autosuggestions'`), only when `BLE_VERSION` is set, `_ble_version >= 400`, 
 `_ble_complete_auto_source` holds no `atuin-history` (then off, `conflict:atuin`); the plain-readline
 keys are not bound under ble.sh.
 
-- [ ] **Step 1: Failing tests** (bash 5.3 + `FUXX_TEST_BLESH`): `blesh_shows_our_ranking` (history
+- [x] **Step 1: Failing tests** (bash 5.3 + `FUXX_TEST_BLESH`): `blesh_shows_our_ranking` (history
   `git stash` then `git status`, context record: `git stash` succeeded in the cwd → typing `git st`
   then End (ble.sh's `auto_complete/@end insert`) gives `git stash`; ble.sh alone would give
   `git status`); `blesh_gives_way_to_typing` (stub answers after 1 s: `abc` typed at once is in the
   buffer within 100 ms; no ghost text); `blesh_beside_atuin_stays_off`; `blesh_reports_commands`
   (`ran` recorded under ble.sh); `blesh_on_bash_3_2_stays_off`.
-- [ ] **Step 2:** run (fail); implement: the source returns 1 unless the cursor is at the end; sends
+- [x] **Step 2:** run (fail); implement: the source returns 1 unless the cursor is at the end; sends
   `suggest … sync …`; polls the reply in `read -t 0.005` slices up to 50 ms, returning 148 at once when
   `ble/decode/has-input` is true; shows the answer with `ble/complete/auto-complete/enter h 0 <rest> ''
   <whole>`. Run (pass).
-- [ ] **Step 3:** gate + bash matrix. **Docs:** design §3 and §6 bash (ble.sh: bash 4.0+ only, the
+- [x] **Step 3:** gate + bash matrix. **Docs:** design §3 and §6 bash (ble.sh: bash 4.0+ only, the
   internal interface, the poll), §9 row, §17 q2 answered, AGENTS.md rule 6 (the ble.sh poll, with the
   user's approval of U1); roadmap. Commit `feat(bash): feed ble.sh's auto-complete`.
 
