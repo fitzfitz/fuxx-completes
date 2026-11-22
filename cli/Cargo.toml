@@ -5,14 +5,18 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [[bin]]
 name = "fuxx-completes"
 path = "src/main.rs"
 
 [dependencies]
-fuxx-completes-core = { path = "../core" }
-fuxx-autosuggestions = { path = "../fuxx-autosuggestions" }
+fuxx-completes-core.workspace = true
+fuxx-autosuggestions.workspace = true
 
 [dev-dependencies]
 expectrl = "0.9"

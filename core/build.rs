@@ -1,4 +1,5 @@
-//! Turns the project mappings in `projects/*.toml` into static Rust tables
+//! Turns the project mappings in `projects/*.toml` (inside this crate, so the published crate
+//! builds; M3) into static Rust tables
 //! (`$OUT_DIR/projects_table.rs`, included by `src/projects/mod.rs`). Bad data fails the build
 //! with the file and the entry, never the user (design §5.4, M1b).
 
@@ -62,7 +63,7 @@ fn ext(pattern: &str) -> Option<&str> {
 }
 
 fn main() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../projects");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("projects");
     println!("cargo::rerun-if-changed={}", dir.display());
     let mut names: Vec<_> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("projects/: {e}"))

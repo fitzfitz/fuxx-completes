@@ -1,5 +1,6 @@
 //! Project knowledge (`docs/design.md` §5.4, M1b): what kind of project a folder is, from our
-//! own mapping data (`projects/*.toml`, compiled in by `build.rs`), and the commands it offers.
+//! own mapping data (this crate's `projects/*.toml`, compiled in by `build.rs`), and the commands
+//! it offers.
 //! Nothing in a project is ever run; folders are listed and small files read.
 
 /// A marker: a file or folder name, or `*.ext` (any name ending in `.ext`).

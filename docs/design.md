@@ -416,7 +416,8 @@ project candidates, below.
 the cwd: it walks up to the first folder holding `.git`, `$HOME` or `/` (at most 8 levels), and
 in each folder matches **one directory listing** against all marker names and patterns; every
 project found is kept, nearest first. What a project type means lives in mapping data under
-`projects/` (TOML compiled into static tables by `build.rs`): marker files, a short list of fixed
+`core/projects/` (inside the core crate since M3, so the published crate builds; TOML compiled
+into static tables by `build.rs`): marker files, a short list of fixed
 commands, and which built-in reader pulls project-specific ones (`json_keys`, `toml_keys`,
 `make_targets`, `just_recipes`, `yaml_keys`, `file_names`), e.g. `package.json` scripts with the
 package manager chosen from the lockfile. Nothing in the project is ever run; an extracted name
@@ -428,13 +429,13 @@ is used only if it is 1–100 characters of letters, digits and `-_.:/@+`. The o
    mapping's fixed commands in order, then reader results in file order.
 3. Otherwise the rest of history as before (matches typed only in other folders).
 
-**The data (AI's calls, M1b).** Each `projects/*.toml` file holds `[[project]]` entries: `id`,
+**The data (AI's calls, M1b).** Each `core/projects/*.toml` file holds `[[project]]` entries: `id`,
 `markers` (any of; a name or `*.ext`), `requires` (all of), `requires_any`, an optional
 `contains = { file, text }`, `beats`, `commands`, and `[[project.from]]` sources (`reader`,
 `files` — the first that exists is read, `path`, `templates` with `{}` for the name). Files are
 read in name order, entries in file order; `build.rs` (build-only `toml` and `serde`) turns them
 into static tables, and bad data (an unknown reader, an unknown `beats` id, a duplicate id, a
-template without `{}`) fails the build. `projects/README.md` documents the format.
+template without `{}`) fails the build. `core/projects/README.md` documents the format.
 
 **The readers (AI's calls, M1b)**, hand-written, no dependencies; each returns only safe names,
 first occurrence kept: `json_keys` parses JSON (JSONC comments and trailing commas allowed) and
@@ -1456,6 +1457,17 @@ THIRD_PARTY_NOTICES.md     licenses of imported data
 ```
 
 Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
+
+**Publishing the crates (AI's calls, M3).** Three crates go to crates.io (§4): `core/`,
+`fuxx-autosuggestions/` and `cli/` (`fuxx-autocomplete/` has `publish = false` until M8). Each
+carries its own short `README.md` (what it is, macOS first, pre-1.0, links to the repo; the root
+README's relative links would break on crates.io) and copies of `LICENSE-MIT` and
+`LICENSE-APACHE`, kept byte-equal to the root's by `cli/tests/release.rs`. `[workspace.package]`
+holds the shared metadata (version, licence, repository, homepage, keywords, the
+`command-line-utilities` category); `[workspace.dependencies]` pins the inter-crate dependencies
+to the exact workspace version (`version = "=X"` beside the path), since the three are built and
+released together. One version everywhere: `Cargo.toml`, the pins, `fuxx-plugin.conf` and the
+binary (`versions_agree`).
 
 ## 13. Privacy
 

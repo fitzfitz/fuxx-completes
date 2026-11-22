@@ -31,6 +31,20 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M3 Task 1: crates that can be published.** `projects/` moved to
+  `core/projects/` (`build.rs` reads it inside the crate; the published core couldn't build
+  before). `[workspace.package]` gained homepage, keywords and the `command-line-utilities`
+  category; `[workspace.dependencies]` pins `fuxx-completes-core` and `fuxx-autosuggestions` to
+  the exact workspace version beside their paths; `core/`, `fuxx-autosuggestions/` and `cli/` each
+  carry a short `README.md` and copies of both licences; `fuxx-autocomplete` has `publish =
+  false`. `cli/tests/release.rs`: `versions_agree`, `published_crates_carry_licences_and_readme`
+  and `fuxx_autocomplete_is_not_published` seen failing first, then pass;
+  `plugin_conf_matches_design` passed at once (the manifest already matched §8; kept as a guard).
+  `cargo publish --workspace --exclude fuxx-autocomplete --dry-run`: all three packaged,
+  verified (built from their tarballs) and "aborting upload due to dry run"; `cargo package
+  --list` shows `LICENSE-MIT`, `LICENSE-APACHE`, `README.md` in each and the nine
+  `projects/` files in the core. 557 tests pass. `design.md` §5.4, §12.
+
 - **2026-11-23** — **M3 approved: the user's six decisions.** The user: "go with your picks". R1
   version **`0.1.0`**; R2 three crates on crates.io (`fuxx-completes-core`,
   `fuxx-autosuggestions`, `fuxx-completes`) from the user's own account, `fuxx-autocomplete`

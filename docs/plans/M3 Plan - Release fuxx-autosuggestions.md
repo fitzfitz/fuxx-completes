@@ -161,7 +161,7 @@ the user has one, Gate B); R5 **S1** (all three adapters in the formula and the 
 value of `key = value` / `key = "value"` on its own line, comments skipped). The scripts of Tasks
 2 and 3 apply the same rule in shell: the version is `[workspace.package]`'s.
 
-- [ ] **Step 1: Failing tests** (`cli/tests/release.rs`): `versions_agree` (the
+- [x] **Step 1: Failing tests** (`cli/tests/release.rs`): `versions_agree` (the
   `[workspace.package]` version, `fuxx-plugin.conf`'s `version`, both `[workspace.dependencies]`
   pins without their `=`, and `env!("CARGO_PKG_VERSION")` are all equal); `plugin_conf_matches_design`
   (`format` `1`, `id` `fuxx-completes`, `bin` `bin`, `zsh` `shell/fuxx-autosuggestions.plugin.zsh`,
@@ -169,21 +169,21 @@ value of `key = value` / `key = "value"` on its own line, comments skipped). The
   (in `core/`, `fuxx-autosuggestions/`, `cli/`: `README.md` exists, `LICENSE-MIT` and
   `LICENSE-APACHE` are byte-equal to the root's); `fuxx_autocomplete_is_not_published`
   (`fuxx-autocomplete/Cargo.toml` has `publish = false`).
-- [ ] **Step 2:** run (`cargo test -p fuxx-completes --test release`): fail (no pins, no copies,
+- [x] **Step 2:** run (`cargo test -p fuxx-completes --test release`): fail (no pins, no copies,
   no `publish = false`).
-- [ ] **Step 3:** `git mv projects core/projects`; `build.rs` reads `$CARGO_MANIFEST_DIR/projects`
+- [x] **Step 3:** `git mv projects core/projects`; `build.rs` reads `$CARGO_MANIFEST_DIR/projects`
   (and its comments; `core/src/projects/mod.rs` comments); the workspace metadata, pins and
   per-crate `readme`; the licence copies; three short crate READMEs (what it is, that it is
   macOS-first and pre-1.0, a link to the repo and `docs/design.md`); `publish = false` in
   `fuxx-autocomplete`. Run: the four tests pass.
-- [ ] **Step 4: Verify the packages build from their tarballs.** Run `cargo publish --workspace
+- [x] **Step 4: Verify the packages build from their tarballs.** Run `cargo publish --workspace
   --exclude fuxx-autocomplete --dry-run` (no upload). Expected: `Packaging`, `Verifying` and
   `aborting upload due to dry run` for core, then fuxx-autosuggestions, then fuxx-completes; no
   `projects/: No such file`. If cargo refuses because the core isn't on crates.io yet, run
   `cargo package -p fuxx-completes-core` alone (must verify) and record that the other two can
   only be verified during Gate D. `cargo package --list -p <each>` shows `LICENSE-MIT`,
   `LICENSE-APACHE`, `README.md` (core: `projects/*.toml`). Remove `target/package/`.
-- [ ] **Step 5:** gate. **Docs:** design §12 (`core/projects/`; crate files), §5.4's mapping paths,
+- [x] **Step 5:** gate. **Docs:** design §12 (`core/projects/`; crate files), §5.4's mapping paths,
   `projects/README.md` moves along; roadmap Progress log. Commit `chore: crates ready for crates.io (mappings inside the core, metadata, licences)`.
 
 ### Task 2: Both release zips, by script

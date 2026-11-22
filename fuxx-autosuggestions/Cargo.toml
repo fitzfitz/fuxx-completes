@@ -5,9 +5,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [dependencies]
-fuxx-completes-core = { path = "../core" }
+fuxx-completes-core.workspace = true
 
 [dev-dependencies]
 tempfile = "3.27"
