@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M2** (M1d done 2026-11-22; M2 being planned). fuxx's Settings for plugins is on fuxx's `master` (M11au); this repo adds the `setting.list*` lines to `fuxx-plugin.conf` once a fuxx release has it.
+**Current milestone: M2** (M1d done 2026-11-22; M2 planned, waiting for the user's four decisions). fuxx's Settings for plugins is on fuxx's `master` (M11au); this repo adds the `setting.list*` lines to `fuxx-plugin.conf` once a fuxx release has it.
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
-| M2 | bash and fish adapters, and the host channel (autosuggestions) | 🟨 being planned |
+| M2 | bash and fish adapters, and the host channel (autosuggestions) | 🟨 planned, waiting for the user's decisions ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md)) |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
@@ -30,6 +30,18 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M2 plan written.** [`plans/M2 Plan - bash, fish and the Host Channel.md`](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md):
+  seven tasks (test shells and one pty harness; bash's history format; the bash adapter with
+  explicit keys and `sync` requests; ble.sh; fish and `fuxx-completes report`; the host channel in
+  zsh and bash; measuring, one whole-branch review, one fix pass, a test release). Checked for it:
+  bash `CHANGES` and `histfile.c`, the ble.sh manual and source, atuin's ble.sh hook, fish's docs.
+  Findings: ble.sh's auto-complete needs bash 4.0+, so it can't rescue macOS's bash 3.2 (design
+  §3, §6 hoped it would); ble.sh can take our suggestions only through an interface its manual
+  doesn't document (atuin uses it); our `PROMPT_COMMAND` entry must run first, not last, to see
+  the command's `$?`; nothing would ever prune fish's context file by history. **Waiting for the
+  user's four decisions** (the ble.sh path, fish pruning, the list in bash, the test shells); the
+  plan is written with the AI's picks.
 
 - **2026-11-22** — **M1d done.** The user: "close m1d then plan M2". M1d is ✅ on test build
   v0.0.11 and merged to `main`; the user had not tried v0.0.11 in fuxx before closing it, so
