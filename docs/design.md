@@ -365,6 +365,17 @@ read in name order, entries in file order; `build.rs` (build-only `toml` and `se
 into static tables, and bad data (an unknown reader, an unknown `beats` id, a duplicate id, a
 template without `{}`) fails the build. `projects/README.md` documents the format.
 
+**The readers (AI's calls, M1b)**, hand-written, no dependencies; each returns only safe names,
+first occurrence kept: `json_keys` parses JSON (JSONC comments and trailing commas allowed) and
+returns the keys of the object at `a.b`, or with `a[].k` the string value of `k` in each element
+of array `a`; `toml_keys` returns the keys of table `[a.b]`, or `k = "…"` in each `[[a]]`;
+`make_targets` returns column-0 rule targets (no variables, no `.`-leading, `%` or `$`);
+`just_recipes` returns column-0 recipe headers (`@` dropped; `_`-leading, settings, aliases,
+variables, imports, modules and attributes skipped); `yaml_keys` returns, block style only, the
+keys at the first child indent under a column-0 `key:`; `file_names` returns names matching
+`*.ext` without the extension, sorted. Only regular files of at most 256 KB are read (never a FIFO
+or device, which could block).
+
 So `cargo tree` typed once elsewhere doesn't hide `cargo test` in a new Rust project, while
 `git st` there still finds `git status` from elsewhere. Once run, a project command is in this
 folder's history and ranks in step 1. The ecosystem list, the data format sketch and the readers'

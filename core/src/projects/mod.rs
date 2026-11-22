@@ -57,6 +57,8 @@ pub struct ProjectType {
     pub from: &'static [Source],
 }
 
+pub mod readers;
+
 // The table generated from `projects/*.toml` by `build.rs`.
 include!(concat!(env!("OUT_DIR"), "/projects_table.rs"));
 

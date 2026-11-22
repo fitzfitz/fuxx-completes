@@ -29,6 +29,13 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1b Task 2: the six readers.** `core/src/projects/readers.rs`: `safe_name`,
+  `read_small` (regular files ≤ 256 KB only), `json_keys` (a small JSON/JSONC parser), `toml_keys`,
+  `make_targets`, `just_recipes`, `yaml_keys`, `file_names`. `design.md` §5.4. Tests first, seen
+  failing (missing items): name rules, scripts in order, nested/JSONC, array names, unsafe names
+  dropped, TOML tables and `[[bin]]`, Makefile and justfile rules, YAML blocks (flow style gives
+  none), file names, and a big file, a folder and a FIFO skipped (the FIFO in under 100 ms).
+
 - **2026-11-22** — **M1b Task 1: mappings as data.** `projects/*.toml` (39 project types in 8
   files, with a README) and `core/build.rs` (build-only `toml` 1.2 and `serde`) compile them into
   `core/src/projects` static tables; bad data fails the build (checked by hand with an unknown
