@@ -168,3 +168,22 @@ of numbers, the cut marker); the keymap mechanics; how fuxx's Settings renders a
   `list`), §6 zsh (drawing and keys), §7 settings, §8 fuxx settings, §15 + roadmap (M1c).
 - fuxx's vault: Scope (declared plugin settings in), a milestone note for plugin settings, the
   roadmap.
+
+## 9. The look (added 2026-11-22, approved by the user)
+
+The user, after v0.0.9 in fuxx: "the list appears not really good … add like title above like
+'Suggestions:' … better in UI and UX"; chose fuxx-completes over fuxx-cli, picked look **A** of
+three browser mockups ("A would be good"), and approved this design ("Approved and deploy it
+directly").
+
+```
+❯ uv r(un whomee run)              ← ghost text, unchanged
+  Suggestions                       ← dim title
+  1  uv run whomee run              ← number in blue, command at normal brightness
+▸ 2  uv run pytest -q               ← selected: ▸ and a soft grey background (bg=8)
+  ⌥1–5 pick · ↑↓ move · esc close   ← dim hint
+```
+Colours are the terminal theme's. In a short window the hint goes first, then the title, before
+any item; the title and hint are cut with … like the rows. Keys unchanged. Look-only, in the zsh
+plugin. Approaches considered: B (compact, ⌥ labels on rows) and C (a box-drawing frame: a box in
+fuxx's box, breaks when narrow).

@@ -129,3 +129,18 @@ Session rules: a `suggest` (empty buffer allowed only when `empty`) arms one pen
   and vi mode (T4), doctor and latency (T5). fuxx's Settings UI is fuxx's milestone (spec §6).
 - Types: `suggestion_list` (T1) used by `Session::tick` (T2); `ListConfig`/`List` (T2) spoken by
   the adapter (T3); facts `setting=` (T3) read by doctor (T5).
+
+### Task 7: The look (added 2026-11-22; spec §9)
+
+**Interfaces:** `_fuxx_as_list_draw` only. Highlights: the ghost part `fg=8`, the title and hint
+`fg=8`, each number `fg=blue`, the selected row `bg=8` (its number `fg=blue,bg=8`); commands get no
+entry (normal brightness). Rows: `"  N  cmd"`, the selected one `"▸ N  cmd"`. Space: items =
+min(N, max(1, LINES-3)); the title shows when one more row fits, the hint when two do.
+
+- [ ] **Tests first** (pty): `list_has_a_title_a_hint_and_colours` (line 2 is `  Suggestions`, the
+  last line `  ⌥1–5 pick · ↑↓ move · esc close`, an `fg=blue` entry; after ↓ a line starts `▸ 1`
+  and a `bg=8` entry exists); `short_window_drops_the_hint_first` (40×7: title, 3 items, no hint).
+  Existing tests: `rows()` keeps item rows only; `standout` checks become `bg=8`; the exact
+  POSTDISPLAY in `list_appears_after_a_pause` gains the title and hint.
+- [ ] Implement, matrix, gate, docs (design §6), commit; then test release v0.0.10 (the user:
+  "deploy it directly").
