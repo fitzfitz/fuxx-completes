@@ -30,6 +30,18 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1c Task 3: the list under the line.** The zsh plugin resolves the list
+  settings (fuxx's, then the shell's, then the defaults), sends `listcfg`, asks on an empty line
+  and after keys that only move, closes the list on every wrapped key, drops late lists, and
+  draws the rows (cut to the width) with highlight entries it can remove exactly. The harness
+  turns the list off by default (list tests turn it on), gains a window size, and takes a
+  cursor-down as a line end. `design.md` §6. Tests first, seen failing: the list after a pause,
+  none while typing, on an empty line, settings off, a late list not drawn, typing closes it, a
+  narrow terminal, another plugin's highlight kept, fuxx's setting winning; passing from the
+  start: no list after a Tab completion. One regression found on the way: a parenthesised pattern
+  broke loading under `setopt shglob`; plain comparisons now. 137 adapter tests on zsh 5.3.1,
+  5.8.1 and 5.9.
+
 - **2026-11-22** — **M1c Task 2: the wire and the timer.** `listcfg` and `list` messages;
   an empty-buffer `suggest`; `Session` arms one pending list per newest `suggest` (`ran`, `bye`,
   size 0 disarm it) with `next_deadline`/`tick`; `serve_with` reads lines on a thread and waits

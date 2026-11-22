@@ -37,6 +37,8 @@ pub struct ZshOpts {
     /// A stub core: this `/bin/sh` script is written to `$HOME/core.sh` and used as the core
     /// (wins over `core_bin`). The recorder is `exec cat > "$HOME/wire.log"`.
     pub core_script: Option<&'static str>,
+    /// The terminal's size (columns, rows); default 120×40.
+    pub size: Option<(u16, u16)>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -75,7 +77,7 @@ impl ZshHarness {
         let plugin = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../adapters/zsh/fuxx-autosuggestions.plugin.zsh");
         let rc = format!(
-            "{before}\n\
+            "FUXX_AUTOSUGGESTIONS_LIST=off\n{before}\n\
              HISTFILE=$HOME/.zsh_history; HISTSIZE=1000; SAVEHIST=1000; PS1='{PROMPT}'; bindkey -e; KEYTIMEOUT=1\n\
              source '{plugin}'\n\
              _fuxx-test-dump() {{\n\
@@ -111,7 +113,8 @@ impl ZshHarness {
             .env("LANG", "en_US.UTF-8")
             .env("FUXX_COMPLETES_BIN", core);
         let mut session = Session::spawn(cmd).expect("spawn zsh");
-        session.get_process_mut().set_window_size(120, 40).ok();
+        let (cols, rows) = opts.size.unwrap_or((120, 40));
+        session.get_process_mut().set_window_size(cols, rows).ok();
 
         let mut z = ZshHarness {
             session,
@@ -166,15 +169,25 @@ impl ZshHarness {
         self.pump();
         let mark = self.screen.len();
         self.send(&format!("{line}\r"));
-        // The command's own newline comes first; the next prompt after it ends the command.
-        let ok = self.wait_for(mark, "\r\n", Duration::from_secs(10)) && {
-            let nl = mark
-                + String::from_utf8_lossy(&self.screen[mark..])
-                    .find("\r\n")
-                    .unwrap()
-                + 2;
-            self.wait_for(nl, PROMPT, Duration::from_secs(10))
+        // The command's own line end comes first (a newline, or a cursor-down when rows such as
+        // the suggestion list were drawn under the line); the next prompt after it ends the command.
+        let end = Instant::now() + Duration::from_secs(10);
+        let nl = loop {
+            self.pump();
+            let tail = String::from_utf8_lossy(&self.screen[mark..]).into_owned();
+            let first = ["\r\n", "\u{1b}[1B"]
+                .iter()
+                .filter_map(|m| tail.find(m).map(|i| i + m.len()))
+                .min();
+            if let Some(i) = first {
+                break Some(mark + i);
+            }
+            if Instant::now() >= end {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(2));
         };
+        let ok = nl.is_some_and(|nl| self.wait_for(nl, PROMPT, Duration::from_secs(10)));
         assert!(
             ok,
             "no prompt after {line:?}; output: {:?}",

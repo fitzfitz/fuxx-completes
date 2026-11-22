@@ -897,6 +897,19 @@ Honest about what each shell allows.
     `[A` and Esc then a paste lost the paste's bracketing).
   - **⌃R.** zsh alone waits after Esc in an incremental search for the rest of a sequence; with
     our `^[` the search ends on the line found once `KEYTIMEOUT` passes, as Esc does in bash.
+- **The suggestion list (M1c, AI's calls).** At start (after the user's rc) the plugin resolves
+  its settings: fuxx's `FUXX_PLUGIN_SETTING_LIST`, `_LIST_EMPTY`, `_LIST_DELAY`, `_LIST_SIZE`
+  (copied at load, as fuxx sets them only while sourcing) win over `FUXX_AUTOSUGGESTIONS_LIST`,
+  `_LIST_EMPTY`, `_LIST_DELAY`, `_LIST_SIZE`, then the defaults (on, on an empty line, 3 s, 5);
+  an unreadable value counts as unset; on/off take `on off 1 0 true false yes no`, the delay is
+  clamped to 0.1–60 s and the size to 1–5. With the list on it sends `listcfg` after `hello`,
+  asks at a fresh empty prompt and when the line empties, and asks again after a key that only
+  moved, so the core's pause starts over (with the list off, nothing on the wire changes). Every
+  wrapped key closes the list first and moves a key counter on; a `list` is drawn only for the
+  newest request, when no key came since and the line is unchanged, in a plain keymap. The rows go
+  in `POSTDISPLAY` under the ghost text (`  N  <item>`, newlines as `↵`, cut to the width with
+  `…`, at most `LINES-3` rows), dim, the highlighted one in standout; our highlight entries are
+  removed by `memo=` on 5.9+, by their exact strings below.
 - **Host mode:** with `FUXX_COMPLETES_HOST=1`, the same wrapped widgets forward the buffer over the
   host channel instead of drawing (§5.5).
 - **Limits:** a menu below the line pushes the screen and can't overlap other text; very long

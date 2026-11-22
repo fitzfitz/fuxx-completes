@@ -12,6 +12,12 @@
 #   FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE    default fg=8
 #   FUXX_AUTOSUGGESTIONS_FORCE=1            stay on beside zsh-autosuggestions (never in Warp)
 #   FUXX_PLUGIN_DATA                        set by fuxx while it sources us: our data folder
+#   FUXX_AUTOSUGGESTIONS_LIST               on/off: the suggestion list after a pause (default on)
+#   FUXX_AUTOSUGGESTIONS_LIST_EMPTY         on/off: the list on an empty line too (default on)
+#   FUXX_AUTOSUGGESTIONS_LIST_DELAY         seconds of pause before the list (default 3)
+#   FUXX_AUTOSUGGESTIONS_LIST_SIZE          items in the list, 1–5 (default 5)
+#   FUXX_PLUGIN_SETTING_LIST{,_EMPTY,_DELAY,_SIZE}  fuxx's Settings, set while it sources us;
+#                                           they win over the shell variables (design spec M1c)
 #
 # Only one copy runs in a shell (design §8): a second copy sourced from another path (fuxx's
 # plugin and a line in .zshrc) stops before defining anything. The first copy's path is passed
@@ -46,13 +52,24 @@
   # "<keymap> <key>" -> `bound` or `kept:<widget>` for the keys we bind only when free.
   typeset -gA _FUXX_AS_KEYS
   typeset -gi _FUXX_AS_OWN_FN=0   # 1 once we defined the `fuxx-completes` function
+  # The suggestion list (M1c): fuxx's settings as they were while it sourced us; the resolved
+  # settings (size 0 = off) and where each came from; the list on screen; the key counter that
+  # makes a late list stale; the request a list may belong to.
+  typeset -g _FUXX_AS_PSET_LIST=${FUXX_PLUGIN_SETTING_LIST-} \
+    _FUXX_AS_PSET_LIST_EMPTY=${FUXX_PLUGIN_SETTING_LIST_EMPTY-} \
+    _FUXX_AS_PSET_LIST_DELAY=${FUXX_PLUGIN_SETTING_LIST_DELAY-} \
+    _FUXX_AS_PSET_LIST_SIZE=${FUXX_PLUGIN_SETTING_LIST_SIZE-}
+  typeset -gi _FUXX_AS_LIST_SIZE=0 _FUXX_AS_LIST_DELAY_MS=3000 _FUXX_AS_LIST_EMPTY=1
+  typeset -gi _FUXX_AS_LIST_SEL=0 _FUXX_AS_KEYSEQ=0 _FUXX_AS_LIST_FOR_SEQ=-1
+  typeset -g _FUXX_AS_LIST_FOR_ID='' _FUXX_AS_LIST_FOR_BUFFER='' _FUXX_AS_LIST_GHOST=''
+  typeset -gA _FUXX_AS_LIST_VAL _FUXX_AS_LIST_SRC
+  typeset -ga _FUXX_AS_LIST_ITEMS=() _FUXX_AS_HLS=()
   typeset -g _FUXX_AS_PID=''
   typeset -g _FUXX_AS_WFD='' _FUXX_AS_RFD='' _FUXX_AS_KEEPFD=''
   typeset -g _FUXX_AS_SPARE_FD=''  # read-write holder on `resp` until `ready` (see _fuxx_as_start)
   typeset -g _FUXX_AS_NEXT_ID=1 _FUXX_AS_INFLIGHT_ID='' _FUXX_AS_INFLIGHT_SINCE=0
   typeset -g _FUXX_AS_INFLIGHT_BUFFER='' _FUXX_AS_LAST_BUFFER=''
   typeset -g _FUXX_AS_DIR=''     # the temp folder holding the pipes, until the core has them open
-  typeset -g _FUXX_AS_HL=''      # the exact highlight string we added (used below zsh 5.9)
   typeset -g _FUXX_AS_MEMO=0     # 1 when region_highlight accepts `memo=` (zsh 5.9+)
   typeset -g _FUXX_AS_CLOEXEC=0  # 1 when `sysopen -o cloexec` works on this zsh
   typeset -g _FUXX_AS_NONBLOCK=0 # 1 when `sysopen -o nonblock` works (zsh 5.9+): writes never block
@@ -181,6 +198,12 @@ _fuxx_as_start() {
     _fuxx_as_stop kill write-failed
     return 0
   fi
+  _fuxx_as_list_settings
+  if (( _FUXX_AS_LIST_SIZE )) \
+     && ! _fuxx_as_send listcfg $_FUXX_AS_LIST_SIZE $_FUXX_AS_LIST_DELAY_MS $_FUXX_AS_LIST_EMPTY; then
+    _fuxx_as_stop kill write-failed
+    return 0
+  fi
   _fuxx_as_wrap_widgets
   _fuxx_as_install_once
   _FUXX_AS_STATE=on
@@ -247,7 +270,8 @@ _fuxx_as_send() {
 # Asks for a suggestion for $BUFFER; one request in flight at a time.
 _fuxx_as_request() {
   emulate -L zsh
-  [[ $_FUXX_AS_STATE == on && -n $BUFFER ]] || return 0
+  [[ $_FUXX_AS_STATE == on ]] || return 0
+  [[ -n $BUFFER ]] || (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY )) || return 0
   (( $#BUFFER > 1000 )) && return 0
   [[ $BUFFER == *[$'\x1f\x1e']* ]] && return 0
   if [[ -n $_FUXX_AS_INFLIGHT_ID ]]; then
@@ -262,6 +286,7 @@ _fuxx_as_request() {
   _FUXX_AS_INFLIGHT_ID=$id
   _FUXX_AS_INFLIGHT_SINCE=$EPOCHREALTIME
   _FUXX_AS_INFLIGHT_BUFFER=$BUFFER
+  _FUXX_AS_LIST_FOR_ID=$id _FUXX_AS_LIST_FOR_SEQ=$_FUXX_AS_KEYSEQ _FUXX_AS_LIST_FOR_BUFFER=$BUFFER
   # `cdpath` goes along, one folder per line: the core checks `cd` targets through it (design
   # §5.4). The field is left off, so the core treats `cdpath` as unknown and keeps relative
   # targets it can't find, when a folder holds a control character the wire can't carry, or when
@@ -300,6 +325,11 @@ _fuxx_as_on_response() {
       # $BUFFER and POSTDISPLAY only exist inside a widget, so the rest happens in one.
       zle fuxx-as-answer -- "${f[3]//$rs/$nl}" 2>/dev/null
       ;;
+    list)
+      # Only for the newest request, and only if no key came since it was sent (design spec M1c).
+      [[ $f[2] == "$_FUXX_AS_LIST_FOR_ID" ]] && (( _FUXX_AS_LIST_FOR_SEQ == _FUXX_AS_KEYSEQ )) || return 0
+      zle fuxx-as-list-open -- "${(@)f[3,-1]//$rs/$nl}" 2>/dev/null
+      ;;
   esac
   return 0
 }
@@ -308,21 +338,31 @@ _fuxx_as_on_response() {
 _fuxx_as_highlight() {
   emulate -L zsh
   [[ -n $POSTDISPLAY ]] || return 0
-  local hl="$#BUFFER $(( $#BUFFER + $#POSTDISPLAY )) ${FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE:-fg=8}"
+  _fuxx_as_hl_add "$#BUFFER $(( $#BUFFER + $#POSTDISPLAY )) ${FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE:-fg=8}"
+}
+
+# Adds one highlight entry of ours (tagged with `memo=` on 5.9+, remembered exactly below).
+_fuxx_as_hl_add() {
+  emulate -L zsh
+  local hl=$1
   (( _FUXX_AS_MEMO )) && hl+=" memo=fuxx-autosuggestions"
-  _FUXX_AS_HL=$hl
+  _FUXX_AS_HLS+=( "$hl" )
   region_highlight+=( "$hl" )
 }
 
-# Removes only our own highlight entry: by its `memo=` tag on 5.9+, by its exact string below.
+# Removes only our own highlight entries: by their `memo=` tag on 5.9+, by their exact strings
+# below.
 _fuxx_as_unhighlight() {
   emulate -L zsh
+  local hl
   if (( _FUXX_AS_MEMO )); then
     region_highlight=( "${(@)region_highlight:#*memo=fuxx-autosuggestions}" )
-  elif [[ -n $_FUXX_AS_HL ]]; then
-    region_highlight=( "${(@)region_highlight:#${(b)_FUXX_AS_HL}}" )
+  else
+    for hl in "${(@)_FUXX_AS_HLS}"; do
+      region_highlight=( "${(@)region_highlight:#${(b)hl}}" )
+    done
   fi
-  _FUXX_AS_HL=
+  _FUXX_AS_HLS=()
   return 0
 }
 
@@ -355,7 +395,10 @@ _fuxx_as_widget_answer() {
     _fuxx_as_request
   else
     zle fuxx-as-show -- "$1"
+    # A key that didn't edit came while we waited: ask again, so the list's pause restarts.
+    (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_FOR_SEQ != _FUXX_AS_KEYSEQ )) && _fuxx_as_request
   fi
+  return 0
 }
 zle -N fuxx-as-answer _fuxx_as_widget_answer
 
@@ -371,6 +414,7 @@ zle -N fuxx-as-clear _fuxx_as_widget_clear
 # key that changes the buffer asks again as usual.
 _fuxx_as_hide() {
   emulate -L zsh
+  _fuxx_as_list_reset
   _fuxx_as_clear
   (( ${+_fuxx_as_held} )) && _fuxx_as_held=
   _FUXX_AS_INFLIGHT_ID=''
@@ -422,6 +466,7 @@ zle -N fuxx-as-escape _fuxx_as_widget_escape
 # (`my-end() { zle end-of-line }`) still accepts it, and a widget that changes the buffer drops it.
 _fuxx_as_w_modify() {
   emulate -L zsh
+  _fuxx_as_list_key
   local orig=$1
   shift
   # Another plugin that wrapped us can put our wrapper of a widget inside another of ours for the
@@ -473,8 +518,10 @@ _fuxx_as_w_modify() {
     _fuxx_as_clear
     _FUXX_AS_LAST_BUFFER=$BUFFER
     _fuxx_as_request
-  elif (( holder )) && [[ -n $_fuxx_as_held ]]; then
-    _fuxx_as_show "$_fuxx_as_held"
+  else
+    (( holder )) && [[ -n $_fuxx_as_held ]] && _fuxx_as_show "$_fuxx_as_held"
+    # A key that only moved: ask again, so the list's pause starts over (design spec M1c).
+    (( holder && _FUXX_AS_LIST_SIZE )) && _fuxx_as_request
   fi
   return $ret
 }
@@ -519,6 +566,7 @@ _fuxx_as_complete() {
 # runs on the longer text; anywhere else the key just moves the cursor and the ghost text stays.
 _fuxx_as_w_accept() {
   emulate -L zsh
+  _fuxx_as_list_key
   local orig=$1
   shift
   local self=${orig#fuxx-as-orig-<->-}
@@ -547,6 +595,7 @@ _fuxx_as_w_accept() {
 # text, otherwise the buffer is put back. The rest of the suggestion is still right, so no request.
 _fuxx_as_w_partial() {
   emulate -L zsh
+  _fuxx_as_list_key
   local orig=$1 saved=$BUFFER sugg=${POSTDISPLAY:-${_fuxx_as_held-}} rest
   shift
   local self=${orig#fuxx-as-orig-<->-}
@@ -589,6 +638,7 @@ _fuxx_as_w_partial() {
 # _fuxx_as_w_clear <original widget> [args]: widgets that replace the line or leave it.
 _fuxx_as_w_clear() {
   emulate -L zsh
+  _fuxx_as_list_key
   local orig=$1
   shift
   local self=${orig#fuxx-as-orig-<->-}
@@ -619,10 +669,16 @@ _fuxx_as_bind_if_free() {
 _fuxx_as_line_init() {
   emulate -L zsh
   _FUXX_AS_LAST_BUFFER=''
+  _FUXX_AS_KEYSEQ+=1
+  # The list on an empty line (design spec M1c): ask at once, the core times the pause.
+  [[ -z $BUFFER ]] && (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY )) && _fuxx_as_request
+  return 0
 }
 _fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the scrollback
   # (after ⌃C it can: zsh doesn't redraw the line on SIGINT)
   emulate -L zsh
+  _fuxx_as_list_reset
+  _FUXX_AS_KEYSEQ+=1
   _fuxx_as_clear
   # Forget the request in flight: a handler doesn't run while the command does, so by the next
   # prompt it would look hung (and be killed). Its late answer is dropped as stale by id.
@@ -860,6 +916,113 @@ _fuxx_as_take_pending() {
   return 0
 }
 
+# ---- The suggestion list (design spec M1c) ----
+
+# Resolves the list settings once the user's rc has run: fuxx's Settings (copied at load) win,
+# then the shell variables, then the defaults (on, on an empty line, 3 s, 5 items). An unreadable
+# value counts as unset. Sets _FUXX_AS_LIST_SIZE (0 = off), _DELAY_MS, _EMPTY and, for doctor,
+# each value and where it came from.
+_fuxx_as_list_settings() {
+  emulate -L zsh
+  local name var v src ok
+  local -A defaults=( list on list_empty on list_delay 3 list_size 5 )
+  for name in list list_empty list_delay list_size; do
+    var=${(U)name}
+    src=default v=$defaults[$name]
+    for cand in "fuxx:${(P)${:-_FUXX_AS_PSET_$var}}" "shell:${(P)${:-FUXX_AUTOSUGGESTIONS_$var}-}"; do
+      local where=${cand%%:*} val=${cand#*:}
+      [[ -n $val ]] || continue
+      ok=''
+      case $name in
+        list|list_empty)
+          case ${(L)val} in
+            on|1|true|yes) val=on ok=1 ;;
+            off|0|false|no) val=off ok=1 ;;
+          esac ;;
+        list_delay) [[ $val == <-> || $val == <->.<-> || $val == .<-> ]] && ok=1 ;;
+        list_size) [[ $val == <-> ]] && ok=1 ;;
+      esac
+      if [[ -n $ok ]]; then
+        v=$val src=$where
+        break
+      fi
+    done
+    _FUXX_AS_LIST_VAL[$name]=$v _FUXX_AS_LIST_SRC[$name]=$src
+  done
+  local -F secs=$_FUXX_AS_LIST_VAL[list_delay]
+  local -i ms=$(( secs * 1000 )) size=$_FUXX_AS_LIST_VAL[list_size]
+  (( ms < 100 )) && ms=100
+  (( ms > 60000 )) && ms=60000
+  (( size < 1 )) && size=1
+  (( size > 5 )) && size=5
+  _FUXX_AS_LIST_DELAY_MS=$ms
+  _FUXX_AS_LIST_SIZE=$(( $_FUXX_AS_LIST_VAL[list] == on ? size : 0 ))
+  [[ $_FUXX_AS_LIST_VAL[list] == on ]] || _FUXX_AS_LIST_SIZE=0
+  _FUXX_AS_LIST_EMPTY=$(( 0 ))
+  [[ $_FUXX_AS_LIST_VAL[list_empty] == on ]] && _FUXX_AS_LIST_EMPTY=1
+  return 0
+}
+
+# Forgets the list on screen and leaves its keymap (no redraw: the caller draws what's next).
+_fuxx_as_list_reset() {
+  emulate -L zsh
+  _FUXX_AS_LIST_ITEMS=() _FUXX_AS_LIST_SEL=0
+  return 0
+}
+
+# Every wrapped key: the list closes (the plain ghost text comes back, so the wrappers see
+# POSTDISPLAY as the ghost text, as always) and the key counter moves on, so a list for an
+# earlier request is never drawn.
+_fuxx_as_list_key() {
+  emulate -L zsh
+  _FUXX_AS_KEYSEQ+=1
+  (( $#_FUXX_AS_LIST_ITEMS )) || return 0
+  local ghost=$_FUXX_AS_LIST_GHOST
+  _fuxx_as_list_reset
+  _fuxx_as_show "$ghost"
+  return 0
+}
+
+# Draws the ghost text and the list rows under it: "  N  <item>", newlines shown as ↵, each row
+# cut to the width with …, at most LINES-3 rows; the rows dim, the highlighted one in standout.
+_fuxx_as_list_draw() {
+  emulate -L zsh
+  local out=$_FUXX_AS_LIST_GHOST row
+  local -i i cols=$(( COLUMNS - 1 )) maxrows=$(( LINES - 3 )) start=0 len=0
+  (( maxrows < 1 )) && maxrows=1
+  if (( _FUXX_AS_LIST_SEL )); then
+    out=${_FUXX_AS_LIST_ITEMS[_FUXX_AS_LIST_SEL]}
+    [[ $out == "$BUFFER"* ]] && out=${out#"$BUFFER"} || out=''
+  fi
+  for (( i = 1; i <= $#_FUXX_AS_LIST_ITEMS && i <= maxrows; i++ )); do
+    row="  $i  ${_FUXX_AS_LIST_ITEMS[i]//$'\n'/ ↵ }"
+    (( ${#row} > cols )) && row="${row[1,cols-1]}…"
+    if (( i == _FUXX_AS_LIST_SEL )); then
+      start=$(( $#BUFFER + $#out + 1 )) len=${#row}
+    fi
+    out+=$'\n'$row
+  done
+  _fuxx_as_clear
+  POSTDISPLAY=$out
+  _fuxx_as_highlight
+  (( len )) && _fuxx_as_hl_add "$start $(( start + len )) standout"
+  return 0
+}
+
+# A pushed list arrived for the newest request (checked by the response handler): draw it, if
+# the line is still the one it was asked for and the editor is in a plain keymap.
+_fuxx_as_widget_list_open() {
+  emulate -L zsh
+  [[ $BUFFER == "$_FUXX_AS_LIST_FOR_BUFFER" ]] || return 0
+  [[ $KEYMAP == main || $KEYMAP == emacs || $KEYMAP == viins ]] || return 0
+  (( $# )) || return 0
+  (( $#_FUXX_AS_LIST_ITEMS )) || _FUXX_AS_LIST_GHOST=$POSTDISPLAY
+  _FUXX_AS_LIST_ITEMS=( "$@" ) _FUXX_AS_LIST_SEL=0
+  _fuxx_as_list_draw
+  zle -R
+}
+zle -N fuxx-as-list-open _fuxx_as_widget_list_open
+
 # Sets REPLY to why we must stay off in this shell (design §9), or '': Warp replaces the line
 # editor, and zsh-autosuggestions draws its own ghost text (unless FUXX_AUTOSUGGESTIONS_FORCE=1).
 _fuxx_as_conflict() {
@@ -889,6 +1052,9 @@ _fuxx_as_facts() {
   print -r -- shglob=$shglob
   print -r -- histfile=${HISTFILE:+${HISTFILE:a}}
   print -r -- force=${FUXX_AUTOSUGGESTIONS_FORCE:-0}
+  for k in list list_empty list_delay list_size; do
+    [[ -n ${_FUXX_AS_LIST_VAL[$k]-} ]] && print -r -- "setting=$k ${_FUXX_AS_LIST_VAL[$k]} ${_FUXX_AS_LIST_SRC[$k]}"
+  done
 }
 
 _fuxx_as_zshexit() {

@@ -2776,3 +2776,183 @@ fn doctor_warns_when_shglob_is_on() {
         "{doc}"
     );
 }
+
+// ---- M1c: the suggestion list ----
+
+const LIST_ON: &str = "FUXX_AUTOSUGGESTIONS_LIST=on; FUXX_AUTOSUGGESTIONS_LIST_DELAY=0.2";
+
+fn git_list() -> ZshOpts {
+    ZshOpts {
+        history: vec!["git status", "git stash", "git push"],
+        rc_before: LIST_ON.into(),
+        ..Default::default()
+    }
+}
+
+fn rows(s: &common::LineState) -> Vec<String> {
+    s.postdisplay
+        .split('\n')
+        .skip(1)
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn list_appears_after_a_pause() {
+    let mut z = ZshHarness::start(git_list());
+    z.send("git s");
+    let s = z.wait_state(|s| s.postdisplay.contains('\n'));
+    assert_eq!(
+        s.postdisplay, "tash\n  1  git stash\n  2  git status",
+        "{s:?}"
+    );
+    assert!(s.region_highlight.iter().any(|h| h.contains("fg=8")));
+}
+
+#[test]
+fn no_list_while_typing() {
+    let mut z = ZshHarness::start(git_list());
+    for c in "git sta".chars() {
+        z.send(&c.to_string());
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!z.state().postdisplay.contains('\n'), "a list while typing");
+    }
+    z.wait_state(|s| s.postdisplay.contains('\n'));
+}
+
+#[test]
+fn list_on_an_empty_line() {
+    let mut z = ZshHarness::start(git_list());
+    let s = z.wait_state(|s| s.postdisplay.contains('\n'));
+    assert_eq!(
+        rows(&s),
+        ["  1  git push", "  2  git stash", "  3  git status"],
+        "{s:?}"
+    );
+    assert_eq!(s.buffer, "");
+}
+
+#[test]
+fn list_off_and_empty_off_settings() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["git status"],
+        rc_before: format!("{LIST_ON}; FUXX_AUTOSUGGESTIONS_LIST_EMPTY=off"),
+        ..Default::default()
+    });
+    std::thread::sleep(Duration::from_millis(700));
+    assert!(
+        !z.state().postdisplay.contains('\n'),
+        "a list on an empty line"
+    );
+    z.send("git");
+    z.wait_state(|s| s.postdisplay.contains('\n'));
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["git status"],
+        rc_before: "FUXX_AUTOSUGGESTIONS_LIST=off; FUXX_AUTOSUGGESTIONS_LIST_DELAY=0.2".into(),
+        ..Default::default()
+    });
+    z.send("git");
+    std::thread::sleep(Duration::from_millis(700));
+    assert!(!z.state().postdisplay.contains('\n'), "a list while off");
+}
+
+#[test]
+fn a_late_list_is_not_drawn() {
+    let mut z = ZshHarness::start(git_list());
+    z.send("git s");
+    std::thread::sleep(Duration::from_millis(100));
+    z.send("\x1b[D");
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(
+        !z.state().postdisplay.contains('\n'),
+        "the list of the earlier request"
+    );
+    z.wait_state(|s| s.postdisplay.contains('\n'));
+}
+
+#[test]
+fn typing_closes_the_list() {
+    let mut z = ZshHarness::start(git_list());
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay.contains('\n'));
+    z.send("t");
+    let s = z.wait_state(|s| !s.postdisplay.contains('\n'));
+    assert_eq!(s.buffer, "git st");
+}
+
+#[test]
+fn narrow_terminal_rows_are_cut() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["git status --short --branch --untracked-files=all"],
+        rc_before: LIST_ON.into(),
+        size: Some((20, 12)),
+        ..Default::default()
+    });
+    z.send("git");
+    let s = z.wait_state(|s| s.postdisplay.contains('\n'));
+    for r in rows(&s) {
+        assert!(r.chars().count() <= 19, "{r:?}");
+        assert!(r.ends_with('…'), "{r:?}");
+    }
+}
+
+#[test]
+fn other_plugins_highlights_survive() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "mark() { region_highlight+=(\"0 1 fg=red\") }; zle -N mark; bindkey '^X^M' mark"
+            .into(),
+        ..git_list()
+    });
+    z.send("g\x18\x0d");
+    z.send("it s");
+    let s = z.wait_state(|s| s.postdisplay.contains('\n'));
+    // zsh moves other entries along as text is typed; theirs must still be there.
+    let theirs = |s: &common::LineState| s.region_highlight.iter().any(|h| h.ends_with(" fg=red"));
+    assert!(theirs(&s), "{s:?}");
+    z.send("t");
+    let s = z.wait_state(|s| !s.postdisplay.contains('\n'));
+    assert!(theirs(&s), "{s:?}");
+}
+
+#[test]
+fn no_list_after_a_completion() {
+    let mut z = ZshHarness::start(git_list());
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay == "tash");
+    z.send("\x1b[D\t");
+    std::thread::sleep(Duration::from_millis(700));
+    assert!(
+        !z.state().postdisplay.contains('\n'),
+        "a list under a completion"
+    );
+}
+
+#[test]
+fn fuxx_plugin_setting_wins_over_the_shell_variable() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["git a", "git b", "git c", "git d"],
+        rc_before: format!(
+            "{LIST_ON}; FUXX_AUTOSUGGESTIONS_LIST_SIZE=5; export FUXX_PLUGIN_SETTING_LIST_SIZE=2"
+        ),
+        rc_after: "unset FUXX_PLUGIN_SETTING_LIST_SIZE".into(),
+        ..Default::default()
+    });
+    z.send("git ");
+    let s = z.wait_state(|s| s.postdisplay.contains('\n'));
+    assert_eq!(rows(&s).len(), 2, "{s:?}");
+    z.send("\x15");
+    z.run("_fuxx_as_facts >| $HOME/facts");
+    let facts = std::fs::read_to_string(z.home().join("facts")).unwrap();
+    assert!(
+        facts.lines().any(|l| l == "setting=list_size 2 fuxx"),
+        "{facts}"
+    );
+    assert!(
+        facts.lines().any(|l| l == "setting=list on shell"),
+        "{facts}"
+    );
+    assert!(
+        facts.lines().any(|l| l == "setting=list_empty on default"),
+        "{facts}"
+    );
+}
