@@ -5,12 +5,12 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M1** (built and reviewed on branch `m1-context-file-coexistence`; waiting for the user's check in a real terminal).
+**Current milestone: M1b** (M1 done 2026-11-22; the M1b plan is written next).
 
 | | Milestone | Status |
 | --- | --- | --- |
 | M0 | Core + history + zsh adapter | ✅ done 2026-11-21 (the user's check: "close m0, all good") |
-| M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | 🟨 built and reviewed ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md)), waiting for the user's check in a real terminal |
+| M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ⬜ |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
@@ -28,6 +28,11 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M1 done.** The user installed v0.0.7 in fuxx and checked it ("its good");
+  `fuxx-completes doctor` there showed: on, fuxx's plugin copy, every free key bound, data under
+  fuxx's plugin-data folder (`FUXX_PLUGIN_DATA`), one context file of 0.5 KB, the secret present.
+  M1 is ✅ and merged to `main`. Next: the M1b plan, from its spec.
 
 - **2026-11-21** — **v0.0.7 test release (the AI's pick on the user's "go with your picks"),
   before the M1 check.** v0.0.6 plus the ⌃C decision, so the user checks the final behaviour

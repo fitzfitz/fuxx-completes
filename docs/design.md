@@ -1,7 +1,8 @@
 # fuxx-completes: design
 
-Status: **M0 is done** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh adapter;
-the user's check 2026-11-21); M1 is planned, M1b onward are design only. This document is the
+Status: **M0 and M1 are done** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh
+adapter; the context file, ranking, coexistence, `forget` and `doctor`; the user's checks on
+2026-11-21 and 2026-11-22); M1b onward are design only. This document is the
 source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
