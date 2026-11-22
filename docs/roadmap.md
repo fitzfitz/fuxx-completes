@@ -31,6 +31,17 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M2 Task 1: test shells and one pty harness.** `scripts/build-bash.sh`,
+  `build-fish.sh` and `get-blesh.sh` put bash 4.0 and 5.3, fish 4.9.3 and ble.sh 0.4.0-devel3
+  into `target/` (pinned SHA-256s); `scripts/test-bash-matrix.sh` and `test-fish-matrix.sh` run
+  the adapter tests per version. The zsh harness now sits on one pty core shared with new bash
+  and fish harnesses (temp HOME, clean environment, empty `INPUTRC`). **fish 3.0.2 and 3.7.1
+  don't build here**: their generated `config.h` defines names (`__sentinel`, `__fallthrough__`)
+  that this Mac's libc++ headers use; not patched, per the user's rule, so fish runs on 4.9.3 only
+  until the user decides (`design.md` §14). Found: bash before 4.3 can't `bind -x` a key longer
+  than two bytes (a macro to a two-key sequence works), and fish 4 waits for the terminal to
+  answer a device query before its first prompt.
+
 - **2026-11-23** — **M2: the user's four decisions.** The user: "go", approving every AI's pick
   of the plan: **U1 = B2**, feed ble.sh's own grey suggestions (AGENTS.md rule 6 now allows that
   second bounded wait: 5 ms checks while ble.sh is idle, at most 50 ms, given up the moment a key

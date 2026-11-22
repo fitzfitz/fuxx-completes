@@ -171,18 +171,18 @@ rc_after, core_script, core_bin, env: Vec<(&str, String)>, blesh: bool, size })`
 `XDG_CONFIG_HOME/fish/config.fish` and a prompt function printing `READY> `;
 `common::bash_path()`, `fish_path()`, `blesh_path()`.
 
-- [ ] **Step 1:** write `scripts/build-bash.sh` (bash 4.0 and 5.3 from `ftp.gnu.org/gnu/bash`, configure
+- [x] **Step 1:** write `scripts/build-bash.sh` (bash 4.0 and 5.3 from `ftp.gnu.org/gnu/bash`, configure
   `--prefix=target/bash/<ver> --without-bash-malloc`, clang flags as in `build-zsh.sh`; "built" =
   the binary runs `bind -x` and `read -t 0.01`), `scripts/build-fish.sh` (3.0.2 and 3.7.1 with CMake
   into `target/fish/<ver>`; 4.9.3 with `cargo build --release` and `CARGO_TARGET_DIR` under
   `target/fish/build`), `scripts/get-blesh.sh` (`ble-0.4.0-devel3.tar.xz` into `target/blesh/`);
   run them. A version that won't build: stop and tell the user (U4).
-- [ ] **Step 2: Failing tests** `cli/tests/bash_adapter.rs::harness_runs_bash_in_a_temp_home` (the prompt
+- [x] **Step 2: Failing tests** `cli/tests/bash_adapter.rs::harness_runs_bash_in_a_temp_home` (the prompt
   shows; `echo $HOME` prints the temp folder; `state()` returns buffer `echo x` after typing it) and
   `cli/tests/fish_adapter.rs::harness_runs_fish_in_a_temp_home` (same, `echo $HOME`).
-- [ ] **Step 3:** split `common/mod.rs` into `pty.rs` + `zsh.rs`, add `bash.rs`, `fish.rs`; the two
+- [x] **Step 3:** split `common/mod.rs` into `pty.rs` + `zsh.rs`, add `bash.rs`, `fish.rs`; the two
   matrix scripts. Run: both tests pass; `scripts/test-zsh-matrix.sh` still passes (no zsh test changed).
-- [ ] **Step 4:** gate. **Docs:** design §14 (the versions and how they're obtained), roadmap.
+- [x] **Step 4:** gate. **Docs:** design §14 (the versions and how they're obtained), roadmap.
   Commit `test: bash and fish in target/, one pty harness for three shells`.
 
 ### Task 2: The core and binary for bash

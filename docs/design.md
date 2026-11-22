@@ -1356,6 +1356,22 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
   the repo's `target/` like zsh: bash 4.0 and 5.3 (`scripts/build-bash.sh`), fish 3.0.2, 3.7.1
   and 4.9.3 (`scripts/build-fish.sh`), ble.sh 0.4.0-devel3 (`scripts/get-blesh.sh`); macOS's
   `/bin/bash` 3.2 for the stay-off checks. A version that won't build is reported, not patched.
+  **As built (M2 Task 1, 2026-11-23):** the scripts download the release tarballs into
+  `target/<shell>/src/dl/`, check a pinned SHA-256 (GitHub's published digest for fish 4.9.3 and
+  CMake; for the others the value recorded at the first download, since GNU and fish publish only
+  signatures and gpg isn't installed here) and install into `target/<shell>/<ver>/`. bash 4.0
+  builds serially (it failed under `make -j` here). fish 3.x configures with a CMake 3.31.12
+  unpacked under `target/fish/` (fish 3's `Tests.cmake` sets a policy CMake 4 refuses).
+  **fish 3.0.2 and 3.7.1 do not build on this Mac** (macOS 26.5, the Command Line Tools' libc++):
+  the `config.h` fish generates defines `__sentinel` (3.0.2) and `__fallthrough__` (3.7.1), names
+  libc++'s headers now use, so every C++ file fails. Not patched (the user's rule); the fish tests
+  run on 4.9.3 and the 3.x minimum is untested until the user decides. bash before 4.3 can't
+  `bind -x` a sequence longer than two keys (bash `CHANGES`, 4.3-alpha item pp), so there the
+  harness's dump key is a readline macro for a two-key sequence. fish 4 waits for the terminal's
+  answer to a device-attributes query before its first prompt, so the pty harness answers it as a
+  terminal would. The tests read `FUXX_TEST_BASH`, `FUXX_TEST_FISH` and `FUXX_TEST_BLESH`,
+  defaulting to the newest copy in `target/`; `scripts/test-bash-matrix.sh` and
+  `scripts/test-fish-matrix.sh` run them per version (the fish one skips a version that won't build).
 - **Manual checks** (can't be automated well; say so): ghost text and menu look right in Ghostty,
   iTerm, Terminal.app and fuxx, with powerlevel10k's instant prompt, in a narrow window, and stay
   off in Warp.
