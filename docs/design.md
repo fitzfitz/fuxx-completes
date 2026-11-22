@@ -3,8 +3,9 @@
 Status: **M0, M1, M1b, M1c and M1d are done** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh
 adapter; the context file, ranking, coexistence, `forget` and `doctor`; project knowledge; the
 suggestion list; safety and polish; the user's checks on 2026-11-21 and 2026-11-22); **M2 is
-built and reviewed** (bash, fish and the host channel; the user's four decisions of 2026-11-23;
-waiting for the user's check on test build v0.0.13); M3 onward are design only. This document is the
+done** (bash, fish and the host channel; the user's call on test build v0.0.13, 2026-11-23); **M3
+is approved and being built** (the release of fuxx-autosuggestions, version `0.1.0`; the user's
+six decisions of 2026-11-23); M4 onward are design only. This document is the
 source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
@@ -284,6 +285,18 @@ arrive.
   running it, "yes agreed" to the list on an empty line too (with its own setting), and approved
   the design. The zsh plugin draws the list (approach 1 of the design); fuxx drawing it is later.
   M1c. Details in `docs/superpowers/specs/2026-11-22-suggestion-list-design.md`.
+- **The first release (decided 2026-11-23, the M3 plan's six questions; the user: "go with your
+  picks").** fuxx-autosuggestions' first real version is **`0.1.0`**: usable, still pre-1.0 (crate
+  APIs, the wire format and shell variables may change in a minor bump). **Three crates** go to
+  crates.io, published from the user's own crates.io account: `fuxx-completes-core`,
+  `fuxx-autosuggestions` and the `fuxx-completes` binary; `fuxx-autocomplete` waits for M8
+  (`publish = false`). The Homebrew tap is **`fitzfitz/homebrew-fuxx`** (`brew install
+  fitzfitz/fuxx/fuxx-completes`; Homebrew requires the `homebrew-` name, an exception to the repo
+  policy's `fuxx-…` names). The **x86_64 binary is cross-built on the user's Mac** (arm64), its
+  test suite run under Rosetta; a look on a real Intel Mac is the user's, if they have one. **All
+  three adapters** (zsh, bash, fish) are in the formula and the README's install story. A
+  one-line `fuxx-completes init` and a README demo GIF are **not in M3**: a design change to
+  brainstorm after M3.
 - **License (AI's call):** MIT OR Apache-2.0, the Rust convention.
 - **Layout (AI's call):** a Cargo workspace (§12).
 
@@ -1303,17 +1316,25 @@ fuxx installs fuxx-completes as a **fuxx plugin** (fuxx's milestones M11y–M11z
 no longer links the crates.
 
 - **What this repo ships for it:** a `fuxx-plugin.conf` at the top of the repo, and on each release
-  the assets `fuxx-plugin-macos-arm64.zip` and `fuxx-plugin-macos-x86_64.zip`, each a folder with
-  that file, the `fuxx-completes` binary in `bin/` and the zsh adapter in `shell/`:
+  the assets `fuxx-plugin-macos-arm64.zip` and `fuxx-plugin-macos-x86_64.zip`, each holding, at
+  the zip's root, that file, the `fuxx-completes` binary in `bin/`, the zsh adapter in `shell/`,
+  and (AI's call, M3) `LICENSE-MIT`, `LICENSE-APACHE` and `THIRD_PARTY_NOTICES.md`, whose licences
+  ask to travel with copies of the binary (fuxx ignores extra files). The manifest as shipped:
   ```
   format      = 1
   id          = fuxx-completes
   name        = fuxx-completes
   version     = <release version>
-  description = Suggestions from your history as you type.
+  description = Grey ghost-text suggestions from your history and your project's commands, plus a list of 5 when you pause (zsh).
   bin         = bin
   zsh         = shell/fuxx-autosuggestions.plugin.zsh
+
+  setting.list       = bool on    Show a suggestion list when you pause
+  setting.list_empty = bool on    Show the list on an empty line too
+  setting.list_delay = number 3   Seconds of pause before the list shows
+  setting.list_size  = number 5   Items in the list (1–5)
   ```
+  The `setting.*` lines are fuxx's declared plugin settings (fuxx 0.12.6+, since v0.0.12; M1c).
   The zsh file follows §5.6's one-file-per-library naming (the user's decision, 2026-11-13).
 - **What fuxx does:** puts `bin/` on `PATH` and sources the zsh adapter in its zsh terminals after
   the user's `.zshrc`, with `FUXX_PLUGIN_DIR` and `FUXX_PLUGIN_DATA` set while it is sourced. The
@@ -1426,7 +1447,8 @@ cli/                       the fuxx-completes binary (serve; later report, compl
 fuxx-autosuggestions/      the ghost-text library
 fuxx-autocomplete/         the menu library
 specs/                     command knowledge (our format; imported data marked)
-projects/                  project-type mappings (TOML, compiled in by core/build.rs; M1b)
+core/projects/             project-type mappings (TOML, compiled in by core/build.rs; M1b;
+                           inside the core crate since M3 so the published crate builds)
 adapters/zsh|bash|fish/    thin shell plugins
 docs/design.md             this document
 docs/roadmap.md            milestones
@@ -1522,7 +1544,7 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
 | M1c | Suggestion list | the core's top-N and the list it pushes after the pause (empty line too); the `suggest` field and `list` message; the zsh plugin draws the list under the line with the keys of the design spec, in its own keymap only while it shows; the settings variables, and fuxx's declared settings when fuxx has them; `doctor` shows the list settings; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M1d | Safety and polish | secret-looking lines never offered; dangerous commands guarded until their dangerous part is typed; a repo/worktree tier after this folder's history; a fix after a failed command as ghost text on the empty line (`prev` carries the status); `why` and `doctor --report`; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M2 | bash and fish adapters, and the host channel (autosuggestions); built and reviewed 2026-11-23, waiting for the user's check | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
-| M3 | Release fuxx-autosuggestions | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
+| M3 | Release fuxx-autosuggestions; approved 2026-11-23 (version `0.1.0`), being built | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |
 | M5 | Line parsing, generators and shell state | current command and word found; built-in Rust generators (git first) and declarative generators with timeout and cache; adapters send `state` (§5.9) and the core uses it |
 | M6 | zsh menu | as-you-type menu in zsh drawn below the line; Tab untouched; fzf-safe |

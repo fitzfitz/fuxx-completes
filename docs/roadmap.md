@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 planned 2026-11-23, [plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md), waiting for the user's six decisions). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
+**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 planned and approved 2026-11-23, [plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md), being built on branch `m3-release`). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ✅ done 2026-11-23 ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md); the user's call on v0.0.13) |
-| M3 | Release fuxx-autosuggestions | 🟨 planned, waiting for the user's decisions ([plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md)) |
+| M3 | Release fuxx-autosuggestions | 🟨 approved, being built ([plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md)) |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
 | M6 | zsh menu | ⬜ |
@@ -30,6 +30,17 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-23** — **M3 approved: the user's six decisions.** The user: "go with your picks". R1
+  version **`0.1.0`**; R2 three crates on crates.io (`fuxx-completes-core`,
+  `fuxx-autosuggestions`, `fuxx-completes`) from the user's own account, `fuxx-autocomplete`
+  `publish = false`; R3 tap **`fitzfitz/homebrew-fuxx`** (`brew install
+  fitzfitz/fuxx/fuxx-completes`); R4 x86_64 cross-built on this Mac (a look on a real Intel Mac
+  is the user's, if they have one); R5 zsh, bash and fish in the formula and the README; R6
+  `init` and a demo GIF not in M3 (a brainstorm after M3). Recorded in the plan and
+  `design.md` (status, §4, §8's zip contents and the manifest as shipped, §12's
+  `core/projects/`, §15). Tasks 1–5 are built next on `m3-release`; the release gates wait for
+  the user's word, one at a time.
 
 - **2026-11-23** — **M3 plan written.** [`plans/M3 Plan - Release fuxx-autosuggestions.md`](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md):
   five build tasks (crates that can be published; both release zips by `scripts/package.sh`; the

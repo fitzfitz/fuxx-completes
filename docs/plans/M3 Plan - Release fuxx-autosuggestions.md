@@ -6,8 +6,9 @@ Written 2026-11-23 from `docs/design.md` §15's M3 row (designed and approved 20
 2026-11-13). Built in the session (executing-plans): Tasks 1–5 on branch `m3-release`, then one
 whole-branch review on the most capable model, one fix pass, then Task 6, the release, **one
 approval gate at a time**. Decisions marked **AI's call** are open to change; each lands in
-`docs/design.md` in the task named. **Six decisions are the user's** (below); the plan is written
-with the AI's picks and is not built until the user answers.
+`docs/design.md` in the task named. **Six decisions are the user's** (below). **Answered
+2026-11-23:** the user, "go with your picks": R1 `0.1.0`, R2 C1, R3 T1, R4 X1, R5 S1, R6 A1 (the
+table's AI's picks, now the user's decisions; recorded in `docs/design.md` §4).
 
 **Goal:** fuxx-autosuggestions gets its first real release: a Homebrew tap, zsh plugin manager
 lines, the three crates on crates.io, a README install section that works, and
@@ -55,6 +56,13 @@ Rules: `AGENTS.md`.
 ## Decisions only the user can make
 
 Most important first. Nothing in Task 6 happens before the matching answer.
+
+**The user's answers (2026-11-23, "go with your picks"):** R1 **`0.1.0`**; R2 **C1** (three crates,
+published from the user's own crates.io account; `fuxx-autocomplete` gets `publish = false`); R3
+**T1** (`fitzfitz/homebrew-fuxx`, `brew install fitzfitz/fuxx/fuxx-completes`); R4 **X1** (x86_64
+cross-built on this Mac; **the user's check:** one look on a real Intel Mac after the release, if
+the user has one, Gate B); R5 **S1** (all three adapters in the formula and the README); R6 **A1**
+(`init` and the demo GIF are not in M3; a design change to brainstorm after M3).
 
 | # | Question | Options and cost | **AI's pick** |
 | --- | --- | --- | --- |
@@ -173,7 +181,7 @@ value of `key = value` / `key = "value"` on its own line, comments skipped). The
   `aborting upload due to dry run` for core, then fuxx-autosuggestions, then fuxx-completes; no
   `projects/: No such file`. If cargo refuses because the core isn't on crates.io yet, run
   `cargo package -p fuxx-completes-core` alone (must verify) and record that the other two can
-  only be verified during Gate E. `cargo package --list -p <each>` shows `LICENSE-MIT`,
+  only be verified during Gate D. `cargo package --list -p <each>` shows `LICENSE-MIT`,
   `LICENSE-APACHE`, `README.md` (core: `projects/*.toml`). Remove `target/package/`.
 - [ ] **Step 5:** gate. **Docs:** design §12 (`core/projects/`; crate files), §5.4's mapping paths,
   `projects/README.md` moves along; roadmap Progress log. Commit `chore: crates ready for crates.io (mappings inside the core, metadata, licences)`.
