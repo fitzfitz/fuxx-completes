@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M2** (M1d done 2026-11-22; M2 being planned). fuxx's Settings for plugins is on fuxx's `master` (M11au); this repo adds the `setting.list*` lines to `fuxx-plugin.conf` once a fuxx release has it.
+**Current milestone: M2** (M1d done 2026-11-22; M2 being planned). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -30,6 +30,12 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-23** — **Chore: fuxx's Settings for the list.** fuxx v0.12.6 shipped declared plugin
+  settings (its M11au), so `fuxx-plugin.conf` now carries the four lines of the M1c spec
+  (`setting.list`, `list_empty`, `list_delay`, `list_size`); the adapter already reads
+  `FUXX_PLUGIN_SETTING_LIST*` (M1c). The user: "go". Test build v0.0.12, built from `main` in a
+  separate worktree while M2 is built on its branch; M2's test build becomes v0.0.13.
 
 - **2026-11-22** — **M1d done.** The user: "close m1d then plan M2". M1d is ✅ on test build
   v0.0.11 and merged to `main`; the user had not tried v0.0.11 in fuxx before closing it, so
