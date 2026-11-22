@@ -60,6 +60,34 @@ pub fn report(facts: Option<&str>, data: Option<&DataDir>, version: &str) -> Str
             line("keys", &shown);
         }
     }
+    // The suggestion list's settings (M1c): `setting=<name> <value> <source>`.
+    for name in ["list", "list_empty", "list_delay", "list_size"] {
+        let Some(v) = facts
+            .iter()
+            .find(|(k, v)| *k == "setting" && v.split(' ').next() == Some(name))
+            .map(|(_, v)| *v)
+        else {
+            continue;
+        };
+        let mut parts = v.split(' ').skip(1);
+        let (value, source) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+        let label = match name {
+            "list" => "list",
+            "list_empty" => "list empty",
+            "list_delay" => "list delay",
+            _ => "list size",
+        };
+        let source = match source {
+            "fuxx" => "fuxx Settings",
+            other => other,
+        };
+        let value = if name == "list_delay" {
+            format!("{value} s")
+        } else {
+            value.to_string()
+        };
+        line(label, &format!("{value} ({source})"));
+    }
     line("host mode", "not built yet (M2)");
     match data {
         None => line("data", "none (no HOME)"),
@@ -262,5 +290,22 @@ mod tests {
         );
         assert!(has(&r, &want), "{want}\n{r}");
         assert!(has(&r, "secret       present"), "{r}");
+    }
+
+    #[test]
+    fn report_lists_the_list_settings() {
+        let facts = "shell=zsh\nversion=5.9\nstate=on\nsetting=list on fuxx\n\
+                     setting=list_empty on shell\nsetting=list_delay 3 default\n\
+                     setting=list_size 5 default\n";
+        let r = report(Some(facts), None, "1");
+        for want in [
+            "list         on (fuxx Settings)",
+            "list empty   on (shell)",
+            "list delay   3 s (default)",
+            "list size    5 (default)",
+        ] {
+            assert!(has(&r, want), "{want:?} not in\n{r}");
+        }
+        assert!(r.find("list         on").unwrap() < r.find("host mode").unwrap());
     }
 }

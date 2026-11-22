@@ -281,3 +281,67 @@ fn project_suggest_p95_under_10_ms_warm() {
     println!("warm project folder, 2000 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}");
     assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
 }
+
+/// M1c: building the list of 5 (what `tick` does when the pause is over) on the 100,000-line
+/// history, for an empty line and 1–6 typed characters.
+#[test]
+#[ignore = "a release-mode benchmark; run it with --release -- --ignored"]
+fn list_p95_under_10_ms_on_100k_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let mut rng = Lcg(0x5eed);
+    let commands = distinct(&mut rng);
+    let lines: Vec<&str> = (0..100_000)
+        .map(|_| commands[rng.below(commands.len())].as_str())
+        .collect();
+    let hist = base.join(".zsh_history");
+    std::fs::write(&hist, lines.join("\n") + "\n").unwrap();
+    let mut session = Session::new(None, None);
+    session.handle(Request::Hello {
+        protocol: 1,
+        shell: "zsh".into(),
+        shell_version: "5.9".into(),
+        history_format: "zsh".into(),
+        history_path: Some(hist.clone()),
+        libraries: vec!["autosuggestions".into()],
+    });
+    session.handle(Request::ListConfig {
+        size: 5,
+        delay: Duration::ZERO,
+        empty: true,
+    });
+    let suggest = |id: u64, buffer: String| Request::Suggest {
+        id,
+        mode: Mode::Async,
+        cursor: buffer.chars().count(),
+        cwd: base.clone(),
+        buffer,
+        cdpath: Some(Vec::new()),
+    };
+    let started = Instant::now();
+    while !session.history_loaded() {
+        session.handle(suggest(0, "zz".into()));
+        session.tick(Instant::now());
+        std::thread::sleep(Duration::from_millis(1));
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "history never loaded"
+        );
+    }
+    let mut times = Vec::with_capacity(2000);
+    for id in 1..=2000u64 {
+        let line = lines[rng.below(lines.len())];
+        let prefix: String = line.chars().take(rng.below(7)).collect();
+        session.handle(suggest(id, prefix));
+        let t = Instant::now();
+        let list = session.tick(Instant::now() + Duration::from_secs(1));
+        times.push(t.elapsed());
+        assert!(list.is_some(), "no list for id {id}");
+    }
+    times.sort();
+    let p50 = times[times.len() / 2];
+    let p95 = times[times.len() * 95 / 100];
+    let max = times[times.len() - 1];
+    println!("list of 5 over 2000 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}");
+    assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
+}
