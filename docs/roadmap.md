@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 not planned yet). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
+**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 planned 2026-11-23, [plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md), waiting for the user's six decisions). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ✅ done 2026-11-23 ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md); the user's call on v0.0.13) |
-| M3 | Release fuxx-autosuggestions | ⬜ |
+| M3 | Release fuxx-autosuggestions | 🟨 planned, waiting for the user's decisions ([plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md)) |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
 | M6 | zsh menu | ⬜ |
@@ -30,6 +30,21 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-23** — **M3 plan written.** [`plans/M3 Plan - Release fuxx-autosuggestions.md`](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md):
+  five build tasks (crates that can be published; both release zips by `scripts/package.sh`; the
+  Homebrew formula, checked in a local tap; install docs and the plugin-manager load shapes;
+  version, one whole-branch review, one fix pass) and a release task of four approval gates
+  (merge and push `main`; tag and GitHub release, then the user's check in fuxx; the tap; crates.io
+  last). Checked for it: crates.io (all four names free), Cargo's publish docs, Homebrew's tap,
+  Rust-formula and support-tier docs, oh-my-zsh, zinit, antidote and zap, fuxx's plugin install
+  code. Findings: the core can't be published as laid out (`build.rs` reads `../projects`,
+  outside the crate; the plan moves it to `core/projects/`); the x86_64 binary cross-builds here
+  and runs under Rosetta but is 783,184 bytes, 3,248 under the size limit; Intel Macs can't
+  install the fuxx plugin today (no x86_64 zip); Homebrew made Intel macOS Tier 3 in September
+  2026; the crates carry no licence files and the binary's crates need notices. **Waiting for the
+  user's six decisions** (version, crates and account, tap name, x86_64 route, bash/fish in the
+  install story, the analysts' `init`/demo items); the plan is written with the AI's picks.
 
 - **2026-11-23** — **M2 done.** The user: "close M2". M2 is ✅ on test build v0.0.13 and merged to
   `main`. Anything found in v0.0.13 later is fixed as a chore. Next: M3 (release
