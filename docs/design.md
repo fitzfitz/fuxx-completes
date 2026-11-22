@@ -128,12 +128,12 @@ fixes, measured truly cold). The release binary grew from 502,800 to 602,496 byt
 150 KB budget; `cli/tests/size.rs` keeps it there). **M1c, measured 2026-11-22:** building the list of 5 on
 the same 100,000-line history (what the core does when the pause is over; an empty line and 1–6
 typed characters) took p50 4 µs, p95 26 µs, max 0.45 ms. **M1d, measured 2026-11-22** (release,
-Apple Silicon, every new rule on): the 100,000-line history with 50,000 records took p50 54 µs,
-p95 140 µs, max 2.4 ms per suggestion (the secret and danger checks per candidate); a warm
-project folder p50 6 µs, p95 0.28 ms; the list of 5 p50 12 µs, p95 44 µs. The worst case for the
+Apple Silicon, every new rule on, after the review fixes): the 100,000-line history with 50,000
+records took p50 84 µs, p95 152 µs, max 3.0 ms per suggestion (the secret and danger checks per
+candidate); a warm project folder p50 5 µs, p95 0.26 ms; the list of 5 p50 9 µs, p95 38 µs. The worst case for the
 repo tier (the 200 folders are real folders of one repo, and every request comes from another
-folder, so each merges the other 199 folders' records) took p50 0.87 ms, p95 1.7 ms, max 11.8
-ms; the fix after a failure, worked out fresh each time, p50 2.9 ms, p95 5.1 ms, max 6.0 ms. All
+folder, so each merges the other 199 folders' records) took p50 0.81 ms, p95 1.4 ms, max 13.3
+ms; the fix after a failure, worked out fresh each time, p50 3.3 ms, p95 5.6 ms, max 7.0 ms. All
 within 10 ms at p95. **The release binary grew to 702,224 bytes** (+66,480 over M1c's 635,744:
 the repo tier +33 KB, the fix +17 KB, `why` and `--report` +17 KB, the filters under 1 KB), past
 `cli/tests/size.rs`'s limit of 656,400 (M1's binary + M1b's 150 KB budget, which M1c already
@@ -498,7 +498,9 @@ is the key; a file `gitdir: X` names X (relative to that folder), or, when X sit
 `<common>/worktrees/` and `X/commondir` exists, the common folder, so every worktree of a repo
 shares one key; keys are canonical paths. A folder that no longer exists (a removed worktree),
 an unreadable or garbage `.git` file has no key. Keys are remembered for 256 folders (least
-recently used dropped) and trusted for 60 s. The repo's folders are the context index's folders
+recently used dropped) and trusted for 60 s; whether a recorded folder belongs to the cwd's repo
+is remembered per repo for 60 s too, however many folders it has (fix after the M1d review: a
+monorepo with more than 256 recorded folders looked each up again). The repo's folders are the context index's folders
 under one of its roots (the main worktree, the parent of a `.git` key, and each
 `<key>/worktrees/*/gitdir`'s parent) whose own key is the same (so a nested repo stays out); the
 session merges their tallies (successes, failures, newest) and keeps them while the cwd and the
@@ -519,20 +521,26 @@ known token at a word start (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` + 30, `github_pa
 `AIza` + 35, `npm_` + 36) or `-----BEGIN`; an `Authorization:` value (after an optional scheme
 word) or a `Bearer ` value of 16+ characters that isn't a `$` variable; a URL password that
 isn't a `$` variable; a `NAME=value`, `--name=value` or `--name value` whose name (upper-cased,
-`-` as `_`) holds `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY`, `PRIVATE_KEY` or
-`ACCESS_KEY`, doesn't end in `FILE`, `PATH` or `DIR`, and has a literal value (`=$VAR`,
-`=$(…)` and a backtick are fine); or one run of 32+ characters from `[A-Za-z0-9+/=_-]` that is
+`-` as `_`, split at `_`) holds `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD` or `APIKEY` as a whole
+segment, or `API KEY`, `PRIVATE KEY` or `ACCESS KEY` as two (so `HF_TOKEN` and `--api-key` count
+but `--max-tokens` and `TOKENIZERS_PARALLELISM` don't), doesn't start with `NO` (`--no-password`),
+doesn't end in `FILE`, `PATH`, `DIR`, `STDIN`, `ID`, `NAME`, `LIMIT` or `TYPE` (`--password-stdin`,
+`--secret-id`, `--token-limit`), and has a literal value (`=$VAR`, `=$(…)` and a backtick are
+fine); a `name=value` inside such a value counts too (`--from-literal=password=x`) (fixes after
+the M1d review); or one run of 32+ characters from `[A-Za-z0-9+/=_-]` that is
 not all hex digits (git SHAs, `sha256:` digests, UUIDs are everyday arguments), holds a letter
 and a digit, has at most one `-`, `_` or `/` per 16 characters (so snake_case test names,
 branch names and paths stay) and has at least 3.5 bits of entropy per character (**AI's calls**:
 the tails, the exemptions, the separator rule). Hidden lines leave the candidate sequence before
 the walk, so they never count toward its 50-candidate bound and its budget never returns one
-unchecked.
+unchecked; after 1,000 hidden lines in one answer the sequence ends (`MAX_HIDDEN`, fix after the
+M1d review: 20,000 of them once took 15 ms).
 
 *Dangerous commands (M1d §4.2):* a line whose first simple command (after `NAME=value`,
 `sudo`/`doas` and their options, `builtin`/`command`) is on the list is guarded: `rm` with
 `-r`/`-R`/`-f` (any cluster) or `--recursive`/`--force`; `git push` with `-f`/`--force`/
-`--force-with-lease`; `git reset --hard`; `git clean` with `-f`; `git checkout -- .`;
+`--force-with-lease`; `git reset --hard`; `git clean` with `-f`; `git checkout .` (with or
+without `--`, fix after the M1d review);
 `git restore .`; `kubectl delete`; `terraform apply`/`destroy`; `helm uninstall`;
 `docker system prune`; `docker volume rm`; `dd`; `mkfs*`; `chmod -R`; `chown -R`; `shutdown`;
 `reboot` (a const table in `safety.rs`, **AI's call** on the entries). Flags after a `--` are
@@ -541,7 +549,7 @@ arguments (`rm -- -rf` is a file), and subcommand words may follow options (`git
 "this folder's history" step, and is never deferred as failed-only: it ranks by recency with
 the rest. It is shown (ghost text or list) only once the typed text reaches its dangerous part:
 the whole subcommand (`kubectl delete`), a flag's first character (`rm -`, `git push -`), `git
-reset --h`, `git checkout --`, `git restore .`, or the command word itself (`reboot`) (**AI's
+reset --h`, `git checkout .`, `git restore .`, or the command word itself (`reboot`) (**AI's
 call**: typing `g` never puts `git push --force` one key away). So it never shows on an empty
 line, in the empty-line list or as a fix. Like secrets, guarded lines leave the candidates
 before the walk.

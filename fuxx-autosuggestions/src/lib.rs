@@ -21,7 +21,7 @@ use fuxx_completes_core::cd_target::{classify, CdKind, Place};
 use fuxx_completes_core::history::{History, Verdict, CHECK_BUDGET};
 pub use fuxx_completes_core::rank::Ranking;
 use fuxx_completes_core::rank::{follows_of, walk};
-use fuxx_completes_core::safety::hidden_for;
+use fuxx_completes_core::safety::{hidden_for, MAX_HIDDEN};
 use std::time::Instant;
 
 /// The text to show after `buffer`, or None. None for an empty buffer, no match, or an exact match.
@@ -73,14 +73,23 @@ fn best_entry<'a>(
         .ranked_with_prefix(buffer, ranking)
         .filter(|c| !here.contains(c) && !repo.contains(c));
     // Hidden lines (M1d) leave before the walk: they never count toward its bounds and are never
-    // returned unchecked by its budget.
+    // returned unchecked by its budget; after `MAX_HIDDEN` of them the sequence ends.
+    let mut hidden = 0;
     let candidates = here
         .iter()
         .copied()
         .chain(repo.iter().copied())
         .chain(project)
         .chain(others)
-        .filter(|c| !hidden_for(c, buffer));
+        .map_while(|c| {
+            if !hidden_for(c, buffer) {
+                Some(Some(c))
+            } else {
+                hidden += 1;
+                (hidden < MAX_HIDDEN).then_some(None)
+            }
+        })
+        .flatten();
     walk(candidates, CHECK_BUDGET, judge)
 }
 
@@ -103,6 +112,7 @@ pub fn suggestion_list<'a>(
         return out;
     }
     let start = Instant::now();
+    let mut hidden = 0;
     if let Some(first) = best_entry(history, buffer, place, ranking, projects) {
         if first != buffer {
             out.push(first);
@@ -133,7 +143,14 @@ pub fn suggestion_list<'a>(
         if out.len() >= max || start.elapsed() >= CHECK_BUDGET {
             break;
         }
-        if c.is_empty() || c == buffer || out.contains(&c) || hidden_for(c, buffer) {
+        if c.is_empty() || c == buffer || out.contains(&c) {
+            continue;
+        }
+        if hidden_for(c, buffer) {
+            hidden += 1;
+            if hidden >= MAX_HIDDEN {
+                break;
+            }
             continue;
         }
         if classify(c, place) == CdKind::Missing {
@@ -662,5 +679,31 @@ mod tests {
         assert_eq!(list[0], "cargo tree");
         let list = suggestion_list(&h, "", &nowhere(), &r, &projects, 5);
         assert_eq!(list[0], "cargo tree");
+    }
+
+    /// Final review: hidden lines are skipped at most `MAX_HIDDEN` times per answer, so a history
+    /// full of them can't slow an answer past the budget.
+    #[test]
+    fn hidden_lines_are_bounded() {
+        use fuxx_completes_core::safety::MAX_HIDDEN;
+        let with = |n: usize| {
+            let mut entries = vec!["export PATH=x".to_string()];
+            entries.extend((0..n).map(|i| format!("export TOKEN=a{i}")));
+            let mut h = History::new();
+            h.replace_file_entries(entries);
+            h
+        };
+        let h = with(MAX_HIDDEN - 1);
+        assert_eq!(
+            suggestion(&h, "export ", &nowhere(), &none(), &[]),
+            Some("PATH=x")
+        );
+        assert_eq!(
+            suggestion_list(&h, "export ", &nowhere(), &none(), &[], 5).len(),
+            1
+        );
+        let h = with(MAX_HIDDEN + 1);
+        assert_eq!(suggestion(&h, "export ", &nowhere(), &none(), &[]), None);
+        assert!(suggestion_list(&h, "export ", &nowhere(), &none(), &[], 5).is_empty());
     }
 }

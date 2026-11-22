@@ -95,6 +95,12 @@ fn repo_roots(key: &Path) -> Vec<PathBuf> {
 pub struct RepoCache {
     entries: HashMap<PathBuf, (Option<PathBuf>, Instant, u64)>,
     uses: u64,
+    /// Which folders belong to one repo (its key, since when, folder → member), so a repo with
+    /// more recorded folders than `MAX_FOLDERS` isn't looked up folder by folder again.
+    members: Option<(PathBuf, Instant, HashMap<PathBuf, bool>)>,
+    /// Lookups made (`repo_key` calls), for tests.
+    #[cfg(test)]
+    lookups: usize,
 }
 
 impl RepoCache {
@@ -120,6 +126,10 @@ impl RepoCache {
                 return key.clone();
             }
         }
+        #[cfg(test)]
+        {
+            self.lookups += 1;
+        }
         let key = repo_key(folder, home);
         if !self.entries.contains_key(folder) && self.entries.len() >= MAX_FOLDERS {
             let oldest = self
@@ -134,6 +144,29 @@ impl RepoCache {
         self.entries
             .insert(folder.to_path_buf(), (key.clone(), now, self.uses));
         key
+    }
+
+    /// Whether `folder` belongs to the repo `key`, remembered per repo for `MAX_AGE`.
+    fn is_member(&mut self, folder: &Path, key: &Path, home: Option<&Path>) -> bool {
+        let fresh = self
+            .members
+            .as_ref()
+            .is_some_and(|(k, at, _)| k == key && at.elapsed() < MAX_AGE);
+        if !fresh {
+            self.members = Some((key.to_path_buf(), Instant::now(), HashMap::new()));
+        }
+        if let Some(&m) = self.members.as_ref().and_then(|(_, _, m)| m.get(folder)) {
+            return m;
+        }
+        #[cfg(test)]
+        {
+            self.lookups += 1;
+        }
+        let member = repo_key(folder, home).as_deref() == Some(key);
+        if let Some((_, _, m)) = &mut self.members {
+            m.insert(folder.to_path_buf(), member);
+        }
+        member
     }
 
     /// The tallies of the records in the other folders of `cwd`'s repo, merged per command;
@@ -152,7 +185,7 @@ impl RepoCache {
                 continue;
             }
             // A nested repo under one of the roots has a key of its own.
-            if self.key(folder, home).as_ref() != Some(&key) {
+            if !self.is_member(folder, &key, home) {
                 continue;
             }
             for (k, t) in tallies {
@@ -305,5 +338,36 @@ mod tests {
         let (_d, root) = tmp();
         let (main, _) = with_worktree(&root);
         assert_eq!(cache.key(&main, None), Some(main.join(".git")));
+    }
+
+    /// Final review: a repo with more recorded folders than the key cache holds doesn't look
+    /// every folder up again whenever the tallies are worked out anew.
+    #[test]
+    fn membership_is_remembered_beyond_the_cache() {
+        let (_d, root) = tmp();
+        let (main, _) = with_worktree(&root);
+        let mut ix = ContextIndex::default();
+        for i in 0..(MAX_FOLDERS + 50) {
+            let f = main.join(format!("d{i}"));
+            fs::create_dir_all(&f).unwrap();
+            ix.add(&Record {
+                key: Key(1),
+                folder: f,
+                status: 0,
+                time: i as i64,
+            });
+        }
+        let mut cache = RepoCache::new();
+        let t = cache.tallies(&ix, &main.join("d0"), None).unwrap();
+        assert_eq!(t[&Key(1)].ok, (MAX_FOLDERS + 49) as u32);
+        let before = cache.lookups;
+        cache.tallies(&ix, &main.join("d1"), None).unwrap();
+        // The new cwd's key, and the old cwd's membership (it was skipped as the cwd): not one
+        // lookup per folder.
+        assert!(
+            cache.lookups - before <= 2,
+            "{} lookups",
+            cache.lookups - before
+        );
     }
 }

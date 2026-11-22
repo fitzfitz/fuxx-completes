@@ -13,7 +13,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
-| M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | 🟨 being built ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md)) |
+| M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | 🟨 built and reviewed, waiting for the user's check ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md)) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
@@ -30,6 +30,21 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **M1d whole-branch review and its fix pass.** One fresh reviewer (Opus): no
+  Critical, two Important; two more regraded to Important by their effect. Fixed, each with a
+  test seen failing first: the secret-name rule hid everyday commands (`--max-tokens`,
+  `TOKENIZERS_PARALLELISM`, `--secret-id`, `--password-stdin`, `--no-password`): names now match
+  whole segments, and a `name=value` inside a value counts (`--from-literal=password=x`);
+  `git checkout .` (without `--`) was not guarded; an answer could pass over any number of
+  hidden lines (now at most 1,000); the repo tier looked every folder of a big monorepo up again
+  after each command (membership now remembered per repo). `design.md` §5.4. Deferred (minor):
+  `/bin/rm`, `noglob`/`time`/`env`/`nohup`/`exec` prefixes and `sudo -iu` clusters aren't seen
+  as dangerous; submodule subfolders get no repo tier; `why` loses shell quoting (quote the
+  whole line); the `--report` warning names only the data folder's path; `repo_order` runs twice
+  per answer. **Waiting for the user's check**, and for the user's call on two things: the
+  binary size limit (702,224 bytes against `size.rs`'s 656,400) and `why` not saying whether a
+  line followed the previous command (spec §4.5; the pairs live only in each shell's core).
 
 - **2026-11-22** — **M1d measured.** `cli/tests/latency.rs` gains the repo tier's worst case and
   the fix: suggestions p95 140 µs (history), 1.7 ms (every request merging a 200-folder repo),

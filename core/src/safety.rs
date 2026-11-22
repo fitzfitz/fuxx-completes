@@ -118,7 +118,7 @@ const DANGERS: [Danger; 18] = [
     Danger {
         command: "git",
         sub: &["checkout"],
-        trigger: Trigger::Args(&["--", "."]),
+        trigger: Trigger::Args(&["."]),
     },
     Danger {
         command: "git",
@@ -220,6 +220,10 @@ fn strip_prefix_words(words: &[CmdWord]) -> &[CmdWord] {
 pub fn is_dangerous(line: &str) -> bool {
     danger_reach(line).is_some()
 }
+
+/// How many hidden lines one answer passes over before it gives up (final review: a history
+/// full of them must not slow an answer past the budget).
+pub const MAX_HIDDEN: usize = 1000;
 
 /// True when `line` must not be offered for `buffer`: it looks like it holds a secret, or it is
 /// dangerous and `buffer` hasn't reached its dangerous part yet.
@@ -340,25 +344,31 @@ fn has_url_password(line: &str) -> bool {
     })
 }
 
-const SECRET_NAMES: [&str; 8] = [
-    "TOKEN",
-    "SECRET",
-    "PASSWORD",
-    "PASSWD",
-    "API_KEY",
-    "APIKEY",
-    "PRIVATE_KEY",
-    "ACCESS_KEY",
+/// Name segments (split at `_`, `-` counted as `_`) that make a name secret, alone or as a pair.
+const SECRET_WORDS: [&str; 5] = ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY"];
+const SECRET_PAIRS: [(&str, &str); 3] = [("API", "KEY"), ("PRIVATE", "KEY"), ("ACCESS", "KEY")];
+/// A last segment that names something about a secret, not the secret (`--password-file`,
+/// `--secret-id`, `--password-stdin`, `--token-limit`).
+const NOT_THE_SECRET: [&str; 8] = [
+    "FILE", "PATH", "DIR", "STDIN", "ID", "NAME", "LIMIT", "TYPE",
 ];
 
+/// A name holding a secret word as a whole segment (`HF_TOKEN`, `--api-key`), not as part of
+/// one (`--max-tokens`, `TOKENIZERS_PARALLELISM`), and not a `NO_…` switch.
 fn secret_name(name: &str) -> bool {
     let n = name
         .trim_start_matches('-')
         .to_ascii_uppercase()
         .replace('-', "_");
-    !n.is_empty()
-        && SECRET_NAMES.iter().any(|s| n.contains(s))
-        && !["FILE", "PATH", "DIR"].iter().any(|s| n.ends_with(s))
+    let parts: Vec<&str> = n.split('_').filter(|p| !p.is_empty()).collect();
+    let (Some(first), Some(last)) = (parts.first(), parts.last()) else {
+        return false;
+    };
+    let holds = parts.iter().any(|p| SECRET_WORDS.contains(p))
+        || parts
+            .windows(2)
+            .any(|w| SECRET_PAIRS.contains(&(w[0], w[1])));
+    holds && *first != "NO" && !NOT_THE_SECRET.contains(last)
 }
 
 /// A literal value: not empty, and (inside one layer of quotes) not a `$` expansion or a
@@ -375,7 +385,13 @@ fn has_secret_name(line: &str) -> bool {
         .iter()
         .enumerate()
         .any(|(i, w)| match w.split_once('=') {
-            Some((name, value)) => secret_name(name) && literal(value),
+            // `--from-literal=password=x`: a `name=value` inside the value counts too.
+            Some((name, value)) => {
+                (secret_name(name) && literal(value))
+                    || value
+                        .split_once('=')
+                        .is_some_and(|(n, v)| secret_name(n) && literal(v))
+            }
             None => {
                 w.starts_with('-')
                     && secret_name(w)
@@ -512,8 +528,32 @@ mod tests {
             "npm_config_registry=x npm i",
             "ls /usr/local/lib/node_modules/typescript/lib",
             "open https://github.com/fitzfitz/fuxx-completes/pull/12",
+            // Final review: names that only contain a secret word.
+            "cargo run -- --max-tokens 4096",
+            "llm --max-tokens 100 hi",
+            "rg --token-limit 4",
+            "aws secretsmanager get-secret-value --secret-id prod/db",
+            "docker login --password-stdin ghcr.io",
+            "docker login --username AWS --password-stdin 1234.dkr.ecr.us-east-1.amazonaws.com",
+            "pg_dump --no-password mydb",
+            "TOKENIZERS_PARALLELISM=false python x.py",
         ] {
             assert!(!looks_secret(l), "{l}");
+        }
+    }
+
+    /// Final review: a secret name as a whole segment still counts, and a `name=value` inside a
+    /// value too.
+    #[test]
+    fn secret_names_are_whole_segments() {
+        for l in [
+            "HF_TOKEN=hf_x make",
+            "SECRET_KEY_BASE=abc rails s",
+            "export OPENAI_API_KEY=abc",
+            "tool --apikey=xyz",
+            "kubectl create secret generic db --from-literal=password=hunter2",
+        ] {
+            assert!(looks_secret(l), "{l}");
         }
     }
 
@@ -529,6 +569,8 @@ mod tests {
             "git reset --hard HEAD~1",
             "git clean -fdx",
             "git checkout -- .",
+            "git checkout .",
+            "git checkout main -- .",
             "git restore .",
             "kubectl delete pod x",
             "terraform apply",
@@ -583,8 +625,9 @@ mod tests {
         );
         assert_eq!(
             danger_reach("git checkout -- ."),
-            Some("git checkout --".len())
+            Some("git checkout -- .".len())
         );
+        assert_eq!(danger_reach("git checkout ."), Some("git checkout .".len()));
         assert_eq!(danger_reach("git restore ."), Some("git restore .".len()));
         assert_eq!(danger_reach("reboot"), Some(6));
         assert_eq!(danger_reach("mkfs.ext4 /dev/x"), Some("mkfs.ext4".len()));
