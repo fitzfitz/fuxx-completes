@@ -910,6 +910,16 @@ Honest about what each shell allows.
   in `POSTDISPLAY` under the ghost text (`  N  <item>`, newlines as `↵`, cut to the width with
   `…`, at most `LINES-3` rows), dim, the highlighted one in standout; our highlight entries are
   removed by `memo=` on 5.9+, by their exact strings below.
+  **The keys (M1c).** While the list shows, its keys live in a keymap of our own
+  (`fuxx-as-list`, a fresh copy of the keymap it opened over, switched to with `zle -K` and back
+  on every close), so nothing outside the list changes: ↓ highlights the next item and ↑ the one
+  before (no wrap; the ghost text follows the highlight); ↑ with nothing highlighted closes the
+  list and runs what ↑ did (history); ⌥1–⌥5 (`Esc 1`…`Esc 5`, or `¡ ™ £ ¢ ∞` that macOS composes
+  on a US layout) put that item into the line, a number past the list does nothing; Enter and Tab
+  put the highlighted item into the line and run nothing, and with none highlighted do what they
+  did; Esc closes the list and hides the ghost text, then does what Esc did in that keymap (in vi
+  insert mode, command mode); any other key closes the list (keeping the highlighted item as the
+  ghost text, so → and End take it) and does what it did.
 - **Host mode:** with `FUXX_COMPLETES_HOST=1`, the same wrapped widgets forward the buffer over the
   host channel instead of drawing (§5.5).
 - **Limits:** a menu below the line pushes the screen and can't overlap other text; very long

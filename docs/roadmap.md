@@ -30,6 +30,15 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1c Task 4: the list keys.** A keymap of our own while the list shows (a
+  fresh copy of the one it opened over): ↓/↑ (the ghost text follows), ⌥1–⌥5 (also `¡ ™ £ ¢ ∞`),
+  Enter and Tab insert the highlighted item and run nothing, Esc closes and then does what Esc did
+  (vi command mode), ↑/Enter/Tab with nothing highlighted do what they did. `design.md` §6,
+  README. Tests first; seen failing: ↓ and the ghost, ↑ inside, ⌥2, `¡`, Enter and Tab with a
+  highlight, Enter and Tab without, Esc, a pick past the list, vi mode, the keymap restored;
+  passing from the start: ↑ as history, `£` typed with no list. 151 adapter tests on zsh 5.3.1,
+  5.8.1 and 5.9.
+
 - **2026-11-22** — **M1c Task 3: the list under the line.** The zsh plugin resolves the list
   settings (fuxx's, then the shell's, then the defaults), sends `listcfg`, asks on an empty line
   and after keys that only move, closes the list on every wrapped key, drops late lists, and

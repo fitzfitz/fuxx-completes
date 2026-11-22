@@ -2956,3 +2956,175 @@ fn fuxx_plugin_setting_wins_over_the_shell_variable() {
         "{facts}"
     );
 }
+
+// ---- M1c: the list keys ----
+
+const LIST_KEYS: &str = "FUXX_AUTOSUGGESTIONS_LIST=on; FUXX_AUTOSUGGESTIONS_LIST_DELAY=0.4";
+
+fn keys_list() -> ZshOpts {
+    ZshOpts {
+        history: vec!["git status", "git stash", "git push"],
+        rc_before: LIST_KEYS.into(),
+        ..Default::default()
+    }
+}
+
+/// Types `typed` and waits for its list.
+fn open_list(z: &mut ZshHarness, typed: &str) -> common::LineState {
+    z.send(typed);
+    z.wait_state(|s| s.postdisplay.contains('\n') && s.keymap == "fuxx-as-list")
+}
+
+const DOWN: &str = "\x1b[B";
+const UP: &str = "\x1b[A";
+
+#[test]
+fn down_highlights_and_the_ghost_follows() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send(DOWN);
+    let s = z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("standout")));
+    assert!(s.postdisplay.starts_with("tash\n"), "{s:?}");
+    z.send(DOWN);
+    let s = z.wait_state(|s| s.postdisplay.starts_with("tatus\n"));
+    assert_eq!(s.buffer, "git s");
+}
+
+#[test]
+fn up_with_nothing_highlighted_is_history() {
+    let mut z = ZshHarness::start(keys_list());
+    z.wait_state(|s| s.postdisplay.contains('\n'));
+    z.send(UP);
+    let s = z.wait_state(|s| s.buffer == "git push");
+    assert_ne!(s.keymap, "fuxx-as-list", "{s:?}");
+}
+
+#[test]
+fn up_inside_the_list_moves_up() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send(DOWN);
+    z.send(DOWN);
+    z.wait_state(|s| s.postdisplay.starts_with("tatus\n"));
+    z.send(UP);
+    z.wait_state(|s| s.postdisplay.starts_with("tash\n"));
+}
+
+#[test]
+fn alt_digit_puts_the_item_in_the_line() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("\x1b2");
+    let s = z.wait_state(|s| s.buffer == "git status");
+    assert_eq!(s.cursor, "git status".len());
+    assert_eq!(s.keymap, "main");
+    assert!(!s.postdisplay.contains('\n'), "{s:?}");
+}
+
+#[test]
+fn option_characters_pick_too() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("¡");
+    z.wait_state(|s| s.buffer == "git stash");
+}
+
+#[test]
+fn option_characters_type_when_no_list() {
+    let mut z = ZshHarness::start(keys_list());
+    z.send("echo £");
+    let s = z.wait_state(|s| s.buffer == "echo £");
+    assert_eq!(s.keymap, "main");
+}
+
+#[test]
+fn enter_with_a_highlight_inserts_without_running() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send(DOWN);
+    z.wait_state(|s| s.region_highlight.iter().any(|h| h.contains("standout")));
+    z.send("\r");
+    let s = z.wait_state(|s| s.buffer == "git stash");
+    assert_eq!(s.keymap, "main");
+}
+
+#[test]
+fn enter_without_a_highlight_runs_the_line() {
+    let mut z = ZshHarness::start(ZshOpts {
+        history: vec!["true one"],
+        rc_before: LIST_KEYS.into(),
+        ..Default::default()
+    });
+    open_list(&mut z, "true");
+    z.send("\r");
+    let s = z.wait_state(|s| s.buffer.is_empty());
+    assert_ne!(s.keymap, "fuxx-as-list");
+}
+
+#[test]
+fn tab_with_a_highlight_inserts() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send(DOWN);
+    z.send(DOWN);
+    z.wait_state(|s| s.postdisplay.starts_with("tatus\n"));
+    z.send("\t");
+    z.wait_state(|s| s.buffer == "git status");
+}
+
+#[test]
+fn tab_without_a_highlight_is_todays_tab() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("\t");
+    let s = z.wait_state(|s| s.buffer == "git stash");
+    assert_eq!(s.keymap, "main");
+}
+
+#[test]
+fn esc_closes_the_list_and_the_ghost() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("\x1b");
+    let s = z.wait_state(|s| s.postdisplay.is_empty());
+    assert_eq!((s.buffer.as_str(), s.keymap.as_str()), ("git s", "main"));
+}
+
+#[test]
+fn pick_beyond_the_list_does_nothing() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("\x1b5");
+    std::thread::sleep(Duration::from_millis(150));
+    let s = z.state();
+    assert_eq!(s.buffer, "git s");
+    assert_eq!(s.keymap, "fuxx-as-list");
+}
+
+#[test]
+fn vi_mode_list_and_esc_enters_vicmd() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: "bindkey -v\n\
+                   bindkey -M viins '^[[9999~' _fuxx-test-dump\n\
+                   bindkey -M vicmd '^[[9999~' _fuxx-test-dump"
+            .into(),
+        ..keys_list()
+    });
+    open_list(&mut z, "git s");
+    z.send("\x1b");
+    let s = z.wait_state(|s| s.keymap == "vicmd");
+    assert!(!s.postdisplay.contains('\n'), "{s:?}");
+}
+
+#[test]
+fn keymap_is_restored_after_every_close() {
+    let mut z = ZshHarness::start(keys_list());
+    open_list(&mut z, "git s");
+    z.send("t");
+    let s = z.wait_state(|s| s.buffer == "git st");
+    assert_eq!(s.keymap, "main");
+    open_list(&mut z, "");
+    z.send("\x15");
+    let s = z.wait_state(|s| s.buffer.is_empty());
+    assert_eq!(s.keymap, "main");
+}

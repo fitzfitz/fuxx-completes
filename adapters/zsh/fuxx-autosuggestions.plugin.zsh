@@ -62,6 +62,7 @@
   typeset -gi _FUXX_AS_LIST_SIZE=0 _FUXX_AS_LIST_DELAY_MS=3000 _FUXX_AS_LIST_EMPTY=1
   typeset -gi _FUXX_AS_LIST_SEL=0 _FUXX_AS_KEYSEQ=0 _FUXX_AS_LIST_FOR_SEQ=-1
   typeset -g _FUXX_AS_LIST_FOR_ID='' _FUXX_AS_LIST_FOR_BUFFER='' _FUXX_AS_LIST_GHOST=''
+  typeset -g _FUXX_AS_LIST_PREV=main   # the keymap the list's own keymap was copied from
   typeset -gA _FUXX_AS_LIST_VAL _FUXX_AS_LIST_SRC
   typeset -ga _FUXX_AS_LIST_ITEMS=() _FUXX_AS_HLS=()
   typeset -g _FUXX_AS_PID=''
@@ -967,8 +968,134 @@ _fuxx_as_list_settings() {
 _fuxx_as_list_reset() {
   emulate -L zsh
   _FUXX_AS_LIST_ITEMS=() _FUXX_AS_LIST_SEL=0
+  [[ ${KEYMAP-} == fuxx-as-list ]] && zle -K $_FUXX_AS_LIST_PREV 2>/dev/null
   return 0
 }
+
+# The ghost text the line should keep when the list closes: the highlighted item's rest, or the
+# ghost text the list opened over.
+_fuxx_as_list_ghost() {
+  emulate -L zsh
+  REPLY=$_FUXX_AS_LIST_GHOST
+  if (( _FUXX_AS_LIST_SEL )); then
+    REPLY=${_FUXX_AS_LIST_ITEMS[_FUXX_AS_LIST_SEL]}
+    [[ $REPLY == "$BUFFER"* ]] && REPLY=${REPLY#"$BUFFER"} || REPLY=''
+  fi
+}
+
+# While the list shows, its keys live in a keymap of our own copied from the current one, so
+# every other key works as before and no binding outside the list changes.
+_fuxx_as_list_keymap() {
+  emulate -L zsh
+  [[ $KEYMAP == fuxx-as-list ]] && return 0
+  _FUXX_AS_LIST_PREV=$KEYMAP
+  bindkey -N fuxx-as-list $KEYMAP 2>/dev/null || return 0
+  local k
+  for k in '^[[B' '^[OB'; do bindkey -M fuxx-as-list -- $k fuxx-as-list-down; done
+  for k in '^[[A' '^[OA'; do bindkey -M fuxx-as-list -- $k fuxx-as-list-up; done
+  for k in '^[1' '^[2' '^[3' '^[4' '^[5' '¡' '™' '£' '¢' '∞'; do
+    bindkey -M fuxx-as-list -- $k fuxx-as-list-pick
+  done
+  bindkey -M fuxx-as-list -- '^M' fuxx-as-list-enter
+  bindkey -M fuxx-as-list -- '^I' fuxx-as-list-tab
+  bindkey -M fuxx-as-list -- '^[' fuxx-as-list-esc
+  zle -K fuxx-as-list
+}
+
+# Puts list item $1 into the line (never runs it); the list closes and the ghost text is asked
+# for the new line.
+_fuxx_as_list_insert() {
+  emulate -L zsh
+  local item=${_FUXX_AS_LIST_ITEMS[$1]-}
+  [[ -n $item ]] || return 0
+  _FUXX_AS_KEYSEQ+=1
+  _fuxx_as_list_reset
+  _fuxx_as_clear
+  BUFFER=$item CURSOR=$#item
+  _FUXX_AS_LAST_BUFFER=$BUFFER
+  _fuxx_as_request
+  zle -R
+}
+
+# Closes the list (keeping the ghost text that belongs to the line) and runs what the key does
+# in the keymap the list was opened over.
+_fuxx_as_list_passthrough() {
+  emulate -L zsh
+  _fuxx_as_list_ghost
+  local ghost=$REPLY w
+  _fuxx_as_list_reset
+  _fuxx_as_show "$ghost"
+  w=$(bindkey -M $_FUXX_AS_LIST_PREV -- "$KEYS" 2>/dev/null)
+  w=${w##* }
+  [[ -n $w && $w != undefined-key ]] && zle $w
+  return 0
+}
+
+_fuxx_as_widget_list_down() {
+  emulate -L zsh
+  (( _FUXX_AS_LIST_SEL < $#_FUXX_AS_LIST_ITEMS )) && _FUXX_AS_LIST_SEL+=1
+  _fuxx_as_list_draw
+  zle -R
+}
+zle -N fuxx-as-list-down _fuxx_as_widget_list_down
+
+# ↑ moves up inside the list; with nothing highlighted it is the key it always was (history).
+_fuxx_as_widget_list_up() {
+  emulate -L zsh
+  if (( _FUXX_AS_LIST_SEL == 0 )); then
+    _fuxx_as_list_passthrough
+    return 0
+  fi
+  _FUXX_AS_LIST_SEL+=-1
+  _fuxx_as_list_draw
+  zle -R
+}
+zle -N fuxx-as-list-up _fuxx_as_widget_list_up
+
+# ⌥1–⌥5: Esc then the digit, or the characters macOS composes for them on a US layout.
+_fuxx_as_widget_list_pick() {
+  emulate -L zsh
+  local -i n
+  case $KEYS in
+    $'\e1'|'¡') n=1 ;;
+    $'\e2'|'™') n=2 ;;
+    $'\e3'|'£') n=3 ;;
+    $'\e4'|'¢') n=4 ;;
+    $'\e5'|'∞') n=5 ;;
+  esac
+  (( n >= 1 && n <= $#_FUXX_AS_LIST_ITEMS )) && _fuxx_as_list_insert $n
+  return 0
+}
+zle -N fuxx-as-list-pick _fuxx_as_widget_list_pick
+
+# Enter and Tab: a highlighted item goes into the line (nothing runs); with none highlighted they
+# do what they always did.
+_fuxx_as_widget_list_enter() {
+  emulate -L zsh
+  if (( _FUXX_AS_LIST_SEL )); then
+    _fuxx_as_list_insert $_FUXX_AS_LIST_SEL
+  else
+    _fuxx_as_list_passthrough
+  fi
+}
+zle -N fuxx-as-list-enter _fuxx_as_widget_list_enter
+zle -N fuxx-as-list-tab _fuxx_as_widget_list_enter
+
+# Esc closes the list and hides the ghost text, then does what Esc does in the keymap the list
+# opened over: vi insert mode still goes on to command mode, and a user's own Esc binding runs
+# (our own Esc widget has nothing left to do).
+_fuxx_as_widget_list_esc() {
+  emulate -L zsh
+  local w
+  w=$(bindkey -M $_FUXX_AS_LIST_PREV -- "$KEYS" 2>/dev/null)
+  w=${w##* }
+  _FUXX_AS_KEYSEQ+=1
+  _fuxx_as_dismiss
+  zle -R
+  [[ -n $w && $w != undefined-key && $w != fuxx-as-escape ]] && zle $w
+  return 0
+}
+zle -N fuxx-as-list-esc _fuxx_as_widget_list_esc
 
 # Every wrapped key: the list closes (the plain ghost text comes back, so the wrappers see
 # POSTDISPLAY as the ghost text, as always) and the key counter moves on, so a list for an
@@ -977,7 +1104,8 @@ _fuxx_as_list_key() {
   emulate -L zsh
   _FUXX_AS_KEYSEQ+=1
   (( $#_FUXX_AS_LIST_ITEMS )) || return 0
-  local ghost=$_FUXX_AS_LIST_GHOST
+  _fuxx_as_list_ghost
+  local ghost=$REPLY
   _fuxx_as_list_reset
   _fuxx_as_show "$ghost"
   return 0
@@ -1019,6 +1147,7 @@ _fuxx_as_widget_list_open() {
   (( $#_FUXX_AS_LIST_ITEMS )) || _FUXX_AS_LIST_GHOST=$POSTDISPLAY
   _FUXX_AS_LIST_ITEMS=( "$@" ) _FUXX_AS_LIST_SEL=0
   _fuxx_as_list_draw
+  _fuxx_as_list_keymap
   zle -R
 }
 zle -N fuxx-as-list-open _fuxx_as_widget_list_open

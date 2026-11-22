@@ -31,6 +31,22 @@ If zsh-autosuggestions is loaded too, ours stays off (`FUXX_AUTOSUGGESTIONS_FORC
 anyway). In Warp it always stays off: Warp replaces the shell's line editor. Two copies of the
 plugin in one shell (fuxx's and one in your `.zshrc`): the first one runs.
 
+When you pause (3 seconds; an empty line counts too), a numbered list of up to 5 suggestions
+appears under the line:
+
+```
+~/proj $ npm r█un dev
+  1  npm run dev
+  2  npm run build
+  3  npm run test
+```
+
+**⌥1–⌥5** put that one into the line (on a US keyboard; elsewhere use the arrows), **↓/↑** move
+through the list and **Enter** or **Tab** take the highlighted one; nothing is ever run for you.
+**Esc** closes it, and so does typing. With nothing highlighted, ↑, Enter and Tab do what they
+always did. Settings: `FUXX_AUTOSUGGESTIONS_LIST=off`, `…_LIST_EMPTY=off` (not on an empty line),
+`…_LIST_DELAY=1.5` (seconds), `…_LIST_SIZE=3` (1–5).
+
 `fuxx-completes doctor` shows what is loaded, which keys were bound or left alone, why it is off
 if it is, and where the data is.
 
