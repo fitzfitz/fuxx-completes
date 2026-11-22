@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M2** (M1d done 2026-11-22; M2 approved 2026-11-23, being built on `m2-bash-fish-host`; its test build will be v0.0.13). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
+**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 not planned yet). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
-| M2 | bash and fish adapters, and the host channel (autosuggestions) | 🟨 built and reviewed, waiting for the user's check ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md)) |
+| M2 | bash and fish adapters, and the host channel (autosuggestions) | ✅ done 2026-11-23 ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md); the user's call on v0.0.13) |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
@@ -30,6 +30,10 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-23** — **M2 done.** The user: "close M2". M2 is ✅ on test build v0.0.13 and merged to
+  `main`. Anything found in v0.0.13 later is fixed as a chore. Next: M3 (release
+  fuxx-autosuggestions), not planned yet.
 
 - **2026-11-23** — **v0.0.13 test release (the user: "publish").** M2's build: the zip carries the
   same three things as before (`fuxx-plugin.conf`, `bin/`, the zsh adapter in `shell/`), since fuxx
