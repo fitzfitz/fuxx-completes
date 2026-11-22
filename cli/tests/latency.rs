@@ -345,3 +345,110 @@ fn list_p95_under_10_ms_on_100k_history() {
     println!("list of 5 over 2000 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}");
     assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
 }
+
+/// M1d: the worst case for the repo tier: the 200 folders are real folders of one repo, so every
+/// request in a new folder merges the records of the 199 others (the 100,000-line history, 50,000
+/// records); then the fix after a failure, worked out fresh each time.
+#[test]
+#[ignore = "a release-mode benchmark; run it with --release -- --ignored"]
+fn repo_and_fix_p95_under_10_ms() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let mut rng = Lcg(0x5eed);
+    let commands = distinct(&mut rng);
+    let lines: Vec<&str> = (0..100_000)
+        .map(|_| commands[rng.below(commands.len())].as_str())
+        .collect();
+    let hist = base.join(".zsh_history");
+    std::fs::write(&hist, lines.join("\n") + "\n").unwrap();
+    let repo = base.join("repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    let folders: Vec<PathBuf> = (0..200).map(|i| repo.join(format!("dir{i}"))).collect();
+    for f in &folders {
+        std::fs::create_dir_all(f).unwrap();
+    }
+    let root = base.join("data");
+    let secret = Secret::load_or_create(&root).unwrap();
+    let records: Vec<Record> = (0..50_000)
+        .map(|i| Record {
+            key: secret.key_of(lines[rng.below(lines.len())]),
+            folder: folders[rng.below(folders.len())].clone(),
+            status: if rng.below(10) == 0 { 1 } else { 0 },
+            time: i,
+        })
+        .collect();
+    append(&root, &own_file_id(&secret, &hist), &records).unwrap();
+    let data = DataDir {
+        root,
+        source: DataSource::Xdg,
+    };
+    let mut session = Session::new(Some(data), None);
+    session.handle(Request::Hello {
+        protocol: 1,
+        shell: "zsh".into(),
+        shell_version: "5.9".into(),
+        history_format: "zsh".into(),
+        history_path: Some(hist.clone()),
+        libraries: vec!["autosuggestions".into()],
+    });
+    let suggest = |id: u64, buffer: String, cwd: PathBuf| Request::Suggest {
+        id,
+        mode: Mode::Async,
+        cursor: buffer.chars().count(),
+        cwd,
+        buffer,
+        cdpath: Some(Vec::new()),
+    };
+    let started = Instant::now();
+    while !session.history_loaded() {
+        session.handle(suggest(0, "g".into(), PathBuf::from("/")));
+        std::thread::sleep(Duration::from_millis(1));
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "history never loaded"
+        );
+    }
+    let mut times = Vec::with_capacity(2000);
+    for id in 1..=2000u64 {
+        let line = lines[rng.below(lines.len())];
+        let prefix: String = line.chars().take(1 + rng.below(6)).collect();
+        let cwd = folders[rng.below(folders.len())].clone();
+        let req = suggest(id, prefix, cwd);
+        let t = Instant::now();
+        session.handle(req);
+        times.push(t.elapsed());
+    }
+    times.sort();
+    let p50 = times[times.len() / 2];
+    let p95 = times[times.len() * 95 / 100];
+    let max = times[times.len() - 1];
+    println!(
+        "repo tier, a new folder each time, 2000 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}"
+    );
+    assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
+
+    let mut fixes = Vec::with_capacity(200);
+    for id in 0..200u64 {
+        let line = lines[rng.below(lines.len())];
+        // A typo in the command word, a typo in the line, and a package manager.
+        let failed = match id % 3 {
+            0 => format!("x{line}"),
+            1 => format!("{line}x"),
+            _ => format!("yarn add p{id}"),
+        };
+        session.handle(Request::Prev {
+            command: Some(failed),
+            status: Some(127),
+        });
+        let cwd = folders[rng.below(folders.len())].clone();
+        let t = Instant::now();
+        session.handle(suggest(10_000 + id, String::new(), cwd));
+        fixes.push(t.elapsed());
+    }
+    fixes.sort();
+    let p50 = fixes[fixes.len() / 2];
+    let p95 = fixes[fixes.len() * 95 / 100];
+    let max = fixes[fixes.len() - 1];
+    println!("fix after a failure, 200 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}");
+    assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
+}

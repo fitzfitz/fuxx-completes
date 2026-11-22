@@ -31,6 +31,12 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1d measured.** `cli/tests/latency.rs` gains the repo tier's worst case and
+  the fix: suggestions p95 140 µs (history), 1.7 ms (every request merging a 200-folder repo),
+  fix p95 5.1 ms, list p95 44 µs; all within 10 ms. The release binary is 702,224 bytes (+66 KB
+  over M1c), past `size.rs`'s 656,400 limit (M1b's budget); left for the user to decide.
+  `design.md` §3.
+
 - **2026-11-22** — **M1d Task 5: `why` and `doctor --report`.** `fuxx-completes why <line>`
   (the shell function passes `--cwd` and `--histfile`) explains the step a line ranks in, its
   runs here / in this repo / anywhere, its project and file, and its flags, writing nothing;

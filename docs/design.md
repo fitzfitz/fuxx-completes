@@ -127,7 +127,18 @@ folder was warm about 90 ms later, and warm answers took p50 5 µs, p95 0.26 ms 
 fixes, measured truly cold). The release binary grew from 502,800 to 602,496 bytes (+97 KB of the
 150 KB budget; `cli/tests/size.rs` keeps it there). **M1c, measured 2026-11-22:** building the list of 5 on
 the same 100,000-line history (what the core does when the pause is over; an empty line and 1–6
-typed characters) took p50 4 µs, p95 26 µs, max 0.45 ms. If a request misses its
+typed characters) took p50 4 µs, p95 26 µs, max 0.45 ms. **M1d, measured 2026-11-22** (release,
+Apple Silicon, every new rule on): the 100,000-line history with 50,000 records took p50 54 µs,
+p95 140 µs, max 2.4 ms per suggestion (the secret and danger checks per candidate); a warm
+project folder p50 6 µs, p95 0.28 ms; the list of 5 p50 12 µs, p95 44 µs. The worst case for the
+repo tier (the 200 folders are real folders of one repo, and every request comes from another
+folder, so each merges the other 199 folders' records) took p50 0.87 ms, p95 1.7 ms, max 11.8
+ms; the fix after a failure, worked out fresh each time, p50 2.9 ms, p95 5.1 ms, max 6.0 ms. All
+within 10 ms at p95. **The release binary grew to 702,224 bytes** (+66,480 over M1c's 635,744:
+the repo tier +33 KB, the fix +17 KB, `why` and `--report` +17 KB, the filters under 1 KB), past
+`cli/tests/size.rs`'s limit of 656,400 (M1's binary + M1b's 150 KB budget, which M1c already
+used part of). M1d's spec sets no size budget; whether to raise the limit or rebase it on M1c is
+the user's call, so the test is left as it was and fails. If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
