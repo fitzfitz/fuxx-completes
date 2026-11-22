@@ -31,6 +31,11 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1d: the user's two calls.** "go with your picks": `cli/tests/size.rs` now
+  holds the whole release binary under one limit of 768 KB (786,432 bytes; M1d's is 702,224), in
+  place of M1b's 150 KB on top of M1; and `why` not saying whether a line followed the previous
+  command is accepted (spec §4.5 notes it). Test build v0.0.11 next, for the user's check.
+
 - **2026-11-22** — **M1d whole-branch review and its fix pass.** One fresh reviewer (Opus): no
   Critical, two Important; two more regraded to Important by their effect. Fixed, each with a
   test seen failing first: the secret-name rule hid everyday commands (`--max-tokens`,
@@ -42,9 +47,7 @@ Newest first. Add an entry whenever a task is ready.
   `/bin/rm`, `noglob`/`time`/`env`/`nohup`/`exec` prefixes and `sudo -iu` clusters aren't seen
   as dangerous; submodule subfolders get no repo tier; `why` loses shell quoting (quote the
   whole line); the `--report` warning names only the data folder's path; `repo_order` runs twice
-  per answer. **Waiting for the user's check**, and for the user's call on two things: the
-  binary size limit (702,224 bytes against `size.rs`'s 656,400) and `why` not saying whether a
-  line followed the previous command (spec §4.5; the pairs live only in each shell's core).
+  per answer. **Waiting for the user's check**; the user's two calls are in the entry above.
 
 - **2026-11-22** — **M1d measured.** `cli/tests/latency.rs` gains the repo tier's worst case and
   the fix: suggestions p95 140 µs (history), 1.7 ms (every request merging a 200-folder repo),

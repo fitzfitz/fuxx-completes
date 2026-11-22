@@ -100,7 +100,9 @@ list is off. An M1c core drops the three-field `prev` as malformed (harmless: no
   `--histfile $HISTFILE`): loads the same history, context and projects as `serve` and prints why
   that line ranks where it does: runs here/in this repo/anywhere (ok, failed, newest), whether it
   followed the previous command, the project and file it came from, and flags (secret-looking:
-  never shown; dangerous: guarded; `cd` to a missing folder). Local only.
+  never shown; dangerous: guarded; `cd` to a missing folder). Local only. **Changed when built
+  (the user's sign-off, 2026-11-22):** `why` does not say whether the line followed the previous
+  command; those pairs live only in each running shell's core, which `why` cannot see.
 - `fuxx-completes doctor --report`: the doctor output plus OS version, `TERM_PROGRAM`/`TERM` and
   the zsh version, inside a ```text fence, with a first line asking the user to check it before
   posting (it shows the data folder's path). Never sends anything.

@@ -137,8 +137,8 @@ ms; the fix after a failure, worked out fresh each time, p50 3.3 ms, p95 5.6 ms,
 within 10 ms at p95. **The release binary grew to 702,224 bytes** (+66,480 over M1c's 635,744:
 the repo tier +33 KB, the fix +17 KB, `why` and `--report` +17 KB, the filters under 1 KB), past
 `cli/tests/size.rs`'s limit of 656,400 (M1's binary + M1b's 150 KB budget, which M1c already
-used part of). M1d's spec sets no size budget; whether to raise the limit or rebase it on M1c is
-the user's call, so the test is left as it was and fails. If a request misses its
+used part of). The user's call (2026-11-22): one limit for the whole binary, **768 KB**
+(786,432 bytes), which `cli/tests/size.rs` now checks. If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
