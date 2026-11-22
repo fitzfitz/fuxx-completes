@@ -6,6 +6,8 @@ use std::path::Path;
 
 /// Files larger than this are skipped (spec §4).
 pub const MAX_FILE: u64 = 256 * 1024;
+/// At most this many names come out of one file: a huge one can't flood a detection.
+pub const MAX_NAMES: usize = 500;
 
 /// A name we may put into a command: 1–100 of `A-Za-z0-9-_.:/@+` (spec §5.4). Anything else is
 /// dropped, never quoted.
@@ -18,13 +20,8 @@ pub fn safe_name(s: &str) -> bool {
 /// The text of a regular file of at most `MAX_FILE` bytes (lossy UTF-8). Never opens anything
 /// else: a FIFO or a device could block the reader.
 pub fn read_small(path: &Path) -> Option<String> {
-    let meta = std::fs::metadata(path).ok()?;
-    if !meta.is_file() || meta.len() > MAX_FILE {
-        return None;
-    }
     let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .ok()?
+    open_regular(path)?
         .take(MAX_FILE + 1)
         .read_to_end(&mut bytes)
         .ok()?;
@@ -34,11 +31,33 @@ pub fn read_small(path: &Path) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Keeps safe names, first occurrence only.
+/// Opens `path` only if it is a regular file of at most `MAX_FILE` bytes. The open itself is
+/// non-blocking and the type is checked on the opened file, so a FIFO (even one swapped in after
+/// a check) can't block the reader.
+pub fn open_regular(path: &Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(target_os = "linux")]
+    const O_NONBLOCK: i32 = 0o4000;
+    #[cfg(not(target_os = "linux"))]
+    const O_NONBLOCK: i32 = 0x0004; // macOS and the BSDs
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let meta = file.metadata().ok()?;
+    (meta.is_file() && meta.len() <= MAX_FILE).then_some(file)
+}
+
+/// Keeps safe names, first occurrence only, at most `MAX_NAMES`.
 fn finish(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
     let mut out: Vec<String> = Vec::new();
     for n in names {
-        if safe_name(&n) && !out.contains(&n) {
+        if out.len() >= MAX_NAMES {
+            break;
+        }
+        if safe_name(&n) && seen.insert(n.clone()) {
             out.push(n);
         }
     }
@@ -349,6 +368,25 @@ pub fn just_recipes(text: &str) -> Vec<String> {
 
 // ---- YAML ----
 
+/// The key of a `key: value` / `key:` line: a quoted key whole, else up to `: ` or a final `:`
+/// (so `db:migrate:` is `db:migrate`).
+fn yaml_key(t: &str) -> Option<String> {
+    if let Some(q) = t.chars().next().filter(|c| *c == '"' || *c == '\'') {
+        let rest = &t[1..];
+        let end = rest.find(q)?;
+        return rest[end + 1..]
+            .trim_start()
+            .starts_with(':')
+            .then(|| rest[..end].to_string());
+    }
+    let t = t.split(" #").next().unwrap_or(t).trim_end();
+    let k = match t.find(": ") {
+        Some(i) => &t[..i],
+        None => t.strip_suffix(':')?,
+    };
+    Some(k.trim().to_string())
+}
+
 /// Block style only: the keys at the first child indent under a column-0 `key:`.
 pub fn yaml_keys(text: &str, key: &str) -> Vec<String> {
     let mut lines = text.lines();
@@ -374,14 +412,8 @@ pub fn yaml_keys(text: &str, key: &str) -> Vec<String> {
         if n != want || t.starts_with('-') {
             continue;
         }
-        if let Some((k, _)) = t.split_once(':') {
-            let k = k.trim();
-            let k = k
-                .strip_prefix('"')
-                .and_then(|r| r.strip_suffix('"'))
-                .or_else(|| k.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')))
-                .unwrap_or(k);
-            out.push(k.to_string());
+        if let Some(k) = yaml_key(t) {
+            out.push(k);
         }
     }
     finish(out)
@@ -543,5 +575,41 @@ mod tests {
         let start = Instant::now();
         assert_eq!(read_small(&fifo), None);
         assert!(start.elapsed() < Duration::from_millis(100));
+    }
+
+    #[test]
+    fn yaml_keys_with_colons() {
+        let t = "tasks:\n  db:migrate:\n    cmds: [x]\n  \"docker:build\":\n  plain: {}\n";
+        assert_eq!(
+            yaml_keys(t, "tasks"),
+            ["db:migrate", "docker:build", "plain"]
+        );
+    }
+
+    #[test]
+    fn names_are_capped() {
+        let keys: Vec<String> = (0..2_000).map(|i| format!("\"k{i}\":1")).collect();
+        let t = format!("{{\"s\":{{{}}}}}", keys.join(","));
+        assert_eq!(json_keys(&t, "s").len(), MAX_NAMES);
+    }
+
+    #[test]
+    fn opening_a_fifo_never_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("fifo");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(open_regular(&fifo).is_none());
+        });
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(1)),
+            Ok(true),
+            "open blocked or succeeded"
+        );
     }
 }

@@ -29,6 +29,22 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1b whole-branch review and its fix pass.** One fresh reviewer (Opus): ready
+  with fixes, no Critical. Fixed, each with a test seen failing first: (1) inside a pnpm, yarn or
+  bun workspace package the npm commands were offered (`npm install` damages a pnpm workspace):
+  a data field `beats_below` lets the manager found up the walk take over; (2) a detection cut
+  short by its 50 ms budget was cached as complete: `Detection::complete`, retried up to 3
+  times; (3) a stuck detection switched project help off for the session: given up after 2 s,
+  and files are opened non-blocking and checked on the open file; regraded from Minor: (4)
+  `db:migrate:` in a Taskfile became `task db` (a wrong command); (5) duplicate removal was
+  quadratic and names unbounded (~1 s detections): a set, and at most 500 names per file; (6) the
+  "cold" benchmark was warm: it now loads history elsewhere. zsh matrix 127 × 3 passed before the
+  fixes; the workspace passes after; release: cold 13 µs, warm p95 0.26 ms; binary 602,496 bytes
+  (+97 KB). Deferred (minor): a file that failed to read, or a path checked with a `/`
+  (`bin/rails`), isn't stamped, so adding one may go unnoticed until its folder changes; a test
+  pinning neutral-only commands here above other history when there is no project; M1's slow
+  concurrency stress test.
+
 - **2026-11-22** — **M1b Task 5: the three-step order, wired in.** `History::ranked_here` (this
   folder's history: records here, not failed-only), `suggestion()` takes the project candidates
   and walks this folder's history, then project commands, then the rest as **one** sequence (a

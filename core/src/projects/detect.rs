@@ -4,7 +4,8 @@
 use crate::projects::readers::{
     file_names, json_keys, just_recipes, make_targets, read_small, toml_keys, yaml_keys,
 };
-use crate::projects::{Marker, ProjectType, Reader, PROJECTS};
+use crate::projects::{Marker, ProjectType, Reader, Source, PROJECTS};
+use std::collections::HashSet;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -32,23 +33,34 @@ impl Stamp {
 }
 
 /// What a folder's projects offer: candidate commands in order (nearest project first),
-/// the stamps that keep it fresh, and the project ids found (nearest first).
+/// the stamps that keep it fresh, the project ids found (nearest first), and whether the
+/// detection ran to the end (`false`: the deadline cut it short, so it should be tried again).
 #[derive(Debug, Clone, Default)]
 pub struct Detection {
     pub candidates: Vec<String>,
     pub stamps: Vec<Stamp>,
     pub ids: Vec<&'static str>,
+    pub complete: bool,
 }
 
+/// One folder on the walk: its path, its listing, and the types matched there.
+type Scanned = (PathBuf, Vec<String>, Vec<&'static ProjectType>);
+
 /// Walks up from `cwd`: at most `MAX_LEVELS` folders, never `home` or `/`, stopping after a
-/// folder holding `.git`. Stops with what it has once `deadline` passes, or at a folder it can't
-/// list. Never runs anything.
+/// folder holding `.git`. Stops with what it has once `deadline` passes (then `complete` is
+/// false), or at a folder it can't list. Never runs anything.
 pub fn detect(cwd: &Path, home: Option<&Path>, deadline: Instant) -> Detection {
     let mut out = Detection::default();
+    let mut cut = false;
+    let mut walked: Vec<Scanned> = Vec::new();
     let mut folder = Some(cwd);
     for _ in 0..MAX_LEVELS {
         let Some(dir) = folder else { break };
-        if Some(dir) == home || dir.parent().is_none() || Instant::now() >= deadline {
+        if Some(dir) == home || dir.parent().is_none() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            cut = true;
             break;
         }
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -58,12 +70,54 @@ pub fn detect(cwd: &Path, home: Option<&Path>, deadline: Instant) -> Detection {
             .filter_map(|e| e.ok()?.file_name().into_string().ok())
             .collect();
         out.stamps.extend(Stamp::of(dir));
-        scan(dir, &names, deadline, &mut out);
-        if names.iter().any(|n| n == ".git") {
+        let mut found: Vec<&'static ProjectType> = PROJECTS
+            .iter()
+            .filter(|t| matches(t, dir, &names, &mut out))
+            .collect();
+        let beaten: Vec<&str> = found.iter().flat_map(|t| t.beats.iter().copied()).collect();
+        found.retain(|t| !beaten.contains(&t.id));
+        let stop = names.iter().any(|n| n == ".git");
+        walked.push((dir.to_path_buf(), names, found));
+        if stop {
             break;
         }
         folder = dir.parent();
     }
+    // A type found further up takes the place of the types it `beats_below` in nearer folders
+    // (the packages of a pnpm, yarn or bun workspace).
+    for up in 1..walked.len() {
+        let above: Vec<&'static ProjectType> = walked[up].2.clone();
+        for t in above.iter().filter(|t| !t.beats_below.is_empty()) {
+            for near in &mut walked[..up] {
+                let had = near.2.len();
+                near.2.retain(|x| !t.beats_below.contains(&x.id));
+                if near.2.len() != had && !near.2.iter().any(|x| x.id == t.id) {
+                    near.2.push(t);
+                }
+            }
+        }
+    }
+    let mut seen = HashSet::new();
+    'walk: for (dir, names, found) in &walked {
+        for t in found {
+            out.ids.push(t.id);
+            for c in t.commands {
+                push(&mut out, &mut seen, c.to_string());
+            }
+            for s in t.from {
+                if Instant::now() >= deadline {
+                    cut = true;
+                    break 'walk;
+                }
+                for item in source_names(s, dir, names, &mut out) {
+                    for tpl in s.templates {
+                        push(&mut out, &mut seen, tpl.replace("{}", &item));
+                    }
+                }
+            }
+        }
+    }
+    out.complete = !cut;
     out
 }
 
@@ -95,60 +149,33 @@ fn matches(t: &ProjectType, dir: &Path, names: &[String], out: &mut Detection) -
             .is_none_or(|c| read(dir, c.file, out).is_some_and(|text| text.contains(c.text)))
 }
 
-/// One folder: the types that match (minus those another match beats), in table order, and
-/// their candidates.
-fn scan(dir: &Path, names: &[String], deadline: Instant, out: &mut Detection) {
-    let mut found: Vec<&'static ProjectType> = Vec::new();
-    for t in PROJECTS {
-        if matches(t, dir, names, out) {
-            found.push(t);
-        }
+/// The names one source pulls out of a folder.
+fn source_names(s: &Source, dir: &Path, names: &[String], out: &mut Detection) -> Vec<String> {
+    if s.reader == Reader::FileNames {
+        return s
+            .files
+            .iter()
+            .flat_map(|f| file_names(names, f.trim_start_matches('*')))
+            .collect();
     }
-    let beaten: Vec<&str> = found.iter().flat_map(|t| t.beats.iter().copied()).collect();
-    found.retain(|t| !beaten.contains(&t.id));
-    for t in found {
-        out.ids.push(t.id);
-        for c in t.commands {
-            push(out, c.to_string());
-        }
-        for s in t.from {
-            if Instant::now() >= deadline {
-                return;
-            }
-            let items = match s.reader {
-                Reader::FileNames => s
-                    .files
-                    .iter()
-                    .flat_map(|f| file_names(names, f.trim_start_matches('*')))
-                    .collect(),
-                reader => {
-                    let Some(file) = s.files.iter().find(|f| exists(dir, names, f)) else {
-                        continue;
-                    };
-                    let Some(text) = read(dir, file, out) else {
-                        continue;
-                    };
-                    match reader {
-                        Reader::JsonKeys => json_keys(&text, s.path),
-                        Reader::TomlKeys => toml_keys(&text, s.path),
-                        Reader::YamlKeys => yaml_keys(&text, s.path),
-                        Reader::MakeTargets => make_targets(&text),
-                        Reader::JustRecipes => just_recipes(&text),
-                        Reader::FileNames => unreachable!(),
-                    }
-                }
-            };
-            for item in items {
-                for tpl in s.templates {
-                    push(out, tpl.replace("{}", &item));
-                }
-            }
-        }
+    let Some(file) = s.files.iter().find(|f| exists(dir, names, f)) else {
+        return Vec::new();
+    };
+    let Some(text) = read(dir, file, out) else {
+        return Vec::new();
+    };
+    match s.reader {
+        Reader::JsonKeys => json_keys(&text, s.path),
+        Reader::TomlKeys => toml_keys(&text, s.path),
+        Reader::YamlKeys => yaml_keys(&text, s.path),
+        Reader::MakeTargets => make_targets(&text),
+        Reader::JustRecipes => just_recipes(&text),
+        Reader::FileNames => Vec::new(),
     }
 }
 
-fn push(out: &mut Detection, c: String) {
-    if !out.candidates.contains(&c) {
+fn push(out: &mut Detection, seen: &mut HashSet<String>, c: String) {
+    if seen.insert(c.clone()) {
         out.candidates.push(c);
     }
 }
@@ -305,5 +332,59 @@ mod tests {
         assert!(paths.contains(&r.as_path()));
         assert!(paths.contains(&sub.join("justfile").as_path()));
         assert!(d.candidates.contains(&"just fx".to_string()));
+    }
+
+    #[test]
+    fn a_pnpm_workspace_package_uses_pnpm() {
+        let (_d, r) = repo();
+        write(&r.join("package.json"), r#"{"scripts":{"lint":"x"}}"#);
+        write(&r.join("pnpm-lock.yaml"), "");
+        let app = r.join("packages/app");
+        write(&app.join("package.json"), r#"{"scripts":{"dev":"x"}}"#);
+        let d = detect(&app, None, later());
+        assert_eq!(d.ids, ["pnpm", "pnpm"]);
+        for want in ["pnpm install", "pnpm dev", "pnpm run dev", "pnpm lint"] {
+            assert!(
+                d.candidates.contains(&want.to_string()),
+                "{want}: {:?}",
+                d.candidates
+            );
+        }
+        assert!(
+            !d.candidates.iter().any(|c| c.starts_with("npm ")),
+            "{:?}",
+            d.candidates
+        );
+    }
+
+    #[test]
+    fn a_cut_short_detection_says_so() {
+        let (_d, r) = repo();
+        write(&r.join("Cargo.toml"), "");
+        assert!(!detect(&r, None, Instant::now()).complete);
+        assert!(detect(&r, None, later()).complete);
+    }
+
+    #[test]
+    fn huge_files_are_capped_and_quick() {
+        let (_d, r) = repo();
+        let keys: Vec<String> = (0..20_000).map(|i| format!("\"k{i}\":1")).collect();
+        write(
+            &r.join("package.json"),
+            &format!("{{\"scripts\":{{{}}}}}", keys.join(",")),
+        );
+        let start = Instant::now();
+        let d = detect(&r, None, later());
+        assert!(
+            start.elapsed() < Duration::from_millis(300),
+            "{:?}",
+            start.elapsed()
+        );
+        let runs = d
+            .candidates
+            .iter()
+            .filter(|c| c.starts_with("npm run "))
+            .count();
+        assert_eq!(runs, crate::projects::readers::MAX_NAMES);
     }
 }

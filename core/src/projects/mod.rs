@@ -52,6 +52,9 @@ pub struct ProjectType {
     pub contains: Option<Contains>,
     /// Types this one drops when both match in the same folder.
     pub beats: &'static [&'static str],
+    /// Types this one replaces in nearer folders on the walk (a pnpm workspace's packages get
+    /// pnpm's commands over their own package.json, not npm's).
+    pub beats_below: &'static [&'static str],
     /// Fixed commands, everyday ones first.
     pub commands: &'static [&'static str],
     pub from: &'static [Source],

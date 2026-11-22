@@ -13,6 +13,7 @@ id = "pnpm"
 markers = ["pnpm-lock.yaml"]
 requires = ["package.json"]
 beats = ["npm"]
+beats_below = ["npm"]
 commands = ["pnpm install"]
 [[project.from]]
 reader = "json_keys"
@@ -25,6 +26,7 @@ id = "yarn"
 markers = ["yarn.lock"]
 requires = ["package.json"]
 beats = ["npm"]
+beats_below = ["npm"]
 commands = ["yarn install"]
 [[project.from]]
 reader = "json_keys"
@@ -37,6 +39,7 @@ id = "bun"
 markers = ["bun.lock", "bun.lockb"]
 requires = ["package.json"]
 beats = ["npm"]
+beats_below = ["npm"]
 commands = ["bun install"]
 [[project.from]]
 reader = "json_keys"

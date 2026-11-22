@@ -12,6 +12,8 @@ requires = ["package.json"]      # all of these present
 requires_any = []                # when not empty, one of these present
 contains = { file = "…", text = "…" }   # optional: a file must contain a text
 beats = ["npm"]                  # drop these types when both match in one folder
+beats_below = ["npm"]            # in nearer folders on the walk (workspace packages), take
+                                 # these types' place: a pnpm repo's packages get pnpm commands
 commands = ["pnpm install"]      # fixed commands, everyday ones first
 [[project.from]]
 reader = "json_keys"             # json_keys, toml_keys, make_targets, just_recipes, yaml_keys, file_names

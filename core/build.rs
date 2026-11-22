@@ -26,6 +26,8 @@ struct Entry {
     #[serde(default)]
     beats: Vec<String>,
     #[serde(default)]
+    beats_below: Vec<String>,
+    #[serde(default)]
     commands: Vec<String>,
     #[serde(default)]
     from: Vec<Source>,
@@ -97,7 +99,7 @@ fn main() {
                 }
             })
             .collect();
-        for b in &e.beats {
+        for b in e.beats.iter().chain(&e.beats_below) {
             assert!(
                 ids.contains(b.as_str()) && *b != e.id,
                 "{at}: beats unknown {b:?}"
@@ -151,12 +153,13 @@ fn main() {
         writeln!(
             out,
             "    ProjectType {{ id: {:?}, markers: &[{}], requires: {}, requires_any: {}, \
-             contains: {contains}, beats: {}, commands: {}, from: &[{}] }},",
+             contains: {contains}, beats: {}, beats_below: {}, commands: {}, from: &[{}] }},",
             e.id,
             markers.join(", "),
             strs(&e.requires),
             strs(&e.requires_any),
             strs(&e.beats),
+            strs(&e.beats_below),
             strs(&e.commands),
             from.join(", ")
         )

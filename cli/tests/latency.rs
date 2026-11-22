@@ -227,8 +227,17 @@ fn project_suggest_p95_under_10_ms_warm() {
         cdpath: Some(Vec::new()),
     };
     let started = Instant::now();
+    // Load the history from another folder, so the project folder is still cold below.
+    let elsewhere = |buffer: &str| Request::Suggest {
+        id: 0,
+        mode: Mode::Async,
+        cursor: buffer.chars().count(),
+        cwd: base.clone(),
+        buffer: buffer.into(),
+        cdpath: Some(Vec::new()),
+    };
     while !session.history_loaded() {
-        session.handle(suggest(0, "zz"));
+        session.handle(elsewhere("zz"));
         std::thread::sleep(Duration::from_millis(1));
         assert!(
             started.elapsed() < Duration::from_secs(30),

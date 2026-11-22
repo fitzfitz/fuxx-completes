@@ -116,9 +116,10 @@ with 50,000 context records over 200 folders, 2,000 suggestion answers took p50 
 and keying the whole history took 35 ms. Keying runs where a full re-read is applied, on the
 serve thread (about 8 ms for 100,000 entries); moving it to the reader is a known follow-up. **M1b, measured
 2026-11-22:** in a project folder (200 scripts, 200 make targets, Cargo.toml) on the same history,
-the first request in the cold folder took 13 µs (history only, detection on the worker), and warm
-answers p50 4 µs, p95 0.29 ms. The release binary grew from 502,800 to 585,984 bytes (+83 KB of
-the 150 KB budget; `cli/tests/size.rs` keeps it there). If a request misses its
+the first request in the cold folder took 13 µs (history only, detection on the worker), the
+folder was warm about 90 ms later, and warm answers took p50 5 µs, p95 0.26 ms (after the review
+fixes, measured truly cold). The release binary grew from 502,800 to 602,496 bytes (+97 KB of the
+150 KB budget; `cli/tests/size.rs` keeps it there). If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
@@ -128,7 +129,11 @@ in-memory cache (64 folders, least recently used dropped). Files over 256 KB are
 built (M1b):** an entry is fresh while every listed folder's and read file's (mtime, size) is
 unchanged (a few `stat`s per answer); a missing or stale entry is (re)detected on one worker
 thread, one detection at a time per shell, and a stale entry is still served meanwhile, so an
-edited `package.json` shows up one answer later. Nothing about projects is written to disk. The
+edited `package.json` shows up one answer later. A detection cut short by its 50 ms budget is
+tried again up to 3 times; one still running after 2 s (a hung disk) is given up so other
+folders get theirs (at most 2 given-up ones at a time). Files are opened non-blocking and checked
+on the open file, so a FIFO can never block the worker; at most 500 names come out of one file.
+Nothing about projects is written to disk (fixes after the M1b review). The
 whole feature adds at most **150 KB** to the release binary, measured before and after; mapping
 data is compiled in, and minimal hand-written readers are preferred over general parsers.
 
@@ -390,7 +395,10 @@ after a folder holding `.git`; a folder it can't list ends the walk quietly. A t
 marker is in the listing, every `requires` exists, one `requires_any` exists if any are listed,
 and its `contains` text is in that file; a matched type's `beats` drop others matched **in the
 same folder**. Candidates per project: its fixed commands, then each reader's names through each
-template (name by name, first template first); nearest folder first, duplicates dropped. Every
+template (name by name, first template first); nearest folder first, duplicates dropped. A type
+found further up can take the place of a type it `beats_below` in nearer folders: in a pnpm, yarn
+or bun workspace, a package's own `package.json` gets that manager's commands, never npm's (fix
+after the M1b review). Every
 listed folder and read file is stamped (mtime, size) for the cache.
 
 **As built (M1b, AI's calls).** "This folder's history" is the matches with a context record in
