@@ -535,6 +535,26 @@ call**: typing `g` never puts `git push --force` one key away). So it never show
 line, in the empty-line list or as a fix. Like secrets, guarded lines leave the candidates
 before the walk.
 
+**A fix after a failed command (M1d §4.4, the user's choice A; AI's calls as marked).**
+`fuxx-autosuggestions/src/fix.rs`. On the **empty line right after a command failed** (its
+status non-zero and not 130 or 143), the empty-line `suggest` is answered with a fix (the whole
+line), and it is item 1 of the empty-line list when that list is on. It holds for the whole
+prompt (until the next `prev`): typing replaces it as usual, emptying the line brings it back.
+First found wins: (1) **package manager:** the failed command starts with `npm`/`yarn`/`pnpm`/
+`bun` or `npx`/`pnpx`/`bunx` and this folder's manager (the first manager a project command
+starts with) is another → the same arguments with it; `i`/`install`/`add` with packages become
+`add` (yarn, pnpm, bun) or `install` (npm), `i` alone `install`, and runners become `npx`,
+`pnpm dlx`, `yarn dlx` or `bunx` (any failure); (2) **a typo in the command word**, only after
+status **127** (command not found; **AI's call**: `sh -c 'exit 1'` is no typo of `ls`): the
+failed word is not a known one and is within an optimal-string-alignment distance of 1–2 (and
+below its own length) of a known one: the project's commands', this folder's, this repo's, then
+any successful line's first word → the same arguments with it; (3) **the closest successful
+line** of this folder or this repo within distance 2 of the whole failed line. Rules 2 and 3
+fire only when the failed line never succeeded anywhere and isn't a project command (a real
+failure gets no "fix"), and only with a context index. Never a dangerous or secret-looking line,
+never the failed line itself, and nothing runs. Worked out once per prompt, folder and project
+count; the "any successful line" scan stops after the walk's 50 ms budget.
+
 **Menu items** are ordered by kind (subcommands, then options, then argument values; open to
 change), then by prefix match quality, then by how often the user picked them (counted in memory
 only; persisting them would need the user to widen §5.7 first).
@@ -556,7 +576,7 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   | adapter → core | `hello` | protocol (`1`), shell (`zsh`), shell version, history format (`zsh`), history path (absolute, may be empty), libraries (comma list: `autosuggestions`) |
   | adapter → core | `suggest` | id (u64), mode (`async`/`sync`), cursor (code points), cwd, buffer, then optionally cdpath (the shell's `cdpath` folders, one per line, so `RS` on the wire; empty = none) |
   | adapter → core | `ran` | cwd (where it started), exit status (i32), time (Unix seconds), command |
-  | adapter → core | `prev` | the command just run, as the adapter will report it (after its filters; empty = unknown). No reply. Added in M1 without a version bump: an older core ignores the unknown kind |
+  | adapter → core | `prev` | the command just run, as the adapter will report it (after its filters; empty = unknown), then optionally its exit status (M1d; sent with every known command). No reply. Added in M1 without a version bump: an older core ignores the unknown kind; an M1c core drops the three-field form as malformed (no fix, no follows) |
   | adapter → core | `listcfg` | list size (0 = no list, at most 5), the pause in ms, empty line (`0`/`1`). No reply. M1c; an older core ignores it |
   | adapter → core | `bye` | none |
   | core → adapter | `ready` | protocol (`1`) |
@@ -954,6 +974,11 @@ Honest about what each shell allows.
     `[A` and Esc then a paste lost the paste's bracketing).
   - **⌃R.** zsh alone waits after Esc in an incremental search for the rest of a sequence; with
     our `^[` the search ends on the line found once `KEYTIMEOUT` passes, as Esc does in bash.
+- **Asking after a failure (M1d).** At each prompt where a line was entered, the plugin notes
+  whether its status was non-zero (`_FUXX_AS_FAILED`, a fact) and sends it with `prev`; on an
+  empty line it then asks the core even with the list or its empty-line setting off, so a fix
+  can show as ghost text. The core decides what counts (130 and 143 don't) and what the fix is;
+  →, End and Tab take it like any ghost text, and Enter on the empty line runs nothing.
 - **The suggestion list (M1c, AI's calls).** At start (after the user's rc) the plugin resolves
   its settings: fuxx's `FUXX_PLUGIN_SETTING_LIST`, `_LIST_EMPTY`, `_LIST_DELAY`, `_LIST_SIZE`
   (copied at load, as fuxx sets them only while sourcing) win over `FUXX_AUTOSUGGESTIONS_LIST`,

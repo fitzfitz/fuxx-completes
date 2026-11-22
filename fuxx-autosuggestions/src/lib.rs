@@ -14,6 +14,9 @@
 //! History reading and ranking live in `fuxx-completes-core`. Drawing the ghost text lives in
 //! the adapters (`adapters/`) and in fuxx.
 
+mod fix;
+pub use fix::{edit_distance, fix_after_failure};
+
 use fuxx_completes_core::cd_target::{classify, CdKind, Place};
 use fuxx_completes_core::history::{History, Verdict, CHECK_BUDGET};
 pub use fuxx_completes_core::rank::Ranking;

@@ -47,6 +47,15 @@ through the list and **Enter** or **Tab** take the highlighted one; nothing is e
 always did. Settings: `FUXX_AUTOSUGGESTIONS_LIST=off`, `…_LIST_EMPTY=off` (not on an empty line),
 `…_LIST_DELAY=1.5` (seconds), `…_LIST_SIZE=3` (1–5).
 
+Right after a command fails, the empty line offers a fix in grey: `npm run dev` in a pnpm project
+becomes `pnpm run dev`, `cagro test` becomes `cargo test`, `git psuh` becomes `git push`. → takes
+it; nothing is run for you. A command that worked before and failed now gets no "fix".
+
+Some lines are never offered: anything that looks like it holds a secret (a token, a password in a
+URL or a `PASSWORD=` value), and dangerous commands (`rm -rf`, `git push --force`,
+`git reset --hard`, `kubectl delete`, …) until you've typed their dangerous part yourself
+(`rm -`, `git push -`). A habit in a repo carries to its subfolders and its other worktrees.
+
 `fuxx-completes doctor` shows what is loaded, which keys were bound or left alone, why it is off
 if it is, and where the data is.
 

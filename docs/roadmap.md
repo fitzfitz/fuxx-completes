@@ -31,6 +31,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1d Task 4: a fix after a failed command.** `prev` gains the exit status
+  (`prev␟cmd␟status`); the zsh plugin asks on the empty line after a failure even with the list
+  off; the core answers with a fix as ghost text (and item 1 of the empty-line list): the
+  folder's package manager, a command-word typo (only after 127, command not found), or the
+  closest successful line here or in the repo; never for a line that worked before, never a
+  dangerous or secret-looking line, never run. `design.md` §5.4, §5.5, §6; README. Tests first,
+  seen failing; 169 adapter tests on zsh 5.3.1, 5.8.1 and 5.9.
+
 - **2026-11-22** — **M1d Task 3: repo and worktree ranking.** `core/src/repo.rs`: a folder's
   repo key (the git folder all its worktrees share), cached for 256 folders and 60 s; the
   session merges the records of the repo's other folders, and the ranking puts **this repo's

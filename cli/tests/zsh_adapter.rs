@@ -2639,7 +2639,7 @@ fn prev_is_sent_for_the_pending_command() {
     assert!(
         poll(Duration::from_secs(3), || read_wire(&home)
             .lines()
-            .any(|l| l == format!("prev{US}git add ."))),
+            .any(|l| l.starts_with(&format!("prev{US}git add .{US}")))),
         "{:?}",
         read_wire(&home)
     );
@@ -3328,4 +3328,84 @@ fn short_window_drops_the_hint_first() {
     assert_eq!(lines[1], TITLE, "{s:?}");
     assert_eq!(rows(&s).len(), 3, "{s:?}");
     assert!(!s.postdisplay.contains("pick"), "{s:?}");
+}
+
+// ---- M1d: the fix after a failure ----
+
+#[test]
+fn prev_carries_the_status() {
+    let mut z = ZshHarness::start(ZshOpts {
+        core_script: Some(RECORDER),
+        ..Default::default()
+    });
+    let home = z.home().to_path_buf();
+    z.run("false");
+    z.run("true");
+    assert!(
+        poll(Duration::from_secs(3), || {
+            let w = read_wire(&home);
+            w.lines().any(|l| l == format!("prev{US}false{US}1"))
+                && w.lines().any(|l| l == format!("prev{US}true{US}0"))
+        }),
+        "{:?}",
+        read_wire(&home)
+    );
+}
+
+/// M1d §4.4: after `lss` (not found), the empty line shows `ls`, even with the list off; → takes
+/// it and nothing runs.
+#[test]
+fn fix_shows_on_the_empty_line_after_a_failure() {
+    let mut z = ZshHarness::start(ZshOpts::default());
+    z.run("ls");
+    z.run("lss");
+    z.wait_state(|s| s.buffer.is_empty() && s.postdisplay == "ls");
+    z.send("\x1b[C");
+    z.wait_state(|s| s.buffer == "ls" && s.postdisplay.is_empty());
+}
+
+#[test]
+fn package_manager_fix() {
+    let mut z = ZshHarness::start(ZshOpts::default());
+    let proj = z.home().join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(proj.join("package.json"), r#"{"scripts":{"dev":"vite"}}"#).unwrap();
+    std::fs::write(proj.join("pnpm-lock.yaml"), "").unwrap();
+    z.run("cd proj");
+    // One request in the folder starts its project detection.
+    z.send("n");
+    std::thread::sleep(Duration::from_millis(400));
+    z.send("\x15");
+    z.run("npm run dev");
+    z.wait_state(|s| s.buffer.is_empty() && s.postdisplay == "pnpm run dev");
+}
+
+/// Review Focus 4: no fix after ⌃C's 130 or a real failure of a real command.
+#[test]
+fn no_fix_after_ctrl_c_status_or_a_real_failure() {
+    let mut z = ZshHarness::start(ZshOpts::default());
+    z.run("ls");
+    z.run("sh -c 'exit 130'");
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(z.state().postdisplay, "", "after 130");
+    z.run("sh -c 'exit 1'");
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(z.state().postdisplay, "", "after a real failure");
+    z.run("lss");
+    z.wait_state(|s| s.buffer.is_empty() && s.postdisplay == "ls");
+}
+
+/// Review Focus 4: Enter on the empty line with a fix showing runs nothing.
+#[test]
+fn enter_on_a_fix_runs_nothing() {
+    let mut z = ZshHarness::start(ZshOpts::default());
+    std::fs::write(z.home().join("MARKER-FILE"), "").unwrap();
+    z.run("ls");
+    z.run("lss");
+    z.wait_state(|s| s.buffer.is_empty() && s.postdisplay == "ls");
+    let mark = z.screen_now().len();
+    z.run("");
+    std::thread::sleep(Duration::from_millis(300));
+    let after = z.screen_now()[mark..].to_string();
+    assert!(!after.contains("MARKER-FILE"), "ls ran: {after:?}");
 }

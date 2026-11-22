@@ -64,6 +64,7 @@
   typeset -g _FUXX_AS_LIST_FOR_ID='' _FUXX_AS_LIST_FOR_BUFFER='' _FUXX_AS_LIST_GHOST=''
   typeset -g _FUXX_AS_LIST_PREV=main   # the keymap the list's own keymap was copied from
   typeset -gi _FUXX_AS_HIDDEN=0   # 1 while the ghost text is off until the next edit (Tab, Esc)
+  typeset -gi _FUXX_AS_FAILED=0   # 1 when the last line entered ended non-zero: ask on the empty line (M1d)
   typeset -gA _FUXX_AS_LIST_VAL _FUXX_AS_LIST_SRC
   typeset -ga _FUXX_AS_LIST_ITEMS=() _FUXX_AS_HLS=()
   typeset -g _FUXX_AS_PID=''
@@ -273,7 +274,7 @@ _fuxx_as_send() {
 _fuxx_as_request() {
   emulate -L zsh
   [[ $_FUXX_AS_STATE == on ]] || return 0
-  [[ -n $BUFFER ]] || (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY )) || return 0
+  [[ -n $BUFFER ]] || (( (_FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY) || _FUXX_AS_FAILED )) || return 0
   (( $#BUFFER > 1000 )) && return 0
   [[ $BUFFER == *[$'\x1f\x1e']* ]] && return 0
   if [[ -n $_FUXX_AS_INFLIGHT_ID ]]; then
@@ -681,8 +682,10 @@ _fuxx_as_line_init() {
   _FUXX_AS_LIST_GHOST='' _FUXX_AS_HIDDEN=0
   _fuxx_as_list_reset
   _fuxx_as_clear
-  # The list on an empty line (design spec M1c): ask at once, the core times the pause.
-  [[ -z $BUFFER ]] && (( _FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY )) && _fuxx_as_request
+  # The list on an empty line (design spec M1c): ask at once, the core times the pause. After a
+  # failure ask too, even with the list off: the core may have a fix (M1d).
+  [[ -z $BUFFER ]] && (( (_FUXX_AS_LIST_SIZE && _FUXX_AS_LIST_EMPTY) || _FUXX_AS_FAILED )) \
+    && _fuxx_as_request
   return 0
 }
 _fuxx_as_line_finish() {   # ghost text of an accepted line never stays in the scrollback
@@ -880,6 +883,8 @@ _fuxx_as_precmd() {
   local noted=$_FUXX_AS_NOTED E
   local -i n=$(( HISTCMD - 1 )) p
   _FUXX_AS_NOTED=''
+  # A fact for the core (design §5.5, M1d): after a failure the empty line asks for a fix.
+  _FUXX_AS_FAILED=$(( st != 0 ))
   [[ $_FUXX_AS_STATE == on ]] || return 0
   if [[ -n $_FUXX_AS_PEND_EVENT ]]; then
     p=$_FUXX_AS_PEND_EVENT
@@ -891,10 +896,10 @@ _fuxx_as_precmd() {
     _FUXX_AS_PEND_STATUS='' _FUXX_AS_PEND_TIME=''
     [[ $_FUXX_AS_STATE == on ]] || return 0
   fi
-  # The core learns the command just run (`prev`, design §5.5) as soon as it is pending; a line
-  # the filters drop leaves it unknown.
+  # The core learns the command just run and its exit status (`prev`, design §5.5) as soon as it
+  # is pending; a line the filters drop leaves it unknown.
   if _fuxx_as_take_pending; then
-    _fuxx_as_send prev "$_FUXX_AS_PEND_ENTRY" || _fuxx_as_stop kill write-failed
+    _fuxx_as_send prev "$_FUXX_AS_PEND_ENTRY" "$_FUXX_AS_PEND_STATUS" || _fuxx_as_stop kill write-failed
   else
     _fuxx_as_send prev '' || _fuxx_as_stop kill write-failed
   fi

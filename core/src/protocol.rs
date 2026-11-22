@@ -52,6 +52,8 @@ pub enum Request {
     /// unknown. No reply (`docs/design.md` §5.4, §5.5).
     Prev {
         command: Option<String>,
+        /// The exit status it ended with (M1d, an optional third field); `None` when not sent.
+        status: Option<i32>,
     },
     /// The suggestion list's settings (M1c): `size` items (0 = no list) pushed `delay` after the
     /// last `suggest`, on an empty line too when `empty`. No reply.
@@ -174,7 +176,13 @@ pub fn encode_request(req: &Request) -> Vec<u8> {
             &time.to_string(),
             command,
         ]),
-        Request::Prev { command } => join(&["prev", command.as_deref().unwrap_or("")]),
+        Request::Prev { command, status } => {
+            let command = command.as_deref().unwrap_or("");
+            match status {
+                Some(st) => join(&["prev", command, &st.to_string()]),
+                None => join(&["prev", command]),
+            }
+        }
         Request::ListConfig { size, delay, empty } => join(&[
             "listcfg",
             &size.to_string(),
@@ -348,12 +356,16 @@ fn decode_listcfg(fields: &[&[u8]]) -> Result<Request, DecodeError> {
 }
 
 fn decode_prev(fields: &[&[u8]]) -> Result<Request, DecodeError> {
-    let [_, command] = fields[..] else {
-        return Err(DecodeError::Malformed { id: None });
+    let bad = DecodeError::Malformed { id: None };
+    let (command, status) = match fields[..] {
+        [_, command] => (command, None),
+        [_, command, status] => (command, Some(parse::<i32>(status).ok_or(bad.clone())?)),
+        _ => return Err(bad),
     };
-    let command = field(command).ok_or(DecodeError::Malformed { id: None })?;
+    let command = field(command).ok_or(bad)?;
     Ok(Request::Prev {
         command: (!command.is_empty()).then_some(command),
+        status,
     })
 }
 
@@ -715,7 +727,8 @@ mod tests {
         assert_eq!(
             req,
             Request::Prev {
-                command: Some("git add .".into())
+                command: Some("git add .".into()),
+                status: None,
             }
         );
         let mut enc = encode_request(&req);
@@ -724,9 +737,49 @@ mod tests {
         // A multi-line command travels with RS for its newlines.
         let req = Request::Prev {
             command: Some("for i\ndo x\ndone".into()),
+            status: Some(1),
         };
         let enc = encode_request(&req);
         assert_eq!(decode_request(&enc[..enc.len() - 1]).unwrap(), req);
+    }
+
+    /// M1d: `prev␟cmd␟status`.
+    #[test]
+    fn prev_with_status_round_trips() {
+        let line = format!("prev{0}make{0}2", '\u{1f}');
+        let req = decode_request(line.as_bytes()).unwrap();
+        assert_eq!(
+            req,
+            Request::Prev {
+                command: Some("make".into()),
+                status: Some(2),
+            }
+        );
+        let mut enc = encode_request(&req);
+        assert_eq!(enc.pop(), Some(b'\n'));
+        assert_eq!(enc, line.as_bytes());
+    }
+
+    #[test]
+    fn prev_without_status_still_decodes() {
+        let line = format!("prev{}make", '\u{1f}');
+        assert_eq!(
+            decode_request(line.as_bytes()).unwrap(),
+            Request::Prev {
+                command: Some("make".into()),
+                status: None,
+            }
+        );
+    }
+
+    #[test]
+    fn prev_with_a_bad_status_is_malformed() {
+        for bad in ["x", "", "1.5"] {
+            let line = format!("prev{0}make{0}{bad}", '\u{1f}');
+            assert!(decode_request(line.as_bytes()).is_err(), "{bad:?}");
+        }
+        let line = format!("prev{0}make{0}1{0}2", '\u{1f}');
+        assert!(decode_request(line.as_bytes()).is_err());
     }
 
     #[test]
@@ -734,9 +787,15 @@ mod tests {
         let line = format!("prev{}", '\u{1f}');
         assert_eq!(
             decode_request(line.as_bytes()).unwrap(),
-            Request::Prev { command: None }
+            Request::Prev {
+                command: None,
+                status: None
+            }
         );
-        let enc = encode_request(&Request::Prev { command: None });
+        let enc = encode_request(&Request::Prev {
+            command: None,
+            status: None,
+        });
         assert_eq!(enc, format!("prev{}\n", '\u{1f}').into_bytes());
         assert!(decode_request(b"prev").is_err());
     }

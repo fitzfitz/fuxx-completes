@@ -2,7 +2,7 @@
 //! each message is answered.
 
 use fuxx_completes_core::cd_target::Place;
-use fuxx_completes_core::context::index::Tally;
+use fuxx_completes_core::context::index::{Tally, NEUTRAL_STATUSES};
 use fuxx_completes_core::context::secret::Secret;
 use fuxx_completes_core::context::store::{ContextStore, CAP};
 use fuxx_completes_core::context::Key;
@@ -63,6 +63,12 @@ pub struct Session {
     /// Repo keys of folders, and the cwd's repo tallies (M1d), memory only.
     repos: RepoCache,
     repo_view: Option<RepoView>,
+    /// The previous command failed (`prev`'s status: non-zero, not 130 or 143; M1d §4.4).
+    previous_failed: bool,
+    /// The fix for it, per folder and project count (detection may still be running).
+    fix: Option<(PathBuf, usize, Option<String>)>,
+    /// The previous command's exit status, when `prev` sent one.
+    previous_status: i32,
 }
 
 impl Session {
@@ -85,6 +91,9 @@ impl Session {
             pending: None,
             repos: RepoCache::new(),
             repo_view: None,
+            previous_failed: false,
+            fix: None,
+            previous_status: 0,
         }
     }
 
@@ -149,17 +158,28 @@ impl Session {
                 // Longer than the adapter's own 1000-character buffer cap: drawing it stalls ZLE
                 // (a 200 KB entry took about 200 ms), so answer "no suggestion".
                 let projects = self.projects.candidates(&cwd, self.home.as_deref());
-                let text = fuxx_autosuggestions::suggestion(
-                    &self.history,
-                    &buffer,
-                    &place,
-                    &ranking,
-                    projects,
-                )
-                .filter(|t| {
-                    t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
-                })
-                .map(str::to_owned);
+                let text = if buffer.is_empty() {
+                    // The empty line right after a failure: the fix (M1d §4.4).
+                    let failed = self.previous.as_deref().filter(|_| self.previous_failed);
+                    cached_fix(
+                        &mut self.fix,
+                        failed,
+                        self.previous_status,
+                        &self.history,
+                        &ranking,
+                        projects,
+                    )
+                } else {
+                    fuxx_autosuggestions::suggestion(
+                        &self.history,
+                        &buffer,
+                        &place,
+                        &ranking,
+                        projects,
+                    )
+                    .filter(|t| sendable(t))
+                    .map(str::to_owned)
+                };
                 let wants_list = self.list_size > 0 && (!buffer.is_empty() || self.list_empty);
                 self.pending = wants_list.then(|| PendingList {
                     id,
@@ -189,8 +209,12 @@ impl Session {
                 self.history.note_ran(command);
                 None
             }
-            Request::Prev { command } => {
+            Request::Prev { command, status } => {
                 self.previous = command;
+                self.previous_failed =
+                    status.is_some_and(|s| s != 0 && !NEUTRAL_STATUSES.contains(&s));
+                self.fix = None;
+                self.previous_status = status.unwrap_or(0);
                 None
             }
             Request::ListConfig { size, delay, empty } => {
@@ -236,7 +260,7 @@ impl Session {
             repo: self.repo_view.as_ref().and_then(|v| v.tallies.as_ref()),
         };
         let projects = self.projects.candidates(&p.cwd, self.home.as_deref());
-        let items: Vec<String> = fuxx_autosuggestions::suggestion_list(
+        let mut items: Vec<String> = fuxx_autosuggestions::suggestion_list(
             &self.history,
             &p.buffer,
             &place,
@@ -245,12 +269,24 @@ impl Session {
             self.list_size as usize,
         )
         .into_iter()
-        .filter(|t| {
-            t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
-                && !t.bytes().any(|b| b == 0x1f || b == 0x1e)
-        })
+        .filter(|t| sendable(t))
         .map(str::to_owned)
         .collect();
+        if p.buffer.is_empty() {
+            let failed = self.previous.as_deref().filter(|_| self.previous_failed);
+            if let Some(fix) = cached_fix(
+                &mut self.fix,
+                failed,
+                self.previous_status,
+                &self.history,
+                &ranking,
+                projects,
+            ) {
+                items.retain(|i| *i != fix);
+                items.insert(0, fix);
+                items.truncate(self.list_size as usize);
+            }
+        }
         (!items.is_empty()).then_some(Response::List { id: p.id, items })
     }
 
@@ -308,6 +344,34 @@ impl Session {
             _ => None,
         }
     }
+}
+
+/// Whether a line can go back on the wire: at most 1000 characters (drawing more stalls ZLE) and
+/// no `US`/`RS` byte.
+fn sendable(t: &str) -> bool {
+    t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
+        && !t.bytes().any(|b| b == 0x1f || b == 0x1e)
+}
+
+/// The fix for `failed` (M1d §4.4), worked out once per folder and project count.
+fn cached_fix(
+    cache: &mut Option<(PathBuf, usize, Option<String>)>,
+    failed: Option<&str>,
+    status: i32,
+    history: &History,
+    ranking: &Ranking,
+    projects: &[String],
+) -> Option<String> {
+    let failed = failed?;
+    if let Some((cwd, n, fix)) = cache.as_ref() {
+        if cwd == ranking.cwd && *n == projects.len() {
+            return fix.clone();
+        }
+    }
+    let fix = fuxx_autosuggestions::fix_after_failure(history, failed, status, ranking, projects)
+        .filter(|f| sendable(f));
+    *cache = Some((ranking.cwd.to_path_buf(), projects.len(), fix.clone()));
+    fix
 }
 
 /// Keys the history again when the store's secret changed (made, replaced or forgotten).
@@ -645,7 +709,8 @@ mod tests {
         );
         assert_eq!(
             s.handle(Request::Prev {
-                command: Some("git add .".into())
+                command: Some("git add .".into()),
+                status: None,
             }),
             None
         );
@@ -653,7 +718,10 @@ mod tests {
             text(s.handle(suggest(2, "git c"))),
             Some("ommit -m x".into())
         );
-        s.handle(Request::Prev { command: None });
+        s.handle(Request::Prev {
+            command: None,
+            status: None,
+        });
         assert_eq!(
             text(s.handle(suggest(3, "git c"))),
             Some("heckout main".into())
@@ -913,5 +981,64 @@ mod tests {
             ask_until(&mut s, "make ", &base, Some("lint")).as_deref(),
             Some("lint")
         );
+    }
+
+    fn prev(command: &str, status: Option<i32>) -> Request {
+        Request::Prev {
+            command: (!command.is_empty()).then(|| command.to_string()),
+            status,
+        }
+    }
+
+    /// A session where `ls` succeeded in `p` and `lss` then failed with `status`.
+    fn after_lss(c: &Ctx, status: Option<i32>) -> Session {
+        let mut s = c.session();
+        ask_until(&mut s, "l", &c.p, Some("s"));
+        s.handle(ran_in(&c.p, "ls"));
+        s.handle(prev("lss", status));
+        s
+    }
+
+    /// Review Focus 4: no fix after a success, ⌃C's 130, SIGTERM's 143 or an unknown status.
+    #[test]
+    fn no_fix_after_success_or_interrupt() {
+        let c = Ctx::new(&["ls"]);
+        for status in [Some(0), Some(130), Some(143), None] {
+            let mut s = after_lss(&c, status);
+            assert_eq!(
+                text(s.handle(suggest_in(9, "", &c.p, None))),
+                None,
+                "{status:?}"
+            );
+        }
+        let mut s = after_lss(&c, Some(127));
+        s.handle(prev("", Some(1)));
+        assert_eq!(
+            text(s.handle(suggest_in(9, "", &c.p, None))),
+            None,
+            "unknown command"
+        );
+    }
+
+    /// M1d §4.4: the fix is the empty line's ghost text, and item 1 of its list.
+    #[test]
+    fn fix_is_ghost_text_and_list_item_one() {
+        let c = Ctx::new(&["ls", "git status"]);
+        let mut s = after_lss(&c, Some(127));
+        assert_eq!(
+            text(s.handle(suggest_in(9, "", &c.p, None))).as_deref(),
+            Some("ls")
+        );
+        // Typed text is not the empty line: no fix.
+        assert_eq!(text(s.handle(suggest_in(10, "x", &c.p, None))), None);
+        s.handle(listcfg(5, 0, true));
+        s.handle(suggest_in(11, "", &c.p, None));
+        match s.tick(Instant::now() + Duration::from_millis(10)) {
+            Some(Response::List { items, .. }) => {
+                assert_eq!(items[0], "ls");
+                assert_eq!(items.iter().filter(|i| *i == "ls").count(), 1);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

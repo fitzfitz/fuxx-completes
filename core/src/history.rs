@@ -261,7 +261,7 @@ impl History {
     }
 
     /// The text of `key`, if an entry holds it.
-    pub(crate) fn text_for(&self, key: Key) -> Option<&str> {
+    pub fn text_for(&self, key: Key) -> Option<&str> {
         let slot = self.slots.get(&key)?;
         if let Some(i) = slot.file_newest {
             return Some(&self.file[i]);
@@ -297,7 +297,7 @@ impl History {
     }
 
     /// The key of `text` under the secret, if there is one.
-    pub(crate) fn key_of(&self, text: &str) -> Option<Key> {
+    pub fn key_of(&self, text: &str) -> Option<Key> {
         self.secret.as_ref().map(|s| s.key_of(text))
     }
 
