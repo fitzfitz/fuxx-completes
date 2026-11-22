@@ -99,20 +99,7 @@ pub struct Ranked<'a, 'r> {
 
 impl<'a, 'r> Ranked<'a, 'r> {
     pub(crate) fn new(history: &'a History, prefix: &str, ranking: Ranking<'r>) -> Self {
-        let follows: Vec<&'a str> = match (ranking.previous, ranking.successors) {
-            (Some(p), Some(s)) => {
-                let mut out: Vec<&'a str> = Vec::new();
-                for next in s.next_of(p).filter(|n| n.starts_with(prefix)) {
-                    if let Some(e) = history.find(next) {
-                        if !out.contains(&e) {
-                            out.push(e);
-                        }
-                    }
-                }
-                out
-            }
-            _ => Vec::new(),
-        };
+        let follows = follows_of(history, prefix, &ranking);
         let index = ranking.index.filter(|_| history.is_keyed());
         // Tier 1: ran successfully here.
         // (follows, runs here, newest run here, recency), then the text.
@@ -166,6 +153,58 @@ impl<'a, 'r> Ranked<'a, 'r> {
 /// What orders tier 1, larger first: follows the previous command, runs here (1 for `cd`,
 /// `pushd`, `open`), the newest run here, recency.
 type TierOneRank = (bool, u32, i64, (bool, u64));
+
+/// The history entries starting with `prefix` that followed the previous command in this
+/// session, newest pair first.
+fn follows_of<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> Vec<&'a str> {
+    let (Some(p), Some(s)) = (ranking.previous, ranking.successors) else {
+        return Vec::new();
+    };
+    let mut out: Vec<&'a str> = Vec::new();
+    for next in s.next_of(p).filter(|n| n.starts_with(prefix)) {
+        if let Some(e) = history.find(next) {
+            if !out.contains(&e) {
+                out.push(e);
+            }
+        }
+    }
+    out
+}
+
+/// This folder's history for `prefix` (M1b step 1, `docs/design.md` §5.4): entries with a record
+/// in the cwd that aren't failed-only there. Tier-1 order first (follows, runs here with no boost
+/// for `cd`/`pushd`/`open`, newest run here, recency), then the neutral-only ones (⌃C'd) by
+/// follows and recency. Empty without a secret or an index.
+pub fn here_order<'a>(history: &'a History, prefix: &str, ranking: &Ranking) -> Vec<&'a str> {
+    let Some(here) = ranking
+        .index
+        .filter(|_| history.is_keyed())
+        .and_then(|ix| ix.in_folder(ranking.cwd))
+    else {
+        return Vec::new();
+    };
+    let follows = follows_of(history, prefix, ranking);
+    let mut ranked: Vec<((u32, TierOneRank), &'a str)> = Vec::new();
+    for (&key, tally) in here {
+        if tally.ok == 0 && tally.failed > 0 {
+            continue;
+        }
+        let Some(text) = history.text_for(key).filter(|t| t.starts_with(prefix)) else {
+            continue;
+        };
+        let tier = u32::from(tally.ok > 0);
+        let freq = if no_frequency_boost(text) {
+            tally.ok.min(1)
+        } else {
+            tally.ok
+        };
+        let last = if tally.ok > 0 { tally.last_time } else { 0 };
+        let f = follows.contains(&text);
+        ranked.push(((tier, (f, freq, last, history.recency(key))), text));
+    }
+    ranked.sort_by_key(|r| std::cmp::Reverse(r.0));
+    ranked.into_iter().map(|r| r.1).collect()
+}
 
 /// Tier 3: no success here but a failure here, or no record here and only failures elsewhere.
 fn failed_only(index: Option<&ContextIndex>, cwd: &Path, key: Key) -> bool {

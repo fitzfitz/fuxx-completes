@@ -7,6 +7,7 @@ use fuxx_completes_core::context::store::{ContextStore, CAP};
 use fuxx_completes_core::context::{data_dir_from_env, DataDir};
 use fuxx_completes_core::history::{History, HistoryFormat};
 use fuxx_completes_core::history_file::HistoryFile;
+use fuxx_completes_core::projects::cache::ProjectCache;
 use fuxx_completes_core::protocol::{DecodeError, Request, Response, PROTOCOL_VERSION};
 use fuxx_completes_core::rank::{Ranking, Successors};
 use std::path::PathBuf;
@@ -30,6 +31,8 @@ pub struct Session {
     previous: Option<String>,
     /// This core compacted its own context file once the history had loaded.
     compacted: bool,
+    /// What the projects around each folder offer (M1b), memory only.
+    projects: ProjectCache,
 }
 
 impl Session {
@@ -45,6 +48,7 @@ impl Session {
             last_ran: None,
             previous: None,
             compacted: false,
+            projects: ProjectCache::new(),
         }
     }
 
@@ -106,12 +110,18 @@ impl Session {
                 };
                 // Longer than the adapter's own 1000-character buffer cap: drawing it stalls ZLE
                 // (a 200 KB entry took about 200 ms), so answer "no suggestion".
-                let text =
-                    fuxx_autosuggestions::suggestion(&self.history, &buffer, &place, &ranking)
-                        .filter(|t| {
-                            t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
-                        })
-                        .map(str::to_owned);
+                let projects = self.projects.candidates(&cwd, self.home.as_deref());
+                let text = fuxx_autosuggestions::suggestion(
+                    &self.history,
+                    &buffer,
+                    &place,
+                    &ranking,
+                    projects,
+                )
+                .filter(|t| {
+                    t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
+                })
+                .map(str::to_owned);
                 Some(Response::Suggestion { id, text })
             }
             Request::Ran {
@@ -636,6 +646,21 @@ mod tests {
             bytes.iter().filter(|&&b| b == b'\n').count(),
             1,
             "the record was compacted away"
+        );
+    }
+
+    #[test]
+    fn a_cold_project_folder_fills_in_on_a_later_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::write(repo.join(".git"), "").unwrap();
+        std::fs::write(repo.join("Cargo.toml"), "").unwrap();
+        let mut s = Session::new(None, None);
+        s.handle(hello(1, None));
+        assert_eq!(text(s.handle(suggest_in(1, "cargo t", &repo, None))), None);
+        assert_eq!(
+            ask_until(&mut s, "cargo t", &repo, Some("est")).as_deref(),
+            Some("est")
         );
     }
 }

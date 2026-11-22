@@ -29,6 +29,18 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1b Task 5: the three-step order, wired in.** `History::ranked_here` (this
+  folder's history: records here, not failed-only), `suggestion()` takes the project candidates
+  and walks this folder's history, then project commands, then the rest as **one** sequence (a
+  ruling: three separate walks broke M1's held-`cd` rule, caught by M1's own test), and `Session`
+  owns a `ProjectCache`. `cli/tests/latency.rs` adds a cold/warm project benchmark;
+  `cli/tests/size.rs` keeps the binary under 656,400 bytes. `design.md` §3, §5.4. Tests first, seen
+  failing (the new signature): this folder's history beats project commands, project commands beat
+  history from elsewhere, other history still shows without a project match, failed-only here
+  doesn't hide project commands, ⌃C'd here counts, an exact project command is skipped, no secret
+  means projects before other history, and a cold folder fills in on a later request. Release:
+  cold 13 µs, warm p95 0.29 ms; binary 585,984 bytes (+83 KB).
+
 - **2026-11-22** — **M1b Task 4: the project cache.** `core/src/projects/cache.rs`:
   `ProjectCache::candidates` serves a fresh entry (a few `stat`s), starts a detection on one
   worker thread for a missing or stale one (50 ms budget) and serves the stale entry meanwhile; 64

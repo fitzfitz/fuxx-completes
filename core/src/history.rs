@@ -152,6 +152,11 @@ impl History {
         Ranked::new(self, prefix, *ranking)
     }
 
+    /// This folder's history for `prefix` (see `rank::here_order`).
+    pub fn ranked_here<'a>(&'a self, prefix: &str, ranking: &Ranking) -> Vec<&'a str> {
+        crate::rank::here_order(self, prefix, ranking)
+    }
+
     /// Gives every entry its key under `secret`, or drops all keys (`None`).
     pub fn set_secret(&mut self, secret: Option<&Secret>) {
         self.secret = secret.cloned();

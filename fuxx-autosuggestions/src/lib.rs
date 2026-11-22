@@ -24,23 +24,37 @@ pub use fuxx_completes_core::rank::Ranking;
 /// next match; one down into the current folder ranks above one that works from anywhere, which
 /// is shown only when no such match turns up (`docs/design.md` §5.4). Matches are walked in the
 /// ranking order of `ranking` (where, how often and how well a command ran, and what followed
-/// the previous command); with no context that is newest first.
+/// the previous command); with no context that is newest first. In three steps (M1b): this
+/// folder's history, then the first of `projects` (the project's commands) starting with the
+/// typed text and longer than it, then the rest of history, walked as one sequence.
 pub fn suggestion<'a>(
     history: &'a History,
     buffer: &str,
     place: &Place,
     ranking: &Ranking,
+    projects: &'a [String],
 ) -> Option<&'a str> {
     if buffer.is_empty() {
         return None;
     }
-    let candidates = history.ranked_with_prefix(buffer, ranking);
-    let entry = walk(candidates, CHECK_BUDGET, |c| match classify(c, place) {
+    let judge = |c: &str| match classify(c, place) {
         CdKind::NotCd => Verdict::Plain,
         CdKind::Missing => Verdict::Skip,
         CdKind::DownHere => Verdict::Best,
         CdKind::Anywhere => Verdict::Hold,
-    })?;
+    };
+    // One walk, three steps (M1b, design §5.4), so M0's `cd` rules and its one budget hold across
+    // them: this folder's history; the project's commands longer than the typed text; the rest.
+    let here = history.ranked_here(buffer, ranking);
+    let project = projects
+        .iter()
+        .filter(|p| p.len() > buffer.len() && p.starts_with(buffer))
+        .map(String::as_str);
+    let others = history
+        .ranked_with_prefix(buffer, ranking)
+        .filter(|c| !here.contains(c));
+    let candidates = here.iter().copied().chain(project).chain(others);
+    let entry = walk(candidates, CHECK_BUDGET, judge)?;
     let rest = &entry[buffer.len()..];
     (!rest.is_empty()).then_some(rest)
 }
@@ -106,87 +120,114 @@ mod tests {
     fn cd_down_into_the_current_folder_ranks_above_a_newer_cd_up() {
         let k = Kerja::new();
         let h = hist(&["cd proj", "cd ../.."]);
-        assert_eq!(suggestion(&h, "cd ", &k.place(), &none()), Some("proj"));
+        assert_eq!(
+            suggestion(&h, "cd ", &k.place(), &none(), &[]),
+            Some("proj")
+        );
     }
 
     #[test]
     fn typed_text_only_matching_a_cd_up_still_suggests_it() {
         let k = Kerja::new();
         let h = hist(&["cd proj", "cd ../.."]);
-        assert_eq!(suggestion(&h, "cd .", &k.place(), &none()), Some("./.."));
+        assert_eq!(
+            suggestion(&h, "cd .", &k.place(), &none(), &[]),
+            Some("./..")
+        );
     }
 
     #[test]
     fn without_a_cd_down_here_the_newest_valid_cd_is_suggested() {
         let k = Kerja::new();
         let h = hist(&["cd ~", "cd ..", "cd nope", "cd ../.."]);
-        assert_eq!(suggestion(&h, "cd ", &k.place(), &none()), Some("../.."));
+        assert_eq!(
+            suggestion(&h, "cd ", &k.place(), &none(), &[]),
+            Some("../..")
+        );
         let h = hist(&["cd ../..", "cd ~", "cd nope"]);
-        assert_eq!(suggestion(&h, "cd ", &k.place(), &none()), Some("~"));
+        assert_eq!(suggestion(&h, "cd ", &k.place(), &none(), &[]), Some("~"));
     }
 
     #[test]
     fn a_dot_slash_target_counts_as_down_here() {
         let k = Kerja::new();
         let h = hist(&["cd ./proj", "cd ~", "cd .."]);
-        assert_eq!(suggestion(&h, "cd ", &k.place(), &none()), Some("./proj"));
+        assert_eq!(
+            suggestion(&h, "cd ", &k.place(), &none(), &[]),
+            Some("./proj")
+        );
     }
 
     #[test]
     fn a_bare_cd_or_cd_dash_ranks_below_a_cd_down_here() {
         let k = Kerja::new();
         let h = hist(&["cd proj", "cd -", "cd"]);
-        assert_eq!(suggestion(&h, "c", &k.place(), &none()), Some("d proj"));
+        assert_eq!(
+            suggestion(&h, "c", &k.place(), &none(), &[]),
+            Some("d proj")
+        );
     }
 
     #[test]
     fn other_commands_keep_the_newest_match() {
         let k = Kerja::new();
         let h = hist(&["git push", "cd proj", "git pull", "cd ../.."]);
-        assert_eq!(suggestion(&h, "git p", &k.place(), &none()), Some("ull"));
+        assert_eq!(
+            suggestion(&h, "git p", &k.place(), &none(), &[]),
+            Some("ull")
+        );
         let h = hist(&["cd proj", "cat notes"]);
-        assert_eq!(suggestion(&h, "c", &k.place(), &none()), Some("at notes"));
+        assert_eq!(
+            suggestion(&h, "c", &k.place(), &none(), &[]),
+            Some("at notes")
+        );
     }
 
     #[test]
     fn cd_to_a_missing_folder_is_passed_over_for_the_next_match() {
         let h = hist(&["cd /usr", "cd /zz-fuxx-surely-missing"]);
-        assert_eq!(suggestion(&h, "cd ", &nowhere(), &none()), Some("/usr"));
+        assert_eq!(
+            suggestion(&h, "cd ", &nowhere(), &none(), &[]),
+            Some("/usr")
+        );
     }
 
     #[test]
     fn only_missing_cd_targets_gives_none() {
         let h = hist(&["cd /zz-fuxx-missing-a", "cd /zz-fuxx-missing-b"]);
-        assert_eq!(suggestion(&h, "cd ", &nowhere(), &none()), None);
+        assert_eq!(suggestion(&h, "cd ", &nowhere(), &none(), &[]), None);
     }
 
     #[test]
     fn returns_text_after_buffer() {
         let h = hist(&["git push origin main"]);
         assert_eq!(
-            suggestion(&h, "git p", &nowhere(), &none()),
+            suggestion(&h, "git p", &nowhere(), &none(), &[]),
             Some("ush origin main")
         );
     }
 
     #[test]
     fn empty_buffer_gives_none() {
-        assert_eq!(suggestion(&hist(&["ls"]), "", &nowhere(), &none()), None);
+        assert_eq!(
+            suggestion(&hist(&["ls"]), "", &nowhere(), &none(), &[]),
+            None
+        );
     }
 
     #[test]
     fn exact_match_gives_none() {
         let h = hist(&["git push", "git pull"]);
-        assert_eq!(suggestion(&h, "git pull", &nowhere(), &none()), None);
+        assert_eq!(suggestion(&h, "git pull", &nowhere(), &none(), &[]), None);
         // The most recent match is the exact one; an older longer one is not used.
         let h = hist(&["git pull --rebase", "git pull"]);
-        assert_eq!(suggestion(&h, "git pull", &nowhere(), &none()), None);
+        assert_eq!(suggestion(&h, "git pull", &nowhere(), &none(), &[]), None);
     }
 
     #[test]
     fn multibyte_prefix_splits_cleanly() {
         assert_eq!(
-            suggestion(&hist(&["echo 日本語"]), "echo 日", &nowhere(), &none()),
+            suggestion(&hist(&["echo 日本語"]), "echo 日", &nowhere(), &none(), &[]),
             Some("本語")
         );
     }
@@ -195,7 +236,7 @@ mod tests {
     fn multiline_entry_suggests_rest() {
         let h = hist(&["for i\ndo x\ndone"]);
         assert_eq!(
-            suggestion(&h, "for", &nowhere(), &none()),
+            suggestion(&h, "for", &nowhere(), &none(), &[]),
             Some(" i\ndo x\ndone")
         );
     }
@@ -228,7 +269,7 @@ mod tests {
             previous: None,
             successors: None,
         };
-        assert_eq!(suggestion(&h, "cd ", &k.place(), &r), Some("proj"));
+        assert_eq!(suggestion(&h, "cd ", &k.place(), &r, &[]), Some("proj"));
         // A tier-1 cd to a folder that isn't there is passed over for the next match.
         let mut ix = ContextIndex::default();
         for t in 0..3 {
@@ -242,7 +283,7 @@ mod tests {
             previous: None,
             successors: None,
         };
-        assert_eq!(suggestion(&h, "cd ", &k.place(), &r), Some("~"));
+        assert_eq!(suggestion(&h, "cd ", &k.place(), &r, &[]), Some("~"));
         // And a plain command ranked first by context is suggested over a newer one.
         let mut ix = ContextIndex::default();
         ix.add(&rec("make test", 1));
@@ -254,6 +295,119 @@ mod tests {
             previous: None,
             successors: None,
         };
-        assert_eq!(suggestion(&h, "make ", &k.place(), &r), Some("test"));
+        assert_eq!(suggestion(&h, "make ", &k.place(), &r, &[]), Some("test"));
+    }
+
+    // ---- M1b: this folder's history, then project commands, then the rest ----
+
+    use fuxx_completes_core::context::index::ContextIndex as Ix;
+    use fuxx_completes_core::context::record::Record as Rec;
+    use fuxx_completes_core::context::secret::Secret as Sec;
+
+    /// History `file` (oldest first) keyed with a test secret, and records `(command, folder,
+    /// status)`.
+    fn ctx(file: &[&str], recs: &[(&str, &str, i32)]) -> (History, Ix) {
+        let s = Sec::from_bytes([3; 32]);
+        let mut h = hist(file);
+        h.set_secret(Some(&s));
+        let mut ix = Ix::default();
+        for (t, &(c, f, status)) in recs.iter().enumerate() {
+            ix.add(&Rec {
+                key: s.key_of(c),
+                folder: std::path::PathBuf::from(f),
+                status,
+                time: t as i64,
+            });
+        }
+        (h, ix)
+    }
+
+    fn here(ix: &Ix) -> Ranking<'_> {
+        Ranking {
+            index: Some(ix),
+            cwd: Path::new("/p"),
+            previous: None,
+            successors: None,
+        }
+    }
+
+    fn cargo() -> Vec<String> {
+        ["cargo build", "cargo test", "cargo run"]
+            .map(String::from)
+            .to_vec()
+    }
+
+    #[test]
+    fn this_folders_history_beats_project_commands() {
+        let (h, ix) = ctx(
+            &["cargo test --release"],
+            &[("cargo test --release", "/p", 0)],
+        );
+        let p = cargo();
+        assert_eq!(
+            suggestion(&h, "cargo t", &nowhere(), &here(&ix), &p),
+            Some("est --release")
+        );
+    }
+
+    #[test]
+    fn project_command_beats_history_from_elsewhere() {
+        let (h, ix) = ctx(&["cargo tree"], &[("cargo tree", "/other", 0)]);
+        let p = cargo();
+        assert_eq!(
+            suggestion(&h, "cargo t", &nowhere(), &here(&ix), &p),
+            Some("est")
+        );
+    }
+
+    #[test]
+    fn history_from_elsewhere_still_shows_without_a_project_match() {
+        let (h, ix) = ctx(&["git status"], &[]);
+        let p = cargo();
+        assert_eq!(
+            suggestion(&h, "git st", &nowhere(), &here(&ix), &p),
+            Some("atus")
+        );
+    }
+
+    #[test]
+    fn failed_only_here_does_not_hide_project_commands() {
+        let (h, ix) = ctx(&["cargo txx"], &[("cargo txx", "/p", 101)]);
+        let p = cargo();
+        assert_eq!(
+            suggestion(&h, "cargo t", &nowhere(), &here(&ix), &p),
+            Some("est")
+        );
+    }
+
+    #[test]
+    fn neutral_here_counts_as_this_folders_history() {
+        let (h, ix) = ctx(&["cargo tarpaulin"], &[("cargo tarpaulin", "/p", 130)]);
+        let p = cargo();
+        assert_eq!(
+            suggestion(&h, "cargo t", &nowhere(), &here(&ix), &p),
+            Some("arpaulin")
+        );
+    }
+
+    #[test]
+    fn exact_project_command_is_skipped_for_a_longer_one() {
+        let (h, ix) = ctx(&[], &[]);
+        let p: Vec<String> = ["npm run dev", "npm run dev:host"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(
+            suggestion(&h, "npm run dev", &nowhere(), &here(&ix), &p),
+            Some(":host")
+        );
+        assert_eq!(suggestion(&h, "", &nowhere(), &here(&ix), &p), None);
+    }
+
+    #[test]
+    fn without_a_secret_project_commands_come_before_other_history() {
+        let h = hist(&["cargo tree"]);
+        let p = cargo();
+        let r = Ranking::none(Path::new("/p"));
+        assert_eq!(suggestion(&h, "cargo t", &nowhere(), &r, &p), Some("est"));
     }
 }

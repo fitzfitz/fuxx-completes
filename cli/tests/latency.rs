@@ -179,3 +179,96 @@ fn suggest_p95_under_10_ms_on_100k_history() {
     println!("suggest over 2000 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}");
     assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
 }
+
+/// M1b: the same 100,000-line history, now in a project folder (package.json with 200 scripts,
+/// a Makefile with 200 targets, Cargo.toml). The first request in the cold folder answers from
+/// history while detection runs; once warm, answers that use project candidates stay under 10 ms.
+#[test]
+#[ignore = "a release-mode benchmark; run it with --release -- --ignored"]
+fn project_suggest_p95_under_10_ms_warm() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = std::fs::canonicalize(dir.path()).unwrap();
+    let mut rng = Lcg(0x5eed);
+    let commands = distinct(&mut rng);
+    let lines: Vec<&str> = (0..100_000)
+        .map(|_| commands[rng.below(commands.len())].as_str())
+        .collect();
+    let hist = base.join(".zsh_history");
+    std::fs::write(&hist, lines.join("\n") + "\n").unwrap();
+
+    let proj = base.join("proj");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(proj.join(".git"), "").unwrap();
+    let scripts: Vec<String> = (0..200).map(|i| format!("\"s{i}\":\"x\"")).collect();
+    std::fs::write(
+        proj.join("package.json"),
+        format!("{{\"scripts\":{{{}}}}}", scripts.join(",")),
+    )
+    .unwrap();
+    let targets: String = (0..200).map(|i| format!("t{i}:\n\techo\n")).collect();
+    std::fs::write(proj.join("Makefile"), targets).unwrap();
+    std::fs::write(proj.join("Cargo.toml"), "[package]\nname = \"p\"\n").unwrap();
+
+    let mut session = Session::new(None, None);
+    session.handle(Request::Hello {
+        protocol: 1,
+        shell: "zsh".into(),
+        shell_version: "5.9".into(),
+        history_format: "zsh".into(),
+        history_path: Some(hist.clone()),
+        libraries: vec!["autosuggestions".into()],
+    });
+    let suggest = |id: u64, buffer: &str| Request::Suggest {
+        id,
+        mode: Mode::Async,
+        cursor: buffer.chars().count(),
+        cwd: proj.clone(),
+        buffer: buffer.into(),
+        cdpath: Some(Vec::new()),
+    };
+    let started = Instant::now();
+    while !session.history_loaded() {
+        session.handle(suggest(0, "zz"));
+        std::thread::sleep(Duration::from_millis(1));
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "history never loaded"
+        );
+    }
+    let t = Instant::now();
+    session.handle(suggest(1, "npm ru"));
+    println!(
+        "first request in the cold project folder: {:?}",
+        t.elapsed()
+    );
+    let warm = Instant::now();
+    loop {
+        // Warm: the first `npm run` project command (nothing ran here, so no step 1).
+        let r = session.handle(suggest(2, "npm ru"));
+        if format!("{r:?}").contains("Some(\"n s0\")") {
+            break;
+        }
+        assert!(warm.elapsed() < Duration::from_secs(5), "never warm: {r:?}");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    println!("cold to warm: {:?}", warm.elapsed());
+
+    let prefixes: Vec<String> = (0..200)
+        .flat_map(|i| [format!("npm run s{i}"), format!("make t{i}")])
+        .chain(["cargo b".to_string(), "c".to_string(), "g".to_string()])
+        .collect();
+    let mut times = Vec::with_capacity(2000);
+    for id in 0..2000u64 {
+        let p = &prefixes[rng.below(prefixes.len())];
+        let cut: String = p.chars().take(1 + rng.below(p.len())).collect();
+        let t = Instant::now();
+        session.handle(suggest(10 + id, &cut));
+        times.push(t.elapsed());
+    }
+    times.sort();
+    let p50 = times[times.len() / 2];
+    let p95 = times[times.len() * 95 / 100];
+    let max = times[times.len() - 1];
+    println!("warm project folder, 2000 requests: p50 {p50:?}, p95 {p95:?}, max {max:?}");
+    assert!(p95 < Duration::from_millis(10), "p95 {p95:?}");
+}

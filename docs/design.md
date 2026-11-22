@@ -114,7 +114,11 @@ The 10 ms figure is there so the ghost text keeps up with a fast typist. **Measu
 with 50,000 context records over 200 folders, 2,000 suggestion answers took p50 30 µs, p95
 39 µs, max 368 µs (after the review fixes, which read the key's 32 bytes per answer); reading
 and keying the whole history took 35 ms. Keying runs where a full re-read is applied, on the
-serve thread (about 8 ms for 100,000 entries); moving it to the reader is a known follow-up. If a request misses its
+serve thread (about 8 ms for 100,000 entries); moving it to the reader is a known follow-up. **M1b, measured
+2026-11-22:** in a project folder (200 scripts, 200 make targets, Cargo.toml) on the same history,
+the first request in the cold folder took 13 µs (history only, detection on the worker), and warm
+answers p50 4 µs, p95 0.29 ms. The release binary grew from 502,800 to 585,984 bytes (+83 KB of
+the 150 KB budget; `cli/tests/size.rs` keeps it there). If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
@@ -388,6 +392,14 @@ and its `contains` text is in that file; a matched type's `beats` drop others ma
 same folder**. Candidates per project: its fixed commands, then each reader's names through each
 template (name by name, first template first); nearest folder first, duplicates dropped. Every
 listed folder and read file is stamped (mtime, size) for the cache.
+
+**As built (M1b, AI's calls).** "This folder's history" is the matches with a context record in
+the cwd that are not failed-only there (successes, and ⌃C'd neutral runs); a typo that only failed
+here doesn't hide project commands, and a shell with no usable data folder has no step 1. The
+three steps are walked as **one** sequence (this folder's history, then project commands longer
+than the typed text, then the rest of history), so the `cd` rules below and their one 50 ms budget
+hold across them: a `cd` down into the cwd still beats a held `cd ..` from this folder. A project
+command equal to the typed text is skipped for a longer one.
 
 So `cargo tree` typed once elsewhere doesn't hide `cargo test` in a new Rust project, while
 `git st` there still finds `git status` from elsewhere. Once run, a project command is in this
