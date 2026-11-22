@@ -140,7 +140,14 @@ within 10 ms at p95. **The release binary grew to 702,224 bytes** (+66,480 over 
 the repo tier +33 KB, the fix +17 KB, `why` and `--report` +17 KB, the filters under 1 KB), past
 `cli/tests/size.rs`'s limit of 656,400 (M1's binary + M1b's 150 KB budget, which M1c already
 used part of). The user's call (2026-11-22): one limit for the whole binary, **768 KB**
-(786,432 bytes), which `cli/tests/size.rs` now checks. If a request misses its
+(786,432 bytes), which `cli/tests/size.rs` now checks. **M2, measured 2026-11-23** (release,
+Apple Silicon, `cli/tests/latency.rs`): bash's `sync` requests on a 100,000-entry timestamped
+bash history, through the real serve loop and timed from the write to the reply line, p50 18 µs,
+p95 36 µs, max 0.72 ms (well inside the 50 ms wait); the zsh-history suggestions p50 45 µs, p95
+103 µs; a warm project folder p95 0.26 ms; the list of 5 p95 32 µs; the repo tier p95 0.95 ms;
+the fix p95 4.8 ms. All within 10 ms at p95. The release binary is **718,752 bytes** (+16,528
+over M1d's 702,224: `report`, the bash history reader, `why --format`, the host codec), under
+the 786,432-byte limit. If a request misses its
 budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
