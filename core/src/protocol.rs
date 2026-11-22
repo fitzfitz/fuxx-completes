@@ -53,6 +53,13 @@ pub enum Request {
     Prev {
         command: Option<String>,
     },
+    /// The suggestion list's settings (M1c): `size` items (0 = no list) pushed `delay` after the
+    /// last `suggest`, on an empty line too when `empty`. No reply.
+    ListConfig {
+        size: u8,
+        delay: std::time::Duration,
+        empty: bool,
+    },
     Bye,
 }
 
@@ -66,6 +73,11 @@ pub enum Response {
     Suggestion {
         id: u64,
         text: Option<String>,
+    },
+    /// The suggestion list for request `id`, pushed after the pause (M1c): whole command lines.
+    List {
+        id: u64,
+        items: Vec<String>,
     },
 }
 
@@ -86,6 +98,7 @@ pub fn decode_request(line: &[u8]) -> Result<Request, DecodeError> {
         b"suggest" => decode_suggest(&fields),
         b"ran" => decode_ran(&fields),
         b"prev" => decode_prev(&fields),
+        b"listcfg" => decode_listcfg(&fields),
         b"bye" if fields.len() == 1 => Ok(Request::Bye),
         b"bye" => Err(DecodeError::Malformed { id: None }),
         other => Err(unknown(other)),
@@ -162,6 +175,12 @@ pub fn encode_request(req: &Request) -> Vec<u8> {
             command,
         ]),
         Request::Prev { command } => join(&["prev", command.as_deref().unwrap_or("")]),
+        Request::ListConfig { size, delay, empty } => join(&[
+            "listcfg",
+            &size.to_string(),
+            &delay.as_millis().to_string(),
+            if *empty { "1" } else { "0" },
+        ]),
         Request::Bye => join(&["bye"]),
     }
 }
@@ -190,6 +209,15 @@ pub fn decode_response(line: &[u8]) -> Result<Response, DecodeError> {
                 text: (!text.is_empty()).then_some(text),
             })
         }
+        b"list" => {
+            let id: u64 = fields.get(1).and_then(|f| parse(f)).ok_or(bad(None))?;
+            let items = fields[2..]
+                .iter()
+                .map(|f| field(f))
+                .collect::<Option<Vec<_>>>()
+                .ok_or(bad(Some(id)))?;
+            Ok(Response::List { id, items })
+        }
         other => Err(unknown(other)),
     }
 }
@@ -205,6 +233,17 @@ pub fn encode_response(resp: &Response) -> Vec<u8> {
                 .filter(|t| !t.bytes().any(|b| b == US || b == RS))
                 .unwrap_or("");
             join(&["suggestion", &id.to_string(), text])
+        }
+        Response::List { id, items } => {
+            let id = id.to_string();
+            let mut parts = vec!["list", id.as_str()];
+            parts.extend(
+                items
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|t| !t.bytes().any(|b| b == US || b == RS)),
+            );
+            join(&parts)
         }
     }
 }
@@ -287,6 +326,25 @@ fn decode_ran(fields: &[&[u8]]) -> Result<Request, DecodeError> {
         })
     };
     build().ok_or(bad)
+}
+
+fn decode_listcfg(fields: &[&[u8]]) -> Result<Request, DecodeError> {
+    let bad = DecodeError::Malformed { id: None };
+    let [_, size, delay, empty] = fields[..] else {
+        return Err(bad);
+    };
+    let size: u8 = parse(size).ok_or(bad.clone())?;
+    let ms: u64 = parse(delay).ok_or(bad.clone())?;
+    let empty = match empty {
+        b"1" => true,
+        b"0" => false,
+        _ => return Err(bad),
+    };
+    Ok(Request::ListConfig {
+        size: size.min(5),
+        delay: std::time::Duration::from_millis(ms),
+        empty,
+    })
 }
 
 fn decode_prev(fields: &[&[u8]]) -> Result<Request, DecodeError> {
@@ -689,5 +747,49 @@ mod tests {
             decode_request(b"later\x1fx"),
             Err(DecodeError::UnknownKind(_))
         ));
+    }
+
+    #[test]
+    fn listcfg_round_trips() {
+        let line = format!("listcfg{0}5{0}3000{0}1", '\u{1f}');
+        let req = decode_request(line.as_bytes()).unwrap();
+        assert_eq!(
+            req,
+            Request::ListConfig {
+                size: 5,
+                delay: std::time::Duration::from_millis(3000),
+                empty: true
+            }
+        );
+        let enc = encode_request(&req);
+        assert_eq!(&enc[..enc.len() - 1], line.as_bytes());
+        assert!(decode_request(format!("listcfg{0}x{0}1{0}0", '\u{1f}').as_bytes()).is_err());
+    }
+
+    #[test]
+    fn list_round_trips_with_multiline_items() {
+        let resp = Response::List {
+            id: 7,
+            items: vec!["git status".into(), "for i\ndo x\ndone".into()],
+        };
+        let enc = encode_response(&resp);
+        assert_eq!(
+            enc,
+            format!(
+                "list{0}7{0}git status{0}for i\u{1e}do x\u{1e}done\n",
+                '\u{1f}'
+            )
+            .into_bytes()
+        );
+        assert_eq!(decode_response(&enc[..enc.len() - 1]).unwrap(), resp);
+    }
+
+    #[test]
+    fn empty_buffer_suggest_decodes() {
+        let line = format!("suggest{0}3{0}async{0}0{0}/p{0}", '\u{1f}');
+        match decode_request(line.as_bytes()).unwrap() {
+            Request::Suggest { id, buffer, .. } => assert_eq!((id, buffer.as_str()), (3, "")),
+            other => panic!("{other:?}"),
+        }
     }
 }

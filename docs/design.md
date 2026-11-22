@@ -500,9 +500,18 @@ The shell plugins can't link a Rust crate, so they talk to a small binary, `fuxx
   | adapter → core | `suggest` | id (u64), mode (`async`/`sync`), cursor (code points), cwd, buffer, then optionally cdpath (the shell's `cdpath` folders, one per line, so `RS` on the wire; empty = none) |
   | adapter → core | `ran` | cwd (where it started), exit status (i32), time (Unix seconds), command |
   | adapter → core | `prev` | the command just run, as the adapter will report it (after its filters; empty = unknown). No reply. Added in M1 without a version bump: an older core ignores the unknown kind |
+  | adapter → core | `listcfg` | list size (0 = no list, at most 5), the pause in ms, empty line (`0`/`1`). No reply. M1c; an older core ignores it |
   | adapter → core | `bye` | none |
   | core → adapter | `ready` | protocol (`1`) |
   | core → adapter | `suggestion` | id, text after the buffer (empty = none) |
+  | core → adapter | `list` | id, then one field per item (whole command lines). Pushed, not asked for: after the pause that follows the newest `suggest` (M1c) |
+
+  **The list (M1c, AI's calls).** With a `listcfg` of size N > 0, each `suggest` (an empty buffer
+  too, when the empty-line setting is on; it is answered "no suggestion") arms one pending list,
+  replacing any earlier one; `ran`, `bye` and a size of 0 disarm it. The serve loop reads lines on
+  a thread and waits on them with the pending list's deadline, so when the pause is over with no
+  newer request it pushes `list` for that request's id (only with at least one item). The pause
+  is timed by the core, so nothing in the shell waits or keeps a timer.
 
   The `cdpath` field was added on 2026-11-13 (§5.4) without a version bump: a `suggest` with six
   fields still decodes, and its `cdpath` is unknown (relative `cd` targets not found from the cwd

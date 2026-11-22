@@ -166,3 +166,74 @@ fn binary_writes_nothing_to_stderr_while_serving() {
         .unwrap();
     assert_eq!(err, "");
 }
+
+fn listcfg(size: u8, ms: u64) -> String {
+    format!("listcfg{US}{size}{US}{ms}{US}1")
+}
+
+#[test]
+fn serve_pushes_a_list_after_the_pause() {
+    let home = tempfile::tempdir().unwrap();
+    let hist = home.path().join(".zsh_history");
+    std::fs::write(&hist, "git status\ngit stash\n").unwrap();
+    let mut core = Core::start(home.path());
+    core.send(&hello(hist.to_str().unwrap()));
+    assert_eq!(
+        core.recv(Duration::from_secs(5)).as_deref(),
+        Some(format!("ready{US}1").as_str())
+    );
+    core.send(&listcfg(5, 50));
+    // The history loads in the background: ask until the ghost text shows.
+    let mut id = 0;
+    loop {
+        id += 1;
+        core.send(&suggest(id, "git s"));
+        let got = core.recv(Duration::from_secs(5)).unwrap();
+        if got.ends_with("tash") {
+            break;
+        }
+        assert!(id < 200, "history never loaded");
+        std::thread::sleep(Duration::from_millis(5));
+        // drain a list for the older id, if one came
+        while let Some(l) = core.recv(Duration::from_millis(1)) {
+            assert!(l.starts_with("list"), "{l:?}");
+        }
+    }
+    let start = std::time::Instant::now();
+    let list = core.recv(Duration::from_secs(2)).expect("no list");
+    assert!(
+        start.elapsed() >= Duration::from_millis(30),
+        "{:?}",
+        start.elapsed()
+    );
+    assert_eq!(list, format!("list{US}{id}{US}git stash{US}git status"));
+}
+
+#[test]
+fn serve_sends_no_list_when_a_newer_request_came() {
+    let home = tempfile::tempdir().unwrap();
+    let mut core = Core::start(home.path());
+    core.send(&hello(""));
+    core.recv(Duration::from_secs(5)).unwrap();
+    core.send(&format!("ran{US}/{US}0{US}1{US}git status"));
+    core.send(&listcfg(5, 100));
+    core.send(&suggest(1, "git"));
+    core.send(&suggest(2, "git s"));
+    assert!(core
+        .recv(Duration::from_secs(2))
+        .unwrap()
+        .starts_with(&format!("suggestion{US}1")));
+    assert!(core
+        .recv(Duration::from_secs(2))
+        .unwrap()
+        .starts_with(&format!("suggestion{US}2")));
+    assert_eq!(
+        core.recv(Duration::from_secs(2)).unwrap(),
+        format!("list{US}2{US}git status")
+    );
+    assert_eq!(
+        core.recv(Duration::from_millis(300)),
+        None,
+        "no second list"
+    );
+}

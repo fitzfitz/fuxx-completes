@@ -10,7 +10,7 @@ fn main() -> ExitCode {
         ["serve"] => {
             // A write error (the adapter went away) ends the core quietly; nothing is printed
             // while serving.
-            let _ = fuxx_completes::serve::serve(std::io::stdin().lock(), std::io::stdout().lock());
+            let _ = fuxx_completes::serve::serve(std::io::stdout().lock());
             ExitCode::SUCCESS
         }
         ["forget"] => forget(),

@@ -1,44 +1,81 @@
-//! The `serve` loop: one request per line in, replies out, each flushed at once.
+//! The `serve` loop: one request per line in, replies out, each flushed at once. Lines are read
+//! on a thread, so the loop can also wake when a pushed list is due (M1c) without any input.
 
 use crate::session::Session;
-use fuxx_completes_core::protocol::{decode_request, encode_response, Request};
+use fuxx_completes_core::protocol::{decode_request, encode_response, Request, Response};
 use std::io::{BufRead, ErrorKind, Write};
+use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::time::Instant;
 
-/// `serve_with` on a session set up from this process's environment.
-pub fn serve(input: impl BufRead, output: impl Write) -> std::io::Result<()> {
-    serve_with(Session::from_env(), input, output)
+/// `serve_with` on a session set up from this process's environment, reading standard input.
+pub fn serve(output: impl Write) -> std::io::Result<()> {
+    serve_with(
+        Session::from_env(),
+        std::io::BufReader::new(std::io::stdin()),
+        output,
+    )
 }
 
-/// Reads LF-terminated lines until EOF or `bye`; writes and flushes each reply at once.
-/// Lines that don't decode (including invalid UTF-8) are skipped. A closed output pipe ends
-/// the loop quietly with `Ok`.
+/// Reads LF-terminated lines until EOF or `bye`; writes and flushes each reply at once, and a
+/// pushed list when its pause is over. Lines that don't decode (including invalid UTF-8) are
+/// skipped. A closed output pipe, or a read error, ends the loop quietly with `Ok`.
 pub fn serve_with(
     mut session: Session,
-    mut input: impl BufRead,
+    mut input: impl BufRead + Send + 'static,
     mut output: impl Write,
 ) -> std::io::Result<()> {
-    let mut line = Vec::new();
+    let (tx, rx) = channel::<Vec<u8>>();
+    std::thread::spawn(move || loop {
+        let mut line = Vec::new();
+        match input.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {
+                if line.last() == Some(&b'\n') {
+                    line.pop();
+                }
+                if tx.send(line).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    let mut send = |reply: Response| -> std::io::Result<bool> {
+        match output
+            .write_all(&encode_response(&reply))
+            .and_then(|()| output.flush())
+        {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == ErrorKind::BrokenPipe => Ok(false),
+            Err(e) => Err(e),
+        }
+    };
     loop {
-        line.clear();
-        if input.read_until(b'\n', &mut line)? == 0 {
-            return Ok(());
-        }
-        if line.last() == Some(&b'\n') {
-            line.pop();
-        }
+        let line = match session.next_deadline() {
+            Some(due) => match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
+                Ok(line) => line,
+                Err(RecvTimeoutError::Timeout) => {
+                    if let Some(list) = session.tick(Instant::now()) {
+                        if !send(list)? {
+                            return Ok(());
+                        }
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => return Ok(()),
+            },
+            None => match rx.recv() {
+                Ok(line) => line,
+                Err(_) => return Ok(()),
+            },
+        };
         let reply = match decode_request(&line) {
             Ok(Request::Bye) => return Ok(()),
             Ok(req) => session.handle(req),
             Err(err) => session.handle_error(err),
         };
         if let Some(reply) = reply {
-            let sent = output
-                .write_all(&encode_response(&reply))
-                .and_then(|()| output.flush());
-            match sent {
-                Ok(()) => {}
-                Err(e) if e.kind() == ErrorKind::BrokenPipe => return Ok(()),
-                Err(e) => return Err(e),
+            if !send(reply)? {
+                return Ok(());
             }
         }
     }

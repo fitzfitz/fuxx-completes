@@ -11,6 +11,16 @@ use fuxx_completes_core::projects::cache::ProjectCache;
 use fuxx_completes_core::protocol::{DecodeError, Request, Response, PROTOCOL_VERSION};
 use fuxx_completes_core::rank::{Ranking, Successors};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+/// A list to push once the pause is over (M1c): for the newest `suggest` only.
+struct PendingList {
+    id: u64,
+    buffer: String,
+    cwd: PathBuf,
+    cdpath: Option<Vec<PathBuf>>,
+    due: Instant,
+}
 
 /// Longest suggestion text sent back, in characters (same cap as the adapter's buffer).
 const MAX_SUGGESTION_CHARS: usize = 1000;
@@ -33,6 +43,11 @@ pub struct Session {
     compacted: bool,
     /// What the projects around each folder offer (M1b), memory only.
     projects: ProjectCache,
+    /// The suggestion list's settings (M1c `listcfg`); size 0 = no list.
+    list_size: u8,
+    list_delay: Duration,
+    list_empty: bool,
+    pending: Option<PendingList>,
 }
 
 impl Session {
@@ -49,6 +64,10 @@ impl Session {
             previous: None,
             compacted: false,
             projects: ProjectCache::new(),
+            list_size: 0,
+            list_delay: Duration::from_secs(3),
+            list_empty: true,
+            pending: None,
         }
     }
 
@@ -122,6 +141,14 @@ impl Session {
                     t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
                 })
                 .map(str::to_owned);
+                let wants_list = self.list_size > 0 && (!buffer.is_empty() || self.list_empty);
+                self.pending = wants_list.then(|| PendingList {
+                    id,
+                    buffer,
+                    cwd,
+                    cdpath,
+                    due: Instant::now() + self.list_delay,
+                });
                 Some(Response::Suggestion { id, text })
             }
             Request::Ran {
@@ -139,6 +166,7 @@ impl Session {
                     self.successors.record(last, &command);
                 }
                 self.last_ran = Some(command.clone());
+                self.pending = None;
                 self.history.note_ran(command);
                 None
             }
@@ -146,8 +174,63 @@ impl Session {
                 self.previous = command;
                 None
             }
-            Request::Bye => None,
+            Request::ListConfig { size, delay, empty } => {
+                self.list_size = size.min(5);
+                self.list_delay = delay;
+                self.list_empty = empty;
+                if self.list_size == 0 {
+                    self.pending = None;
+                }
+                None
+            }
+            Request::Bye => {
+                self.pending = None;
+                None
+            }
         }
+    }
+
+    /// When the pending list is due, if there is one (the serve loop waits until then).
+    pub fn next_deadline(&self) -> Option<Instant> {
+        self.pending.as_ref().map(|p| p.due)
+    }
+
+    /// The list for the newest request, once its pause is over: whole lines in the ghost text's
+    /// order (M1c). `None` before the deadline, or when nothing matches.
+    pub fn tick(&mut self, now: Instant) -> Option<Response> {
+        if self.pending.as_ref()?.due > now {
+            return None;
+        }
+        let p = self.pending.take()?;
+        self.refresh();
+        let place = Place {
+            cwd: &p.cwd,
+            home: self.home.as_deref(),
+            cdpath: p.cdpath.as_deref(),
+        };
+        let ranking = Ranking {
+            index: self.store.as_ref().map(ContextStore::index),
+            cwd: &p.cwd,
+            previous: self.previous.as_deref(),
+            successors: Some(&self.successors),
+        };
+        let projects = self.projects.candidates(&p.cwd, self.home.as_deref());
+        let items: Vec<String> = fuxx_autosuggestions::suggestion_list(
+            &self.history,
+            &p.buffer,
+            &place,
+            &ranking,
+            projects,
+            self.list_size as usize,
+        )
+        .into_iter()
+        .filter(|t| {
+            t.chars().take(MAX_SUGGESTION_CHARS + 1).count() <= MAX_SUGGESTION_CHARS
+                && !t.bytes().any(|b| b == 0x1f || b == 0x1e)
+        })
+        .map(str::to_owned)
+        .collect();
+        (!items.is_empty()).then_some(Response::List { id: p.id, items })
     }
 
     /// Before an answer: the context files (a `forget`, a secret another core made, new
@@ -662,5 +745,93 @@ mod tests {
             ask_until(&mut s, "cargo t", &repo, Some("est")).as_deref(),
             Some("est")
         );
+    }
+
+    // ---- M1c: the list ----
+
+    fn listcfg(size: u8, ms: u64, empty: bool) -> Request {
+        Request::ListConfig {
+            size,
+            delay: Duration::from_millis(ms),
+            empty,
+        }
+    }
+
+    fn lister(entries: &[&str]) -> Session {
+        let mut s = Session::new(None, None);
+        s.handle(hello(1, None));
+        for e in entries {
+            s.handle(ran_in(Path::new("/"), e));
+        }
+        s
+    }
+
+    #[test]
+    fn a_list_is_due_after_the_delay() {
+        let mut s = lister(&["git status", "git stash"]);
+        s.handle(listcfg(5, 100, true));
+        s.handle(suggest(1, "git s"));
+        assert!(s.next_deadline().is_some());
+        assert_eq!(s.tick(Instant::now() + Duration::from_millis(50)), None);
+        assert_eq!(
+            s.tick(Instant::now() + Duration::from_millis(100)),
+            Some(Response::List {
+                id: 1,
+                items: vec!["git stash".into(), "git status".into()]
+            })
+        );
+        assert!(s.next_deadline().is_none(), "one list per request");
+    }
+
+    #[test]
+    fn a_newer_suggest_rearms_the_list() {
+        let mut s = lister(&["git status"]);
+        s.handle(listcfg(5, 100, true));
+        s.handle(suggest(1, "git"));
+        s.handle(suggest(2, "git s"));
+        match s.tick(Instant::now() + Duration::from_millis(200)) {
+            Some(Response::List { id, .. }) => assert_eq!(id, 2),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(s.tick(Instant::now() + Duration::from_secs(1)), None);
+    }
+
+    #[test]
+    fn no_list_without_config_or_with_size_0() {
+        let mut s = lister(&["git status"]);
+        s.handle(suggest(1, "git"));
+        assert!(s.next_deadline().is_none());
+        s.handle(listcfg(0, 100, true));
+        s.handle(suggest(2, "git"));
+        assert!(s.next_deadline().is_none());
+        s.handle(listcfg(5, 100, true));
+        s.handle(suggest(3, "git"));
+        s.handle(Request::Ran {
+            cwd: "/".into(),
+            status: 0,
+            time: 1,
+            command: "ls".into(),
+        });
+        assert!(
+            s.next_deadline().is_none(),
+            "a command ran: the line is gone"
+        );
+    }
+
+    #[test]
+    fn empty_line_list_only_when_enabled() {
+        let mut s = lister(&["git status"]);
+        s.handle(listcfg(5, 10, false));
+        assert_eq!(
+            s.handle(suggest(1, "")),
+            Some(Response::Suggestion { id: 1, text: None })
+        );
+        assert!(s.next_deadline().is_none());
+        s.handle(listcfg(5, 10, true));
+        s.handle(suggest(2, ""));
+        match s.tick(Instant::now() + Duration::from_millis(20)) {
+            Some(Response::List { id: 2, items }) => assert_eq!(items, ["git status"]),
+            other => panic!("{other:?}"),
+        }
     }
 }

@@ -30,6 +30,15 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-22** — **M1c Task 2: the wire and the timer.** `listcfg` and `list` messages;
+  an empty-buffer `suggest`; `Session` arms one pending list per newest `suggest` (`ran`, `bye`,
+  size 0 disarm it) with `next_deadline`/`tick`; `serve_with` reads lines on a thread and waits
+  with `recv_timeout`. `design.md` §5.5. Tests first, seen failing (missing variants): the
+  messages both ways (multi-line items), the empty `suggest`, the list due after the delay, a
+  newer `suggest` re-arming it, no list without config or with size 0 or after `ran`, the empty
+  line only when enabled, and the real binary pushing a list after the pause and not for an older
+  request.
+
 - **2026-11-22** — **M1c Task 1: the list in the core.** `fuxx_autosuggestions::suggestion_list`
   (item 1 = the ghost text's line, then the three-step sequence; on an empty line, follows,
   this folder, project, newest), sharing `best_entry` with `suggestion`; `rank::follows_of` public.
