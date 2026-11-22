@@ -347,7 +347,7 @@ Option<Vec<u8>>`. Shell: `_fuxx_as_host_send <message> <fields…>`, the accept 
   for the user's check".
 - [ ] One whole-branch review (superpowers:requesting-code-review, most capable model, this Review
   Focus); one fix pass, each fix test-first; gate and matrices again.
-- [ ] Test release v0.0.12 when the user says so (tagged on this branch, as v0.0.9–v0.0.11).
+- [ ] Test release v0.0.13 when the user says so (tagged on this branch, as v0.0.9–v0.0.11; v0.0.12 went to a chore on `main` on 2026-11-23).
 
 ## Self-review (2026-11-22)
 
