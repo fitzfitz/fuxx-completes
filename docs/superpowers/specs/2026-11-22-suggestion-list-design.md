@@ -1,8 +1,9 @@
 # fuxx-completes: the suggestion list — design
 
 **Status:** written 2026-11-22 from a conversation with the user; the builder check's one open
-question answered by the user (the list on an empty line: yes, with its own setting). For their
-review. Not planned, not built. "Design §n" means `docs/design.md`; "fuxx" is the user's terminal app
+question answered by the user (the list on an empty line: yes, with its own setting).
+**Approved by the user 2026-11-22.** Not planned, not built: M1c is planned after the user's
+check of M1b. "Design §n" means `docs/design.md`; "fuxx" is the user's terminal app
 (github.com/fitzfitz/fuxx-cli), which installs fuxx-completes as a plugin.
 
 ## 1. Intent and why

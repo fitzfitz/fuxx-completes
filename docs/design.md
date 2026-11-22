@@ -62,6 +62,12 @@ The user wants one engine that:
    history has no match. Speed and size come first. §5.4; full design in
    `docs/superpowers/specs/2026-11-21-project-knowledge-design.md`.
 
+8. **A suggestion list (added 2026-11-22, the user's decision).** After a pause (3 s by default),
+   up to 5 suggestions under the command line, on an empty line too; ⌥1–⌥5, or ↑/↓ then Enter or
+   Tab, put one into the line (never run it); Esc closes it. Configurable, in fuxx through Settings
+   → Plugins. Milestone M1c; full design in
+   `docs/superpowers/specs/2026-11-22-suggestion-list-design.md`.
+
 ### Non-goals (not planned)
 
 - Suggestions inside AI agents (Claude Code and similar). They have their own. Plain prompt only.
@@ -247,6 +253,13 @@ arrive.
   other folders. Built as **mapping data plus a few built-in readers** (approach 1). Milestone
   M1b, after M1. §5.4, and the full design in
   `docs/superpowers/specs/2026-11-21-project-knowledge-design.md`.
+- **A suggestion list (decided 2026-11-22).** The user: "can this tools have multiple
+  suggestions? … a list of suggestions (max 5) … I want fuxx-completes handles the list … configure
+  the plugin inside setting … for 3 seconds … type 1 … arrow down or up … esc"; then picked ⌥1–⌥5
+  (so plain digits always type), "go ahead" to Enter putting the pick into the line without
+  running it, "yes agreed" to the list on an empty line too (with its own setting), and approved
+  the design. The zsh plugin draws the list (approach 1 of the design); fuxx drawing it is later.
+  M1c. Details in `docs/superpowers/specs/2026-11-22-suggestion-list-design.md`.
 - **License (AI's call):** MIT OR Apache-2.0, the Rust convention.
 - **Layout (AI's call):** a Cargo workspace (§12).
 
@@ -1159,6 +1172,7 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
 | M0 | Core + history + zsh adapter | the binary serves suggestions from a zsh history file; the zsh plugin shows ghost text on zsh 5.3+ (`memo=` on 5.9+, exact-string fallback below); `forward-char`/`end-of-line` accept, `forward-word` accepts a word, vi-mode widgets wrapped; End and ⌥→ bound only if unbound; reports follow §5.8 and the history file is re-read on change; async; temp-HOME tests pass |
 | M1 | Autosuggestions: context file and coexistence | the context file of §5.7 (keyed records, pruning, `forget`); ranking uses cwd, exit status and how often a command ran in this folder (no boost for `cd`, `pushd`, `open`) across shells and restarts, and the previous command in-session; conflicting plugins and Warp detected; `doctor`; latency benchmark meets §3; the context file under `FUXX_PLUGIN_DATA` when set, and the double-load guard (§8) |
 | M1b | Project knowledge | project detection, the in-memory cache and the six readers, with temp-folder tests; mapping data under `projects/` compiled in; every ecosystem in the design spec has a fixture folder and a test; the three-step order of §5.4 tested; latency within §3 on a cold and a warm folder; binary growth under 150 KB, measured from M1's binary |
+| M1c | Suggestion list | the core's top-N and the list it pushes after the pause (empty line too); the `suggest` field and `list` message; the zsh plugin draws the list under the line with the keys of the design spec, in its own keymap only while it shows; the settings variables, and fuxx's declared settings when fuxx has them; `doctor` shows the list settings; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
 | M3 | Release fuxx-autosuggestions | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |

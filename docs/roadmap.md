@@ -12,6 +12,7 @@ Building starts after fuxx's v0.5.0 release.
 | M0 | Core + history + zsh adapter | ✅ done 2026-11-21 (the user's check: "close m0, all good") |
 | M1 | Autosuggestions: context file and coexistence (now with frequency ranking, no boost for `cd`/`pushd`/`open`) | ✅ done 2026-11-22 ([plan](plans/M1%20Plan%20-%20Context%20File%20and%20Coexistence.md); the user's check on v0.0.7) |
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | 🟨 being built ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md)) |
+| M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ⬜ planned after the user's check of M1b |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ⬜ |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
@@ -28,6 +29,16 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-22** — **Design: the suggestion list (M1c), approved by the user.** Up to 5
+  suggestions under the line after a pause (3 s), on an empty line too; ⌥1–⌥5 or ↑/↓ then
+  Enter/Tab put one into the line (never run); Esc closes; settings as shell variables and, in
+  fuxx, Settings → Plugins (a fuxx plugin-format change, planned in fuxx's repo). Spec:
+  [`superpowers/specs/2026-11-22-suggestion-list-design.md`](superpowers/specs/2026-11-22-suggestion-list-design.md);
+  `design.md` §2, §4, §15. A builder check asked five questions: four settled as AI's calls in the
+  spec (↑ stays history with nothing highlighted, any key restarts the pause, fuxx's Settings win
+  when changed there, M1c after M1b's check), one answered by the user (the empty line: "yes
+  agreed"). Planned after the user's check of M1b.
 
 - **2026-11-22** — **M1b whole-branch review and its fix pass.** One fresh reviewer (Opus): ready
   with fixes, no Critical. Fixed, each with a test seen failing first: (1) inside a pnpm, yarn or
