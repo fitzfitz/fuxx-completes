@@ -3,8 +3,8 @@
 Status: **M0, M1, M1b, M1c and M1d are done** (core, `fuxx-autosuggestions`, `fuxx-completes serve` and the zsh
 adapter; the context file, ranking, coexistence, `forget` and `doctor`; project knowledge; the
 suggestion list; safety and polish; the user's checks on 2026-11-21 and 2026-11-22); **M2 is
-being built** (bash, fish and the host channel; the user's four decisions of 2026-11-23); M3
-onward are design only. This document is the
+built and reviewed** (bash, fish and the host channel; the user's four decisions of 2026-11-23;
+waiting for the user's check on test build v0.0.13); M3 onward are design only. This document is the
 source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
@@ -777,8 +777,11 @@ pty the shell already writes to.
   are bound. **The accept read path, verified on zsh 5.3.1, 5.8.1, 5.9 and bash 4.0 and 5.3**
   (tests `accept_from_host_sets_the_line`, `stale_or_broken_accept_does_nothing`): zsh's widget
   reads the rest with `read -k 1` inside ZLE, bash's `bind -x` function with `read -s -t 0.05 -d
-  BEL` (on bash before 4.3 the 7-byte CSI is a readline macro for `\C-x\C-z`); both stop after
-  50 ms or 8 KiB and apply only an id that matches the last `buffer` sent. A late, stale or broken
+  BEL` (on bash before 4.3 the 7-byte CSI is a readline macro for `\C-x\C-z`); both apply only an
+  id that matches the last `buffer` sent. bash's read waits at most 50 ms for the BEL; zsh reads
+  a character at a time as long as each comes within 50 ms (at most 1 s and 16 KiB; fixed after
+  the M2 review, when a single 50 ms for the whole payload typed the tail of a 4 KB accept).
+  Under ble.sh, host mode binds no keys and our ble.sh source steps aside (no core to ask). A late, stale or broken
   accept is read and dropped, so nothing stray is typed. Found while testing: bash's `read`
   changes the terminal's settings with `TCSADRAIN`, so it waits until the terminal has read the
   shell's output; a real terminal does, and the tests' fake host now keeps reading while it
@@ -924,7 +927,13 @@ user typed, so they reveal nothing the shell was told not to keep.
   `HISTCONTROL`/`HISTIGNORE` hid and a repeat `ignoredups` dropped send nothing (bash can't tell
   them apart). The time is `EPOCHSECONDS` (5.0+), `printf '%(%s)T'` (4.2+), else one `date` at
   setup plus `SECONDS`. An rc that sets `PROMPT_COMMAND` again after sourcing us turns reporting
-  (and the core) off. bash has already
+  (and the core) off. **Fixed after the M2 review:** a second entry, `_fuxx_as_prompt_end`, goes
+  last and takes the newest entry again after the user's own entries ran, so the shared-history
+  idiom (`history -a; history -c; history -r`) or `history -n` can't make a reloaded or other
+  shell's line look like a command run here; and a command is reported when the newest number is
+  one more than that baseline, or the same with another text (`erasedups` moved an older copy to
+  the end), never on any other jump. A repeat of the very last command under `ignoredups` or
+  `erasedups` still isn't counted again. bash has already
   applied `HISTCONTROL` and `HISTIGNORE` by then. The exit status is captured first; the working
   directory is the one saved at the previous prompt, where the command started.
 - **fish:** a `fish_postexec` handler reports the command unless it starts with a space, fish is
@@ -1512,7 +1521,7 @@ Licensed MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
 | M1b | Project knowledge | project detection, the in-memory cache and the six readers, with temp-folder tests; mapping data under `projects/` compiled in; every ecosystem in the design spec has a fixture folder and a test; the three-step order of §5.4 tested; latency within §3 on a cold and a warm folder; binary growth under 150 KB, measured from M1's binary |
 | M1c | Suggestion list | the core's top-N and the list it pushes after the pause (empty line too); the `suggest` field and `list` message; the zsh plugin draws the list under the line with the keys of the design spec, in its own keymap only while it shows; the settings variables, and fuxx's declared settings when fuxx has them; `doctor` shows the list settings; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M1d | Safety and polish | secret-looking lines never offered; dangerous commands guarded until their dangerous part is typed; a repo/worktree tier after this folder's history; a fix after a failed command as ghost text on the empty line (`prev` carries the status); `why` and `doctor --report`; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
-| M2 | bash and fish adapters, and the host channel (autosuggestions) | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
+| M2 | bash and fish adapters, and the host channel (autosuggestions); built and reviewed 2026-11-23, waiting for the user's check | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
 | M3 | Release fuxx-autosuggestions | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |
 | M5 | Line parsing, generators and shell state | current command and word found; built-in Rust generators (git first) and declarative generators with timeout and cache; adapters send `state` (§5.9) and the core uses it |

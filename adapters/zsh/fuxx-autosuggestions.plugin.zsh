@@ -1394,23 +1394,24 @@ _fuxx_as_host_forward() {
 }
 
 # `ESC [ 7701 ~` from the host, then base64 of `<id> US <buffer> US <cursor>` and BEL: reads the
-# rest within 50 ms and applies it only when the id is the last `buffer` sent. Anything else
-# (late, stale, broken) is read and dropped, so no stray characters are typed.
+# rest as long as it keeps coming (each next character within 50 ms; at most 1 s and 16 KiB in
+# all) and applies it only when the id is the last `buffer` sent. Anything else (late, stale,
+# broken, too long) is read and dropped up to its BEL, so no stray characters are typed. (A
+# single 50 ms for the whole payload typed the tail of a long one: fix after the M2 review.)
 _fuxx_as_widget_host_accept() {
   emulate -L zsh
   local c payload=''
-  local -i got=0
-  local -F deadline=$(( EPOCHREALTIME + 0.05 )) left
-  while (( $#payload < 8192 )); do
-    (( left = deadline - EPOCHREALTIME ))
-    (( left > 0 )) || break
-    read -k 1 -t $left c 2>/dev/null || break
+  local -i got=0 n=0
+  local -F end=$(( EPOCHREALTIME + 1 ))
+  while (( EPOCHREALTIME < end )); do
+    read -k 1 -t 0.05 c 2>/dev/null || break
     if [[ $c == $'\a' ]]; then
       got=1
       break
     fi
-    payload+=$c
+    (( ++n <= 16384 )) && payload+=$c
   done
+  (( n <= 16384 )) || return 0
   (( got )) || return 0
   _fuxx_as_unb64 "$payload" || return 0
   local text=$REPLY id cur

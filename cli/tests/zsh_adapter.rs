@@ -3603,3 +3603,20 @@ fn doctor_shows_host_mode() {
     let screen = printable(&z.screen_now());
     assert!(screen.contains("host mode    off (tmux)"), "{screen}");
 }
+
+/// Review fix: a long accept (about 4 KB of base64: 995 three-byte characters) is read whole,
+/// nothing typed.
+#[test]
+fn long_accept_from_host_is_read_whole() {
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_before: HOST.into(),
+        ..git_history()
+    });
+    z.send("echo x");
+    let id = wait_buffer(&mut z, "echo x");
+    let long = format!("echo {}", "語".repeat(995));
+    z.send_bytes(&encode_accept(id, &long, 1000));
+    let s = z.wait_state(|s| s.buffer.chars().count() == 1000);
+    assert_eq!(s.buffer, long);
+    assert_eq!(s.cursor, 1000);
+}

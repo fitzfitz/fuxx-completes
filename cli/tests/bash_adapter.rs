@@ -923,3 +923,122 @@ fn nothing_before_the_first_prompt() {
     let prompt = screen.find("READY> ").unwrap();
     assert!(!screen[..prompt].contains("\x1b]7701"), "{screen:?}");
 }
+
+// ---- Fixes after the M2 review ----
+
+/// `ran` lines on the wire, as (status, command).
+fn rans(b: &BashHarness) -> Vec<(String, String)> {
+    wire(b)
+        .lines()
+        .filter(|l| l.starts_with("ran"))
+        .map(|l| {
+            let f: Vec<&str> = l.split(US).collect();
+            (f[2].to_string(), f[4..].join(&US.to_string()))
+        })
+        .collect()
+}
+
+#[test]
+fn shared_history_idiom_reports_only_what_ran_here() {
+    let mut b = BashHarness::start(BashOpts {
+        core_script: Some(RECORDER),
+        rc_before: "shopt -s histappend; PROMPT_COMMAND='history -a; history -c; history -r'"
+            .into(),
+        ..Default::default()
+    });
+    b.run("false");
+    b.run("");
+    // Another shell saves a command to the shared file.
+    let hist = b.histfile();
+    let mut text = std::fs::read_to_string(&hist).unwrap_or_default();
+    text.push_str("sudo reboot\n");
+    std::fs::write(&hist, text).unwrap();
+    b.run("");
+    b.run("");
+    b.run("echo end");
+    b.run("");
+    assert!(
+        poll(Duration::from_secs(3), || wire(&b).contains("echo end")),
+        "{:?}",
+        wire(&b)
+    );
+    assert_eq!(
+        rans(&b),
+        vec![
+            ("1".to_string(), "false".to_string()),
+            ("0".into(), "echo end".into())
+        ],
+        "{:?}",
+        wire(&b)
+    );
+    assert!(!wire(&b).contains("reboot"), "{:?}", wire(&b));
+}
+
+#[test]
+fn erasedups_repeats_are_reported() {
+    let mut b = BashHarness::start(BashOpts {
+        core_script: Some(RECORDER),
+        rc_before: "HISTCONTROL=ignorespace:erasedups".into(),
+        ..Default::default()
+    });
+    for c in ["echo one", "echo two", "echo one", "false", "echo two"] {
+        b.run(c);
+    }
+    assert!(
+        poll(Duration::from_secs(3), || rans(&b).len() >= 5),
+        "{:?}",
+        wire(&b)
+    );
+    let got: Vec<String> = rans(&b).into_iter().map(|(_, c)| c).collect();
+    assert_eq!(
+        got,
+        ["echo one", "echo two", "echo one", "false", "echo two"]
+    );
+}
+
+#[test]
+fn host_mode_under_blesh_keeps_reporting() {
+    if !blesh_bash_ok() {
+        return;
+    }
+    let _one = ble_lock();
+    let mut b = host(BashOpts {
+        blesh: true,
+        ..git_history()
+    });
+    b.run("");
+    b.run("");
+    b.send("git s");
+    b.idle(Duration::from_millis(1000)); // ble.sh asks its sources while idle
+    b.send("\x15");
+    b.run("false");
+    b.run("");
+    let msgs = host_msgs(&mut b);
+    assert!(
+        msgs.iter().any(
+            |m| matches!(m, HostMessage::Ran { command, status: 1, .. } if command == "false")
+        ),
+        "{msgs:?}"
+    );
+    b.run("fuxx-completes doctor");
+    let screen = printable(&b.screen_now());
+    assert!(screen.contains("state        on"), "{screen}");
+}
+
+#[test]
+fn set_u_prints_nothing_in_host_mode() {
+    let mut b = host(BashOpts {
+        rc_after: "set -u".into(),
+        ..git_history()
+    });
+    b.run("echo one");
+    b.run("echo two");
+    b.send("git s");
+    b.send(accept_key());
+    wait_buffer(&mut b, "git s");
+    b.send("\x15");
+    b.run("fuxx-completes doctor");
+    let screen = printable(&b.screen_now());
+    assert!(!screen.contains("unbound variable"), "{screen}");
+    assert!(screen.contains("host mode    on"), "{screen}");
+}

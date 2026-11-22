@@ -56,7 +56,7 @@ if [[ -z ${_FUXX_AS_STATE+set} ]]; then
   # since the newest `suggest`, its id, and whether that one was a ping.
   _FUXX_AS_UNREAD=0 _FUXX_AS_SINCE_SUGGEST=0 _FUXX_AS_LAST_SUGGEST='' _FUXX_AS_PING=''
   # Command reports (§5.8): the newest history number seen and where the next command starts.
-  _FUXX_AS_HISTNUM='' _FUXX_AS_CWD=$PWD
+  _FUXX_AS_HISTNUM='' _FUXX_AS_HISTTEXT='' _FUXX_AS_CWD=$PWD
   _FUXX_AS_T0='' _FUXX_AS_S0=0
   _FUXX_AS_OWN_FN=0
   _FUXX_AS_BLE=''   # `fed` once our ble.sh source is registered, `atuin` when atuin's is there
@@ -566,21 +566,12 @@ _fuxx_as_prompt_work() {
     fi
     return 0
   fi
-  local h n entry cwd=$_FUXX_AS_CWD re='^ *([0-9]+)[ *] (.*)$'
+  local n entry cwd=$_FUXX_AS_CWD
   _FUXX_AS_CWD=$PWD
-  # `history 1` prints "%5d%c %s": the number, `*` when the entry was edited, the entry.
-  local l
-  h=''
-  while IFS= read -r l || [[ -n $l ]]; do
-    h+=${h:+$'\n'}$l
-  done < <(unset HISTTIMEFORMAT; builtin history 1 2>/dev/null)
-  if [[ $h =~ $re ]]; then
-    n=${BASH_REMATCH[1]} entry=${BASH_REMATCH[2]}
-  else
-    n='' entry=''
-  fi
+  _fuxx_as_newest
+  n=$_FUXX_AS_N entry=$_FUXX_AS_E
   if [[ -z $_FUXX_AS_STATE ]]; then
-    _FUXX_AS_HISTNUM=$n
+    _FUXX_AS_HISTNUM=$n _FUXX_AS_HISTTEXT=$entry
     _fuxx_as_start
     return 0
   fi
@@ -606,19 +597,49 @@ _fuxx_as_prompt_work() {
   return 0
 }
 
-# _fuxx_as_prompt_report <status> <history number> <entry> <cwd>: sends `ran` and `prev` when
-# the history number is new. Returns 1 when the core had to be stopped.
-_fuxx_as_prompt_report() {
-  local st=$1 n=$2 entry=$3 cwd=$4
-  [[ -n $n && $n != "$_FUXX_AS_HISTNUM" ]] || return 0
-  if [[ -z $_FUXX_AS_HISTNUM ]] && (( n > 1 )); then
-    # The list was empty at the first prompt and now holds more than one entry: the history file
-    # was loaded since (ble.sh loads it after the first prompt), so the newest entry may not have
-    # run here. Start counting from it.
-    _FUXX_AS_HISTNUM=$n
-    return 0
+# _FUXX_AS_N, _FUXX_AS_E = the newest history entry's number and text ('' when none). `history 1`
+# prints "%5d%c %s": the number, `*` when the entry was edited, the entry. Read through process
+# substitution: a command substitution here keeps bash 4.0's first prompt from being drawn.
+_fuxx_as_newest() {
+  local h='' l re='^ *([0-9]+)[ *] (.*)$'
+  while IFS= read -r l || [[ -n $l ]]; do
+    h+=${h:+$'\n'}$l
+  done < <(unset HISTTIMEFORMAT; builtin history 1 2>/dev/null)
+  if [[ $h =~ $re ]]; then
+    _FUXX_AS_N=${BASH_REMATCH[1]} _FUXX_AS_E=${BASH_REMATCH[2]}
+  else
+    _FUXX_AS_N='' _FUXX_AS_E=''
   fi
-  _FUXX_AS_HISTNUM=$n
+}
+
+# The last PROMPT_COMMAND entry: takes the newest entry again after the user's own entries ran,
+# so a list they reloaded or renumbered (`history -a; history -c; history -r`, `history -n`) is
+# the baseline, not a command that ran here (fix after the M2 review). Hands `$?` on.
+_fuxx_as_prompt_end() {
+  local st=$?
+  if [[ $_FUXX_AS_STATE == on ]]; then
+    _fuxx_as_newest
+    _FUXX_AS_HISTNUM=$_FUXX_AS_N _FUXX_AS_HISTTEXT=$_FUXX_AS_E
+  fi
+  return "$st"
+}
+
+# _fuxx_as_prompt_report <status> <history number> <entry> <cwd>: sends `ran` and `prev` when a
+# command was saved since the last prompt: the newest number is one more than the baseline, or
+# the same with another text (`erasedups` moved an older copy to the end). An unchanged entry (an
+# empty Enter, a hidden line, an ignored repeat) and any other jump (a reload, the first load of
+# the file under ble.sh) send nothing. Returns 1 when the core had to be stopped.
+_fuxx_as_prompt_report() {
+  local st=$1 n=$2 entry=$3 cwd=$4 base=$_FUXX_AS_HISTNUM text=$_FUXX_AS_HISTTEXT
+  _FUXX_AS_HISTNUM=$n _FUXX_AS_HISTTEXT=$entry
+  [[ -n $n ]] || return 0
+  if [[ -z $base ]]; then
+    (( n == 1 )) || return 0
+  elif (( n == base )); then
+    [[ $entry != "$text" ]] || return 0
+  else
+    (( n == base + 1 )) || return 0
+  fi
   (( ${#entry} > 1000 )) && return 0
   [[ $entry == *[$'\x1f\x1e']* ]] && return 0   # the wire can't carry them
   _fuxx_as_now
@@ -628,7 +649,8 @@ _fuxx_as_prompt_report() {
   return 0
 }
 
-# Our entry goes first in PROMPT_COMMAND (an array from bash 5.1, else a string), once.
+# Our entry goes first in PROMPT_COMMAND (an array from bash 5.1, else a string) and
+# `_fuxx_as_prompt_end` last, once.
 _fuxx_as_hook_prompt() {
   [[ $_FUXX_AS_STATE == off ]] && return 0
   local decl
@@ -638,12 +660,12 @@ _fuxx_as_hook_prompt() {
     for e in "${PROMPT_COMMAND[@]}"; do
       [[ $e == _fuxx_as_prompt ]] && return 0
     done
-    PROMPT_COMMAND=(_fuxx_as_prompt "${PROMPT_COMMAND[@]}")
+    PROMPT_COMMAND=(_fuxx_as_prompt "${PROMPT_COMMAND[@]}" _fuxx_as_prompt_end)
   else
     case $'\n'${PROMPT_COMMAND-}$'\n' in
       *$'\n'_fuxx_as_prompt$'\n'*) return 0 ;;
     esac
-    PROMPT_COMMAND=_fuxx_as_prompt${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}
+    PROMPT_COMMAND=_fuxx_as_prompt${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}$'\n'_fuxx_as_prompt_end
   fi
 }
 _fuxx_as_hook_prompt
@@ -699,7 +721,7 @@ _fuxx_as_unb64() {
 _fuxx_as_host_osc() {
   local out=$'\e]7701;fuxx-completes;1;'$1 f
   shift
-  for f in "$@"; do
+  for f in ${1+"$@"}; do   # (an empty "$@" is an error under set -u before bash 4.4)
     case $f in
       n:*) out+=";${f#n:}" ;;
       *) _fuxx_as_b64 "${f#s:}"; out+=";$REPLY" ;;
@@ -771,6 +793,8 @@ _fuxx_as_host_accept() {
 # arrived meanwhile.
 function ble/complete/auto-complete/source:fuxx-autosuggestions {
   [[ $_FUXX_AS_STATE == on && $_FUXX_AS_BLE == fed ]] || return 1
+  # In host mode there is no core to ask: the terminal draws (fix after the M2 review).
+  (( _FUXX_AS_HOST )) && return 1
   local s
   for s in "${_ble_complete_auto_source[@]}"; do
     if [[ $s == atuin-history ]]; then
@@ -834,16 +858,16 @@ if (( _FUXX_AS_OWN_FN )) || { ! declare -F fuxx-completes >/dev/null 2>&1 && ! a
     fi
     if [[ ${1-} == doctor ]]; then
       shift
-      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" doctor --shell-facts "$(_fuxx_as_facts)" "$@"
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" doctor --shell-facts "$(_fuxx_as_facts)" ${1+"$@"}
     elif [[ ${1-} == why ]]; then
       shift
       local hist=${HISTFILE-}
       local -a hf=()
       [[ -n $hist && $hist != /* ]] && hist=$PWD/$hist
       [[ -n $hist ]] && hf=(--histfile "$hist")
-      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" why --format bash --cwd "$PWD" ${hf[@]+"${hf[@]}"} -- "$@"
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" why --format bash --cwd "$PWD" ${hf[@]+"${hf[@]}"} -- ${1+"$@"}
     else
-      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" "$@"
+      FUXX_PLUGIN_DATA=$_FUXX_AS_DATA "$bin" ${1+"$@"}
     fi
   }
 fi

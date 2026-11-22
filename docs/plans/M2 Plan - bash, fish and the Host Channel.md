@@ -341,11 +341,11 @@ Option<Vec<u8>>`. Shell: `_fuxx_as_host_send <message> <fields…>`, the accept 
 
 ### Task 7: Measure, review, fix, test release
 
-- [ ] `cargo test --release -p fuxx-completes --test latency -- --ignored --nocapture` and `--test size
+- [x] `cargo test --release -p fuxx-completes --test latency -- --ignored --nocapture` and `--test size
   -- --ignored --nocapture`; numbers into design §3. Over 786,432 bytes: stop and ask the user.
-- [ ] All three matrices; design §15 row and status line; roadmap row "built and reviewed, waiting
+- [x] All three matrices; design §15 row and status line; roadmap row "built and reviewed, waiting
   for the user's check".
-- [ ] One whole-branch review (superpowers:requesting-code-review, most capable model, this Review
+- [x] One whole-branch review (superpowers:requesting-code-review, most capable model, this Review
   Focus); one fix pass, each fix test-first; gate and matrices again.
 - [ ] Test release v0.0.13 when the user says so (tagged on this branch, as v0.0.9–v0.0.11; v0.0.12 went to a chore on `main` on 2026-11-23).
 

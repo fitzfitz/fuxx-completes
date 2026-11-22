@@ -14,7 +14,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1b | Project knowledge (added 2026-11-21; [design](superpowers/specs/2026-11-21-project-knowledge-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1b%20Plan%20-%20Project%20Knowledge.md); the user's check on v0.0.8) |
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
-| M2 | bash and fish adapters, and the host channel (autosuggestions) | 🟨 approved, being built ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md)) |
+| M2 | bash and fish adapters, and the host channel (autosuggestions) | 🟨 built and reviewed, waiting for the user's check ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md)) |
 | M3 | Release fuxx-autosuggestions | ⬜ |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
@@ -30,6 +30,20 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-23** — **M2 Task 7: measured, reviewed, fixed.** Release build: bash `sync` requests
+  on a 100,000-entry bash history p95 36 µs (round trip through the serve loop), suggestions
+  p95 103 µs, the fix p95 4.8 ms; the binary is 718,752 bytes (+16,528 over M1d, under 768 KB).
+  One fresh whole-branch review (Opus): no Critical, four Important, one Minor regraded to
+  Important; all five fixed, each with a test seen failing first: bash reported a reloaded or
+  other shell's line as run here under `history -a; history -c; history -r` (an entry at the
+  end of `PROMPT_COMMAND` now takes the baseline again), `erasedups` repeats were never reported,
+  host mode under ble.sh stopped the adapter, a long accept typed base64 in zsh, and bash 4.0
+  with `set -u` printed "unbound variable" at every host-mode prompt. Deferred (minor): the host
+  accept id isn't cleared when a line ends; host mode keeps forwarding after a conflict; `doctor`
+  can't tell a replaced `PROMPT_COMMAND`; the bash-preexec case isn't tested; fish passes the
+  command text to `report` in argv (visible to `ps`); fish 3.x untested and its builds retried
+  every matrix run. **Waiting for the user's check**; test build v0.0.13 when the user says so.
 
 - **2026-11-23** — **M2 Task 6: the host channel (zsh, bash).** `core/src/host.rs` encodes and
   decodes OSC 7701 messages and the accept; with `FUXX_COMPLETES_HOST=1` (and no tmux/screen) the
