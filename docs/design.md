@@ -4,8 +4,8 @@ Status: **M0, M1, M1b, M1c and M1d are done** (core, `fuxx-autosuggestions`, `fu
 adapter; the context file, ranking, coexistence, `forget` and `doctor`; project knowledge; the
 suggestion list; safety and polish; the user's checks on 2026-11-21 and 2026-11-22); **M2 is
 done** (bash, fish and the host channel; the user's call on test build v0.0.13, 2026-11-23); **M3
-is approved and being built** (the release of fuxx-autosuggestions, version `0.1.0`; the user's
-six decisions of 2026-11-23); M4 onward are design only. This document is the
+is built and reviewed, waiting for the release gates** (the release of fuxx-autosuggestions,
+version `0.1.0`; the user's six decisions of 2026-11-23); M4 onward are design only. This document is the
 source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
@@ -1358,7 +1358,9 @@ no longer links the crates.
   (`[workspace.package]`, the inter-crate pins, `fuxx-plugin.conf`); builds the binary with
   `cargo build --release --locked` for `aarch64-apple-darwin` and `x86_64-apple-darwin`; checks
   `lipo -archs` names the zip's chip, the size is under 786,432 bytes, and the arm64 binary's
-  ad-hoc signature (`codesign -v`; the x86_64 one is unsigned, as the linker leaves it); stages
+  ad-hoc signature (`codesign -v`; the x86_64 one is unsigned, as the linker leaves it), and
+  that neither holds the builder's home folder (the build remaps source paths under `$HOME` to
+  `~` with `--remap-path-prefix`; panic locations in crates from `~/.cargo` named it before); stages
   the seven files and zips them with `ditto -c -k --norsrc --noextattr`; checks `zipinfo -1` lists
   exactly the expected entries (no nested folder, no `__MACOSX` or `._` files); unpacks each zip
   and runs `bin/fuxx-completes doctor` (the x86_64 one under Rosetta, `arch -x86_64`) in a
@@ -1591,8 +1593,8 @@ binary (`versions_agree`).
 | M1b | Project knowledge | project detection, the in-memory cache and the six readers, with temp-folder tests; mapping data under `projects/` compiled in; every ecosystem in the design spec has a fixture folder and a test; the three-step order of §5.4 tested; latency within §3 on a cold and a warm folder; binary growth under 150 KB, measured from M1's binary |
 | M1c | Suggestion list | the core's top-N and the list it pushes after the pause (empty line too); the `suggest` field and `list` message; the zsh plugin draws the list under the line with the keys of the design spec, in its own keymap only while it shows; the settings variables, and fuxx's declared settings when fuxx has them; `doctor` shows the list settings; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M1d | Safety and polish | secret-looking lines never offered; dangerous commands guarded until their dangerous part is typed; a repo/worktree tier after this folder's history; a fix after a failed command as ghost text on the empty line (`prev` carries the status); `why` and `doctor --report`; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
-| M2 | bash and fish adapters, and the host channel (autosuggestions); built and reviewed 2026-11-23, waiting for the user's check | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
-| M3 | Release fuxx-autosuggestions; approved 2026-11-23 (version `0.1.0`), being built (Tasks 1–4 built: crates, zips, formula, install docs) | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
+| M2 | bash and fish adapters, and the host channel (autosuggestions); done 2026-11-23 (the user's call on v0.0.13) | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
+| M3 | Release fuxx-autosuggestions; approved 2026-11-23 (version `0.1.0`); built and reviewed, waiting for the release gates | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |
 | M5 | Line parsing, generators and shell state | current command and word found; built-in Rust generators (git first) and declarative generators with timeout and cache; adapters send `state` (§5.9) and the core uses it |
 | M6 | zsh menu | as-you-type menu in zsh drawn below the line; Tab untouched; fzf-safe |
@@ -1618,9 +1620,11 @@ over the host channel is later, in both repos.
   the **prebuilt** binary from the release zip for the Mac's chip (`resource "binary"` with
   `on_arm`/`on_intel` inside it, as `brew style` asks), so no Rust toolchain is needed, and the
   three adapters from the tag's source tarball into `pkgshare` (`share/fuxx-completes/zsh`,
-  `bash`, `fish`); `depends_on :macos`, `license any_of: ["MIT", "Apache-2.0"]`, no bottles. Its
+  `bash`, `fish`), and `THIRD_PARTY_NOTICES.md` into its `doc` folder (the licences Homebrew
+  copies itself); `depends_on :macos`, `license any_of: ["MIT", "Apache-2.0"]`, no bottles. Its
   caveats print one line per shell with `HOMEBREW_PREFIX/share/fuxx-completes/…` paths that
-  survive upgrades; it never edits an rc file and never installs into fish's `vendor_conf.d`
+  survive upgrades (bash's says that macOS terminals start a login shell, which reads
+  `~/.bash_profile`, so it must source `~/.bashrc`); it never edits an rc file and never installs into fish's `vendor_conf.d`
   (that would turn reporting on for every fish user unasked). Its test runs `doctor`, a wrong
   command (exit 2, the usage line) and sources the zsh adapter with `zsh -f`, which must print
   nothing. Homebrew 6+ trusts a non-official tap's formula when it is installed by its full name

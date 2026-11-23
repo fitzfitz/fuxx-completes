@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 planned and approved 2026-11-23, [plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md), being built on branch `m3-release`). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
+**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 planned and approved 2026-11-23, [plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md), built and reviewed on branch `m3-release`, waiting for the release gates). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ✅ done 2026-11-23 ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md); the user's call on v0.0.13) |
-| M3 | Release fuxx-autosuggestions | 🟨 approved, being built ([plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md)) |
+| M3 | Release fuxx-autosuggestions | 🟨 built and reviewed, waiting for the release gates ([plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md)) |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
 | M6 | zsh menu | ⬜ |
@@ -30,6 +30,31 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-23** — **M3 Task 5: version 0.1.0, reviewed, fixed.** `[workspace.package]`, both
+  pins and `fuxx-plugin.conf` say **0.1.0** (`versions_agree` failed until all three did; cargo
+  itself refuses a pin that disagrees). One fresh whole-branch review (Opus): no Critical; two
+  Important, plus two Minors regraded to Important. Fixed: **the release binaries held the
+  builder's home folder** (a panic location in blake3 under `~/.cargo`): `package.sh` now refuses
+  that (seen failing first) and builds with `--remap-path-prefix=$HOME=~` (sizes unchanged);
+  **Homebrew copies lacked `THIRD_PARTY_NOTICES.md`**: the formula's test asserts it (seen
+  failing in the local tap first), `doc.install` adds it; **bash in macOS terminals is a login
+  shell** that reads `~/.bash_profile`: the caveats, README and bash README say so; and **the
+  README goes public at Gate A before the tap and crates exist**: the plan's Task 6 now takes a
+  declined gate's lines back out of the README, and notes the crate-name window (the user may
+  move Gate D right after Gate A). The local tap check again (0.1.0): install, `brew test`, `brew
+  audit --strict --new`, `brew style` clean; removed after (formula, tap, cache, developer mode
+  off). Deferred (minor): `package.sh` writes each zip into `target/dist/` before its checks (a
+  failed run leaves a zip there); `cargo install fuxx-completes` builds 1.2 MB (the workspace's
+  size profile doesn't travel with the crate); `MACOSX_DEPLOYMENT_TARGET` isn't pinned (the
+  x86_64 binary's minimum is 10.12, not the plan's 11.0); `formula.sh` doesn't check the
+  downloaded zips' own version; plugin-manager lines follow `main`, not the tag; after `brew
+  upgrade`, re-sourcing `.zshrc` in an open shell lists the new copy as a second copy; the x86_64
+  size isn't in the per-task gate; `doctor` in `package.sh` has no timeout; outside a git checkout
+  the clean-tree check passes. 559 tests; zsh 181 × 5.3.1, 5.8.1, 5.9; bash 34 × 4.0, 5.3; fish
+  7 on 4.9.3; `cargo publish --workspace --exclude fuxx-autocomplete --dry-run` verifies all
+  three at 0.1.0; both zips: arm64 718,752 bytes, x86_64 783,184 (3,248 under the limit).
+  **Waiting for the release gates** (the user's word, one at a time).
 
 - **2026-11-23** — **M3 Task 4: install docs that work, and the load shapes they rely on.**
   `loads_through_plugin_manager_shapes` (a copy in `My Plugins/`, through an oh-my-zsh-style

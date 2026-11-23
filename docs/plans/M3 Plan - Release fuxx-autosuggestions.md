@@ -290,11 +290,11 @@ AI's calls. It refuses a version that differs from `Cargo.toml`'s.
 
 ### Task 5: Version, review, fix pass
 
-- [ ] **Step 1:** set the version (R1; `0.1.0` with the AI's pick) in `[workspace.package]`, both
+- [x] **Step 1:** set the version (R1; `0.1.0` with the AI's pick) in `[workspace.package]`, both
   pins and `fuxx-plugin.conf`; `cargo build` updates `Cargo.lock`. `versions_agree` passes.
-- [ ] **Step 2:** all three matrices; `scripts/package.sh` clean run (then remove `target/dist/`).
+- [x] **Step 2:** all three matrices; `scripts/package.sh` clean run (then remove `target/dist/`).
   Design status line and §15 row: "built and reviewed, waiting for the release gates"; roadmap row.
-- [ ] **Step 3:** one whole-branch review (superpowers:requesting-code-review, most capable model,
+- [x] **Step 3:** one whole-branch review (superpowers:requesting-code-review, most capable model,
   this Review Focus, plus: does any step publish without a gate; do the README's lines match what
   Task 3 and Task 4 actually ran). One fix pass, each fix test-first where testable; gate and
   matrices again. Commit `version 0.1.0` and the fixes separately.
@@ -303,6 +303,14 @@ AI's calls. It refuses a version that differs from `Cargo.toml`'s.
 
 Each gate: the builder shows exactly what will be published, waits for the user's word, does it,
 verifies, records it in the Progress log. A "no" stops the gate; nothing after it runs.
+**Added after the final review (AI's call, 2026-11-23):** Gate A publishes a README that already
+gives the release's status line and the Homebrew and crates.io lines, before the tag (B), the tap
+(C) and the crates (D) exist. So a gate the user declines or postpones ends with one docs commit
+on `main` that takes that channel's lines out of the README (Gate B declined: the status line
+says "not released yet" again), pushed with the user's word like Gate A. And until Gate D, anyone
+could register the three crate names that the public README names (`cargo install
+fuxx-completes` would then install their code): **the user may move Gate D right after Gate A**;
+the order stays as written unless they say so.
 
 - [ ] **Gate A — merge and push `main`.** Merge `m3-release` into `main`,
   push `main` to `github.com/fitzfitz/fuxx-completes` (already public). *Published:* the branch's

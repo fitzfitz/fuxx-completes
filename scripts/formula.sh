@@ -88,6 +88,8 @@ class FuxxCompletes < Formula
   def install
     resource("binary").stage { bin.install "bin/fuxx-completes" }
     pkgshare.install "adapters/zsh", "adapters/bash", "adapters/fish"
+    # The binary's crates' notices travel with it, as in the zips (design §8).
+    doc.install "THIRD_PARTY_NOTICES.md"
   end
 
   def caveats
@@ -99,6 +101,8 @@ class FuxxCompletes < Formula
 
         bash 4.0+, at the end of ~/.bashrc:
           source #{HOMEBREW_PREFIX}/share/fuxx-completes/bash/fuxx-autosuggestions.bash
+        (macOS terminals start bash as a login shell, which reads ~/.bash_profile,
+        not ~/.bashrc: make sure ~/.bash_profile sources ~/.bashrc.)
 
         fish (reports your commands; fish keeps its own suggestions):
           ln -s #{HOMEBREW_PREFIX}/share/fuxx-completes/fish/fuxx-autosuggestions.fish ~/.config/fish/conf.d/
@@ -109,6 +113,7 @@ class FuxxCompletes < Formula
   end
 
   test do
+    assert_path_exists doc/"THIRD_PARTY_NOTICES.md"
     assert_match "fuxx-completes #{version}", shell_output("#{bin}/fuxx-completes doctor")
     assert_match "usage: fuxx-completes", shell_output("#{bin}/fuxx-completes nope 2>&1", 2)
     assert_empty shell_output("zsh -fc 'source #{pkgshare}/zsh/fuxx-autosuggestions.plugin.zsh'")

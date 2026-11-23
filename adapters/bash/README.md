@@ -17,6 +17,9 @@ With Homebrew (`brew install fitzfitz/fuxx/fuxx-completes`), the file is
 `PATH`; the install prints the exact line. Other ways: the
 [README's Install section](../../README.md#install).
 
+macOS terminals (Terminal.app, iTerm) start bash as a login shell, which reads `~/.bash_profile`,
+not `~/.bashrc`: make sure your `~/.bash_profile` sources `~/.bashrc`.
+
 It starts its core at your first prompt and prints nothing, ever. `fuxx-completes doctor` (a
 shell function it defines when you have none of that name) shows what it found.
 

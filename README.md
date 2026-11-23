@@ -152,7 +152,9 @@ runs, the other stays off, and `doctor` names both.
 
 bash 4.0 or later (macOS's `/bin/bash` is 3.2, too old: use Homebrew's `bash`). Put the line at
 the **end** of `~/.bashrc`: Homebrew's path above, or
-`source ~/fuxx-completes/adapters/bash/fuxx-autosuggestions.bash` from a clone. With ble.sh,
+`source ~/fuxx-completes/adapters/bash/fuxx-autosuggestions.bash` from a clone. macOS terminals
+start bash as a login shell, which reads `~/.bash_profile`, not `~/.bashrc`: make sure your
+`~/.bash_profile` sources `~/.bashrc`. With ble.sh,
 source it before `ble-attach`. What bash can and can't do:
 [`adapters/bash/README.md`](adapters/bash/README.md).
 

@@ -59,6 +59,11 @@ trap 'rm -rf "$work"' EXIT
 trap 'exit 130' INT TERM
 
 # 3. Build both chips from the lockfile. Cargo's output goes to a log, shown only on failure.
+# Source paths under $HOME (the crates in ~/.cargo, this checkout) are written as `~` in the
+# binary, so the builder's home folder isn't in a public asset. (CARGO_ENCODED_RUSTFLAGS: one
+# flag, a path with spaces stays whole; it replaces any RUSTFLAGS for this build only.)
+CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME=~"
+export CARGO_ENCODED_RUSTFLAGS
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
   if ! cargo build --release --locked --quiet -p fuxx-completes --target "$target" >"$work/build.log" 2>&1; then
     tail -n 20 "$work/build.log" >&2
@@ -82,6 +87,10 @@ for chip in arm64 x86_64; do
   [ "$size" -lt "$limit" ] || fail "$chip binary is $size bytes, over the $limit limit"
   if [ "$chip" = arm64 ]; then
     codesign -v "$bin" 2>/dev/null || fail "arm64 binary has no valid (ad-hoc) signature"
+  fi
+  # A public asset never carries the builder's home folder (panic locations hold source paths).
+  if strings -a "$bin" | grep -qF "$HOME/"; then
+    fail "$chip binary holds the builder's home path ($HOME)"
   fi
 
   # 5. Stage the zip's root: §8's three plus the licences and notices.
