@@ -31,6 +31,24 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M3 Task 4: install docs that work, and the load shapes they rely on.**
+  `loads_through_plugin_manager_shapes` (a copy in `My Plugins/`, through an oh-my-zsh-style
+  symlinked folder, sourced from inside a function, then `source ~/.zshrc`) and
+  `brew_copy_and_fuxx_copy_one_runs` (Homebrew's copy in `.zshrc`, then fuxx's from
+  `Library/Application Support/…` with `FUXX_PLUGIN_DATA` set) **passed at once**: the adapter
+  already handled both, so they stay as guards; each was seen failing against a broken adapter
+  (`:a` instead of `:A`; the double-load check removed), then the adapter restored. The zsh
+  harness gained `skip_plugin`. README: a real status line and an **Install** section (Homebrew
+  with each shell's line, oh-my-zsh, zinit, antidote, zap, plain `source`, bash, fish, fuxx,
+  crates.io, why not a browser download, upgrading and uninstalling), "Shell support" as built;
+  the zsh, bash and fish adapter READMEs point at it (stale "waiting for a check" and "not built
+  yet" text gone). **By hand**, each manager's current code with the README's exact lines in a
+  temporary `HOME`/`ZDOTDIR` (`FUXX_COMPLETES_BIN` = the arm64 release binary, everything under
+  one scratch folder, removed): plain `source` ✓, oh-my-zsh 87aa1a9 ✓, zinit d7b10fc ✓ (cloned
+  `fitzfitz/fuxx-completes`), antidote e661279 ✓ (same), zap 37adb24 ✓; `doctor` said `state on`
+  and named the copy each time. Ghost text on screen stays the user's check (Gate B). 559 tests;
+  zsh matrix 181 each on 5.3.1, 5.8.1 and 5.9. `design.md` §5.6, §15.
+
 - **2026-11-23** — **M3 Task 3: the Homebrew formula, checked in a local tap.**
   `scripts/formula.sh <version> [--local]` prints `Formula/fuxx-completes.rb`: the prebuilt
   binary from the release zip for the Mac's chip, the zsh, bash and fish adapters from the tag's

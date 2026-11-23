@@ -8,6 +8,13 @@
 
 Copy or link `fuxx-autosuggestions.fish` into `~/.config/fish/conf.d/`, or `source` it from
 `config.fish`, with the `fuxx-completes` binary on `PATH` (or named in `FUXX_COMPLETES_BIN`).
+With Homebrew (`brew install fitzfitz/fuxx/fuxx-completes`):
+
+```fish
+ln -s (brew --prefix)/share/fuxx-completes/fish/fuxx-autosuggestions.fish ~/.config/fish/conf.d/
+```
+
+Homebrew never puts it in fish's `vendor_conf.d`, so reporting is on only where you link it.
 It prints nothing. `fuxx-completes doctor` (a fish function it defines when you have none of that
 name) shows `state off (fish has its own autosuggestions)` and whether reporting is on.
 

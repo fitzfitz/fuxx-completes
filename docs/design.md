@@ -826,6 +826,21 @@ They hold no ranking, parsing or command knowledge. Forwarding facts the shell a
 buffer, saved commands, alias expansions, `PATH`) is not relying on the shell: the core still
 never calls one.
 
+**How zsh plugin managers load it (AI's calls, M3).** No file at the repo root: each manager is
+pointed at `adapters/zsh/` (a root file would be picked wrongly by zap and zinit once
+`fuxx-autocomplete.plugin.zsh` exists, M8). oh-my-zsh: the folder linked as
+`$ZSH_CUSTOM/plugins/fuxx-autosuggestions` and named in `plugins`; zinit: `ice
+pick"adapters/zsh/fuxx-autosuggestions.plugin.zsh"` then `light fitzfitz/fuxx-completes`;
+antidote: `fitzfitz/fuxx-completes path:adapters/zsh`; zap: `plug` with the file's path in a
+clone; or plain `source`. Managers fetch only the shell file; the binary comes from Homebrew,
+`cargo install fuxx-completes`, fuxx or `FUXX_COMPLETES_BIN`. The adapter finds itself with
+`${${(%):-%x}:A}`, so a symlinked folder (oh-my-zsh), a source from inside a function (zinit,
+antidote) and a path with spaces all resolve to one real path, and `source ~/.zshrc` keeps the
+one core (`loads_through_plugin_manager_shapes`; a copy from Homebrew plus fuxx's:
+`brew_copy_and_fuxx_copy_one_runs`). Checked by hand on 2026-11-23 with each manager's current
+code (oh-my-zsh 87aa1a9, zinit d7b10fc, antidote e661279, zap 37adb24) and the README's lines in a
+temporary `HOME`: `doctor` said `state on` for all five.
+
 ### 5.7 The context file (the user's decision; the key is an AI's call)
 
 The user decided on 2026-11-09 that context data lives in a small local file. This section is how.
@@ -1577,7 +1592,7 @@ binary (`versions_agree`).
 | M1c | Suggestion list | the core's top-N and the list it pushes after the pause (empty line too); the `suggest` field and `list` message; the zsh plugin draws the list under the line with the keys of the design spec, in its own keymap only while it shows; the settings variables, and fuxx's declared settings when fuxx has them; `doctor` shows the list settings; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M1d | Safety and polish | secret-looking lines never offered; dangerous commands guarded until their dangerous part is typed; a repo/worktree tier after this folder's history; a fix after a failed command as ghost text on the empty line (`prev` carries the status); `why` and `doctor --report`; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M2 | bash and fish adapters, and the host channel (autosuggestions); built and reviewed 2026-11-23, waiting for the user's check | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
-| M3 | Release fuxx-autosuggestions; approved 2026-11-23 (version `0.1.0`), being built | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
+| M3 | Release fuxx-autosuggestions; approved 2026-11-23 (version `0.1.0`), being built (Tasks 1–4 built: crates, zips, formula, install docs) | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |
 | M5 | Line parsing, generators and shell state | current command and word found; built-in Rust generators (git first) and declarative generators with timeout and cache; adapters send `state` (§5.9) and the core uses it |
 | M6 | zsh menu | as-you-type menu in zsh drawn below the line; Tab untouched; fzf-safe |

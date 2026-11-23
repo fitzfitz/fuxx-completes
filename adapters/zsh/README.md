@@ -1,13 +1,23 @@
 # zsh adapter
 
-Built in M0 (waiting for a check in a real terminal): `fuxx-autosuggestions.plugin.zsh` shows grey
-ghost text from your history, from a `fuxx-completes serve` process. → or ⌃E accepts all of it,
+`fuxx-autosuggestions.plugin.zsh` shows grey ghost text from your history, from a
+`fuxx-completes serve` process. → or ⌃E accepts all of it,
 and so does Tab while a suggestion shows (otherwise Tab completes as before); Esc f takes a word,
 End and ⌥→ do the same where you haven't bound them; Esc hides the ghost text and clears a
 completion list; vi mode works. A
 command you run is reported to the core and suggested from the prompt after the next one ("one
-prompt later"). Needs zsh 5.3 or later. Still planned: M2 (host channel), M6 (menu). Design:
+prompt later"). Needs zsh 5.3 or later. Still planned: M6 (menu). Design:
 `docs/design.md` §5.5–§5.9 and §6.
+
+## Install
+
+Homebrew, `source` from a clone, oh-my-zsh, zinit, antidote, zap and fuxx: see the
+[README's Install section](../../README.md#install). Every way loads this one file; the
+`fuxx-completes` binary comes from Homebrew, `cargo install fuxx-completes`, fuxx, or
+`FUXX_COMPLETES_BIN`. Loading it twice from two places (Homebrew's line and fuxx's plugin) is
+fine: the first copy runs, the second stays off, and `doctor` names both.
+
+## Try it without installing
 
 Try it by hand, in an isolated shell that never touches your real rc files or history. It works on
 a copy of your history:
@@ -28,6 +38,8 @@ source <repo>/adapters/zsh/fuxx-autosuggestions.plugin.zsh
 
 `exit` ends it and removes the copy; nothing in your normal shell changes. (`-d` skips the global
 rc files and the temporary `HOME` has no `.zshrc`, so `-f` isn't needed.)
+
+## How it works
 
 A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugin.zsh` and
 `fuxx-autocomplete.plugin.zsh`). It holds no ranking, parsing or command knowledge.
@@ -71,7 +83,7 @@ A thin zsh plugin, one file per library (for example `fuxx-autosuggestions.plugi
   to the terminal over OSC 7701 instead of being drawn here, and `ESC [ 7701 ~` applies what the
   terminal accepted.
 - **Menu (M6):** drawn below the line, not through zsh's completion system. Tab completes as above.
-- **Stays off (M1, not built yet)** when zsh-autosuggestions (for ghost text) or zsh-autocomplete
-  (`.autocomplete__*` or older `.autocomplete.*` functions, for the menu) is loaded, and entirely
-  in Warp (`TERM_PROGRAM=WarpTerminal`), whose own editor replaces ZLE. Today none of that is
-  detected. Never binds ⌃R, ⌃T or Tab (Tab's widget is wrapped, see above).
+- **Stays off** when zsh-autosuggestions is loaded (`FUXX_AUTOSUGGESTIONS_FORCE=1` turns ours on
+  anyway), and always in Warp (`TERM_PROGRAM=WarpTerminal`), whose own editor replaces ZLE;
+  `doctor` says why. The menu (M6) will stay off beside zsh-autocomplete. Never binds ⌃R, ⌃T or
+  Tab (Tab's widget is wrapped, see above).

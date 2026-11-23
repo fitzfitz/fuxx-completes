@@ -3,9 +3,12 @@
 Ghost-text suggestions and an as-you-type completion menu for zsh, bash and fish, from one Rust
 engine that doesn't rely on any shell's completion system.
 
-> **Status: pre-alpha: the zsh ghost text is built from source (M0) and waiting for a check in a
-> real terminal; nothing to install yet.** The design is in [`docs/design.md`](docs/design.md), the
-> progress in [`docs/roadmap.md`](docs/roadmap.md). The menu is not built; bash and fish are being built (M2).
+> **Status: fuxx-autosuggestions 0.1.0, the first release, for macOS 11+ (Apple Silicon and
+> Intel).** Ghost text in zsh, suggestions on a key (or ble.sh's grey text) in bash, and your fish
+> commands counted in your other shells. Still pre-1.0: settings and the crates' APIs may change
+> in a minor version. **fuxx-autocomplete (the menu) is not built yet.** Linux comes later. The
+> design is in [`docs/design.md`](docs/design.md), the progress in
+> [`docs/roadmap.md`](docs/roadmap.md).
 
 ## The two libraries
 
@@ -79,26 +82,125 @@ A menu while you type: commands, subcommands, flags, arguments, git branches, fi
 
 (Illustrations of the plan, not screenshots.)
 
-## Planned install
+## Install
 
-*Planned, not available.* Nothing below works yet.
+Two parts: the `fuxx-completes` binary, and one line in your shell's rc file that loads the
+adapter for that shell. Nothing is turned on for you, and nothing edits your rc files.
 
-- **Homebrew:** a tap with the `fuxx-completes` binary and the shell plugins.
-- **zsh plugin managers:** the plugin files in `adapters/zsh/`, loadable by the usual managers or by
-  `source`.
-- **crates.io:** `fuxx-completes-core`, `fuxx-autosuggestions` and `fuxx-autocomplete`, for apps
-  that embed them.
+### Homebrew (macOS)
 
-## Shell support (planned)
+```sh
+brew install fitzfitz/fuxx/fuxx-completes
+```
 
-| | Ghost text | Menu |
+This installs the binary and the zsh, bash and fish adapters (under
+`share/fuxx-completes/` in Homebrew's prefix), and prints the exact line for each shell. With
+Homebrew in `/opt/homebrew` (Apple Silicon; `/usr/local` on Intel):
+
+```sh
+# zsh, in ~/.zshrc
+source /opt/homebrew/share/fuxx-completes/zsh/fuxx-autosuggestions.plugin.zsh
+# bash 4.0+, at the end of ~/.bashrc
+source /opt/homebrew/share/fuxx-completes/bash/fuxx-autosuggestions.bash
+# fish (reports your commands; fish keeps its own suggestions)
+ln -s /opt/homebrew/share/fuxx-completes/fish/fuxx-autosuggestions.fish ~/.config/fish/conf.d/
+```
+
+Open a new shell; `fuxx-completes doctor` shows what is running. The paths stay the same across
+`brew upgrade`. Install by the full name `fitzfitz/fuxx/fuxx-completes` as above: Homebrew loads
+formulae from taps that aren't its own only once trusted, and installing by full name trusts this
+one.
+
+### zsh plugin managers
+
+A plugin manager loads the zsh adapter from this repo; the **binary still comes from Homebrew**
+(above) or from `cargo install fuxx-completes` (below), or name it in `FUXX_COMPLETES_BIN`.
+
+- **Plain `source`**, from a clone:
+  ```sh
+  git clone https://github.com/fitzfitz/fuxx-completes ~/fuxx-completes
+  # in ~/.zshrc:
+  source ~/fuxx-completes/adapters/zsh/fuxx-autosuggestions.plugin.zsh
+  ```
+- **oh-my-zsh**: link the adapter's folder in as a custom plugin, then add it to `plugins`:
+  ```sh
+  git clone https://github.com/fitzfitz/fuxx-completes ~/fuxx-completes
+  ln -s ~/fuxx-completes/adapters/zsh "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/fuxx-autosuggestions"
+  # in ~/.zshrc, before `source $ZSH/oh-my-zsh.sh`:
+  plugins=(git fuxx-autosuggestions)
+  ```
+- **zinit**, in `~/.zshrc`:
+  ```sh
+  zinit ice pick"adapters/zsh/fuxx-autosuggestions.plugin.zsh"
+  zinit light fitzfitz/fuxx-completes
+  ```
+- **antidote**, in `~/.zsh_plugins.txt`:
+  ```
+  fitzfitz/fuxx-completes path:adapters/zsh
+  ```
+- **zap**: clone, then point `plug` at the file:
+  ```sh
+  git clone https://github.com/fitzfitz/fuxx-completes ~/fuxx-completes
+  # in ~/.zshrc, after zap's own line:
+  plug "$HOME/fuxx-completes/adapters/zsh/fuxx-autosuggestions.plugin.zsh"
+  ```
+
+Two copies in one shell (say Homebrew's line and fuxx's plugin) are fine: the first one loaded
+runs, the other stays off, and `doctor` names both.
+
+### bash
+
+bash 4.0 or later (macOS's `/bin/bash` is 3.2, too old: use Homebrew's `bash`). Put the line at
+the **end** of `~/.bashrc`: Homebrew's path above, or
+`source ~/fuxx-completes/adapters/bash/fuxx-autosuggestions.bash` from a clone. With ble.sh,
+source it before `ble-attach`. What bash can and can't do:
+[`adapters/bash/README.md`](adapters/bash/README.md).
+
+### fish
+
+fish keeps its own autosuggestions; ours only reports the commands you run, so they count in your
+other shells. Link the file into `~/.config/fish/conf.d/` (Homebrew's path above, or
+`~/fuxx-completes/adapters/fish/fuxx-autosuggestions.fish` from a clone). Details:
+[`adapters/fish/README.md`](adapters/fish/README.md).
+
+### In fuxx
+
+[fuxx](https://github.com/fitzfitz/fuxx-cli) installs it as a plugin: **Settings → Plugins**, paste
+`github.com/fitzfitz/fuxx-completes`. fuxx downloads the release zip for your Mac's chip, puts the
+binary on `PATH` in its terminals and loads the zsh adapter; the list's settings are on the
+plugin's card. Nothing else to do.
+
+### From crates.io
+
+```sh
+cargo install fuxx-completes
+```
+
+builds the binary from source (Rust needed); add an adapter from a clone or a plugin manager as
+above. Apps that embed the engine use the crates `fuxx-completes-core` and `fuxx-autosuggestions`.
+
+**Not** by downloading a release zip in a browser: macOS quarantines the download and blocks the
+binary, which isn't notarised. The zips on the releases page are for fuxx, which fetches them
+itself.
+
+### Upgrading and uninstalling
+
+- Upgrade: `brew upgrade fuxx-completes`; a plugin manager's own update (`zinit update`,
+  `antidote update`, `git pull` in your clone); fuxx offers the update in Settings → Plugins.
+- Uninstall: run `fuxx-completes forget` first to wipe the context file and its secret, remove
+  the line from your rc file (or the fish link), then `brew uninstall fuxx-completes` (or
+  `cargo uninstall fuxx-completes`). Your history files are never touched either way.
+
+## Shell support
+
+| | Ghost text (fuxx-autosuggestions, 0.1.0) | Menu (fuxx-autocomplete, planned) |
 | --- | --- | --- |
-| **zsh** | Yes, as you type (first target) | Yes, as you type, below the line; Tab stays zsh's |
-| **bash** | Plain readline (bash 4.0+): built (M2), key-driven only: → or End at the end of the line inserts the best suggestion; it can't show ghost text. With ble.sh (bash 4.0+), ble.sh's own grey text shows ours | Key-driven |
-| **fish** | No: fish has its own, and ours stays off; your fish commands still count in your other shells (built, M2: `adapters/fish/`) | On Tab, in fish's own pager, only for commands fish has no completions for |
+| **zsh** 5.3+ | As you type, plus a list of up to 5 when you pause | As you type, below the line; Tab stays zsh's |
+| **bash** 4.0+ | Plain readline: key-driven only, → or End at the end of the line inserts the best suggestion (readline can't show ghost text). With ble.sh (0.4+), ble.sh's own grey text shows ours | Key-driven |
+| **fish** 3.0+ | No: fish has its own, and ours stays off; your fish commands still count in your other shells | On Tab, in fish's own pager, only for commands fish has no completions for |
 
-Versions: zsh 5.3+, bash 4.0+ (with or without ble.sh), fish 3.0+. macOS first, Linux later, no
-Windows.
+macOS 11 or later on Apple Silicon or Intel (the Intel build is made on Apple Silicon and tested
+under Rosetta). Linux later, no Windows. fish is tested on 4.x; 3.x is untested so far.
 
 Works in most terminals: Ghostty, iTerm, Terminal.app and others. **Not in Warp:** Warp's own input
 editor replaces the shell's, so shell plugins like this can't run there, and both libraries stay
@@ -106,11 +208,8 @@ off. Not used inside AI agents such as Claude Code, which have their own suggest
 already use zsh-autosuggestions or zsh-autocomplete, the matching fuxx library stays off. It never
 takes ⌃R, ⌃T or Tab from you.
 
-In bash, the accept and menu keys may wait up to 50 ms for an answer (and do nothing if it's
-late); typing itself never waits, in any shell. To use it in bash, put
-`source /path/to/adapters/bash/fuxx-autosuggestions.bash` at the end of `~/.bashrc` (with the
-`fuxx-completes` binary on `PATH`); [`adapters/bash/README.md`](adapters/bash/README.md) says
-what it can and can't do.
+In bash, the accept keys may wait up to 50 ms for an answer (and do nothing if it's late); typing
+itself never waits, in any shell.
 
 ## Architecture
 
@@ -164,13 +263,15 @@ has the details.
 
 ```
 Cargo.toml                 Cargo workspace
-core/                      fuxx-completes-core: the shared engine
+core/                      fuxx-completes-core: the shared engine (project mappings in core/projects/)
+cli/                       the fuxx-completes binary
 fuxx-autosuggestions/      the ghost-text library
 fuxx-autocomplete/         the menu library
 specs/                     command knowledge (our own format)
 adapters/zsh|bash|fish/    thin shell plugins
 docs/design.md             the design (source of truth)
 docs/roadmap.md            milestones and progress
+scripts/                   test-shell builds and matrices; package.sh and formula.sh for releases
 THIRD_PARTY_NOTICES.md     licenses of imported data
 ```
 

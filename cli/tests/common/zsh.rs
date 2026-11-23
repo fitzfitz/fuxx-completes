@@ -34,6 +34,9 @@ pub struct ZshOpts {
     pub core_script: Option<&'static str>,
     /// The terminal's size (columns, rows); default 120×40.
     pub size: Option<(u16, u16)>,
+    /// Don't source the repo's adapter: `rc_before`/`rc_after` load their own copies (M3's
+    /// plugin-manager and two-copy shapes).
+    pub skip_plugin: bool,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -68,7 +71,7 @@ impl ZshHarness {
         let rc = format!(
             "FUXX_AUTOSUGGESTIONS_LIST=off\n{before}\n\
              HISTFILE=$HOME/.zsh_history; HISTSIZE=1000; SAVEHIST=1000; PS1='{PROMPT}'; bindkey -e; KEYTIMEOUT=1\n\
-             source '{plugin}'\n\
+             {source}\n\
              _fuxx-test-dump() {{\n\
                emulate -L zsh\n\
                print -rn -- \"$BUFFER\"$'\\x1f'\"$CURSOR\"$'\\x1f'\"$POSTDISPLAY\"$'\\x1f'\"${{(pj:\\x1e:)region_highlight}}\"$'\\x1f'\"${{_FUXX_AS_PID-}}\"$'\\x1f'\"$KEYMAP\"$'\\x1f'END >| \"$HOME/dump\"\n\
@@ -77,7 +80,11 @@ impl ZshHarness {
              bindkey '^[[9999~' _fuxx-test-dump\n\
              {after}\n",
             before = opts.rc_before,
-            plugin = plugin.display(),
+            source = if opts.skip_plugin {
+                String::new()
+            } else {
+                format!("source '{}'", plugin.display())
+            },
             after = opts.rc_after,
         );
         std::fs::write(home_path.join(".zshrc"), rc).unwrap();

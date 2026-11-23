@@ -253,7 +253,7 @@ AI's calls. It refuses a version that differs from `Cargo.toml`'s.
 **Interfaces — Consumes:** the zsh harness (`cli/tests/common/zsh.rs`), the adapter's
 `_FUXX_AS_FILE`, `_FUXX_AS_SECOND`, `doctor` facts.
 
-- [ ] **Step 1: Failing tests** (`zsh_adapter.rs`, the zsh matrix): `loads_through_plugin_manager_shapes`
+- [x] **Step 1: Failing tests** (`zsh_adapter.rs`, the zsh matrix): `loads_through_plugin_manager_shapes`
   (Review Focus 3: the adapter copied into `$HOME/My Plugins/zsh/`, linked as
   `$HOME/.oh-my-zsh/custom/plugins/fuxx-autosuggestions` → sourced as
   `…/fuxx-autosuggestions/fuxx-autosuggestions.plugin.zsh` from inside a function `load_plugin(){
@@ -264,8 +264,8 @@ AI's calls. It refuses a version that differs from `Cargo.toml`'s.
   with `FUXX_PLUGIN_DATA` set while sourcing → one core; `doctor` shows A as running and B as
   stayed off; the context file lands under `XDG_DATA_HOME`, not B's data folder). If either
   passes at once, keep it as a guard and say so; no adapter change is planned.
-- [ ] **Step 2:** run; fix only what fails (systematic-debugging first); zsh matrix.
-- [ ] **Step 3: The README, made real.** Status line (what's released, what isn't: the menu);
+- [x] **Step 2:** run; fix only what fails (systematic-debugging first); zsh matrix.
+- [x] **Step 3: The README, made real.** Status line (what's released, what isn't: the menu);
   "Install" replaces "Planned install": **Homebrew** (`brew install fitzfitz/fuxx/fuxx-completes`,
   then the caveats' line for your shell); **zsh plugin managers** (the five lines of the AI's call,
   each saying the binary comes from Homebrew or `cargo install fuxx-completes`); **bash**, **fish**
@@ -277,14 +277,14 @@ AI's calls. It refuses a version that differs from `Cargo.toml`'s.
   waiting for a check" and "Stays off (M1, not built yet) … none of that is detected" text; Install
   section points at the README. `adapters/bash/README.md`, `adapters/fish/README.md`: Install gains
   the Homebrew path.
-- [ ] **Step 4: Manual check of each manager** (real machine, temp `HOME` and `ZDOTDIR`, network
+- [x] **Step 4: Manual check of each manager** (real machine, temp `HOME` and `ZDOTDIR`, network
   only to clone public repos, everything under one `mktemp -d` removed after): oh-my-zsh,
   zinit, antidote, zap and plain `source`, each with the README's exact lines and
   `FUXX_COMPLETES_BIN` set to the Task 2 arm64 binary; `fuxx-completes doctor` says `state on`
   each time. Record the result per manager in the Progress log; a line that doesn't work is fixed
   in the README, not worked around in the adapter. Ghost text on screen is the user's check
   (Task 6, Gate B).
-- [ ] **Step 5:** gate + zsh matrix. **Docs:** design §5.6 (how managers load the file, no root
+- [x] **Step 5:** gate + zsh matrix. **Docs:** design §5.6 (how managers load the file, no root
   file), §8 (the sample `description` updated to the shipped one and the `setting.*` lines noted,
   since they drifted), §15 status; roadmap. Commit `docs: install for Homebrew, zsh plugin managers, bash, fish, fuxx and crates.io`.
 

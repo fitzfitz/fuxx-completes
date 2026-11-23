@@ -12,6 +12,11 @@ Put this at the **end** of `~/.bashrc`, with the `fuxx-completes` binary on `PAT
 source /path/to/fuxx-completes/adapters/bash/fuxx-autosuggestions.bash
 ```
 
+With Homebrew (`brew install fitzfitz/fuxx/fuxx-completes`), the file is
+`$(brew --prefix)/share/fuxx-completes/bash/fuxx-autosuggestions.bash` and the binary is on
+`PATH`; the install prints the exact line. Other ways: the
+[README's Install section](../../README.md#install).
+
 It starts its core at your first prompt and prints nothing, ever. `fuxx-completes doctor` (a
 shell function it defines when you have none of that name) shows what it found.
 

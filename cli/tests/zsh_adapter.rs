@@ -3620,3 +3620,102 @@ fn long_accept_from_host_is_read_whole() {
     assert_eq!(s.buffer, long);
     assert_eq!(s.cursor, 1000);
 }
+
+/// Review Focus 3 (M3): the shapes plugin managers load the file in. A copy in a folder with a
+/// space, reached through a symlinked folder (oh-my-zsh's `custom/plugins/<name>`), sourced from
+/// inside a function (zinit, antidote). It finds itself, loads once, and `source ~/.zshrc` again
+/// keeps the one core.
+#[test]
+fn loads_through_plugin_manager_shapes() {
+    let rc = format!(
+        "[[ -e \"$HOME/My Plugins/zsh/fuxx-autosuggestions.plugin.zsh\" ]] || {{\n\
+           mkdir -p \"$HOME/My Plugins/zsh\" \"$HOME/.oh-my-zsh/custom/plugins\"\n\
+           cp '{plugin}' \"$HOME/My Plugins/zsh/\"\n\
+           ln -s \"$HOME/My Plugins/zsh\" \"$HOME/.oh-my-zsh/custom/plugins/fuxx-autosuggestions\"\n\
+         }}\n\
+         load_plugin() {{ source \"$1\"; }}\n\
+         load_plugin \"$HOME/.oh-my-zsh/custom/plugins/fuxx-autosuggestions/fuxx-autosuggestions.plugin.zsh\"",
+        plugin = plugin_path().display()
+    );
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: rc,
+        skip_plugin: true,
+        ..git_history()
+    });
+    let real = std::fs::canonicalize(z.home())
+        .unwrap()
+        .join("My Plugins/zsh/fuxx-autosuggestions.plugin.zsh");
+    z.send("git s");
+    let pid = z.wait_state(|s| s.postdisplay == "tatus").core_pid;
+    assert!(pid.is_some());
+    z.send("\x15");
+    assert_eq!(
+        var(&mut z, "\"$_FUXX_AS_FILE\""),
+        real.display().to_string()
+    );
+    z.run("source ~/.zshrc");
+    assert_eq!(var(&mut z, "${#_FUXX_AS_SECOND}"), "0");
+    assert_eq!(
+        z.state().core_pid,
+        pid,
+        "a second core after source ~/.zshrc"
+    );
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay == "tatus");
+}
+
+/// Review Focus 2 (M3): Homebrew's copy sourced in `.zshrc`, then fuxx's plugin copy (from a
+/// folder with spaces, `FUXX_PLUGIN_DATA` set while it is sourced), as fuxx does after `.zshrc`.
+/// The first copy runs, the second stays off, `doctor` names both, and the data stays where the
+/// running copy keeps it (`XDG_DATA_HOME`), not in fuxx's folder.
+#[test]
+fn brew_copy_and_fuxx_copy_one_runs() {
+    let rc = format!(
+        "mkdir -p \"$HOME/brew/share/fuxx-completes/zsh\" \"$HOME/Library/Application Support/fuxx/plugins/x/shell\"\n\
+         cp '{plugin}' \"$HOME/brew/share/fuxx-completes/zsh/\"\n\
+         cp '{plugin}' \"$HOME/Library/Application Support/fuxx/plugins/x/shell/\"\n\
+         source \"$HOME/brew/share/fuxx-completes/zsh/fuxx-autosuggestions.plugin.zsh\"\n\
+         export FUXX_PLUGIN_DATA=\"$HOME/Library/Application Support/fuxx/plugin-data/x\"\n\
+         source \"$HOME/Library/Application Support/fuxx/plugins/x/shell/fuxx-autosuggestions.plugin.zsh\"\n\
+         unset FUXX_PLUGIN_DATA",
+        plugin = plugin_path().display()
+    );
+    let mut z = ZshHarness::start(ZshOpts {
+        rc_after: rc,
+        skip_plugin: true,
+        ..git_history()
+    });
+    let home = std::fs::canonicalize(z.home()).unwrap();
+    let a = home.join("brew/share/fuxx-completes/zsh/fuxx-autosuggestions.plugin.zsh");
+    let b = home
+        .join("Library/Application Support/fuxx/plugins/x/shell/fuxx-autosuggestions.plugin.zsh");
+    z.send("git s");
+    z.wait_state(|s| s.postdisplay == "tatus" && s.core_pid.is_some());
+    z.send("\x15");
+    z.run("fuxx-completes doctor >| $HOME/doc");
+    let doc = std::fs::read_to_string(home.join("doc")).unwrap();
+    assert!(doc.lines().any(|l| l == "state        on"), "{doc}");
+    assert!(
+        doc.lines()
+            .any(|l| l == format!("copy         {}", a.display())),
+        "{doc}"
+    );
+    assert!(
+        doc.lines()
+            .any(|l| l == format!("copy         second copy stayed off: {}", b.display())),
+        "{doc}"
+    );
+    z.run("make x");
+    z.run("true");
+    assert!(
+        poll(Duration::from_secs(3), || !context_lines(
+            &home.join(".local/share/fuxx-completes")
+        )
+        .is_empty()),
+        "no record under XDG_DATA_HOME"
+    );
+    assert!(!home
+        .join("Library/Application Support/fuxx/plugin-data")
+        .exists());
+    assert_eq!(var(&mut z, "\"$_FUXX_AS_DATA\""), "");
+}
