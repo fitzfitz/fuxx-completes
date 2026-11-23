@@ -148,8 +148,10 @@ p95 36 µs, max 0.72 ms (well inside the 50 ms wait); the zsh-history suggestion
 103 µs; a warm project folder p95 0.26 ms; the list of 5 p95 32 µs; the repo tier p95 0.95 ms;
 the fix p95 4.8 ms. All within 10 ms at p95. The release binary is **718,752 bytes** (+16,528
 over M1d's 702,224: `report`, the bash history reader, `why --format`, the host codec), under
-the 786,432-byte limit. If a request misses its
-budget the adapter shows nothing for that keystroke; it does not wait.
+the 786,432-byte limit. **M3, measured 2026-11-23:** the limit holds **per chip**; the x86_64
+binary (cross-built here, `--target x86_64-apple-darwin`) is **783,184 bytes**, 3,248 under it,
+the arm64 one 718,752; `scripts/package.sh` refuses a zip whose binary is over. If a request
+misses its budget the adapter shows nothing for that keystroke; it does not wait.
 
 **Project knowledge (added 2026-11-21, AI's calls).** The 10 ms target includes project
 candidates. Detecting a folder's projects runs on a worker thread with a 50 ms cap; the first
@@ -1336,6 +1338,17 @@ no longer links the crates.
   setting.list_size  = number 5   Items in the list (1–5)
   ```
   The `setting.*` lines are fuxx's declared plugin settings (fuxx 0.12.6+, since v0.0.12; M1c).
+  **How the zips are made (AI's calls, M3):** `scripts/package.sh` on the user's Mac (arm64), from
+  a clean tree only (`--allow-dirty` is for dry runs): it refuses any version disagreement
+  (`[workspace.package]`, the inter-crate pins, `fuxx-plugin.conf`); builds the binary with
+  `cargo build --release --locked` for `aarch64-apple-darwin` and `x86_64-apple-darwin`; checks
+  `lipo -archs` names the zip's chip, the size is under 786,432 bytes, and the arm64 binary's
+  ad-hoc signature (`codesign -v`; the x86_64 one is unsigned, as the linker leaves it); stages
+  the seven files and zips them with `ditto -c -k --norsrc --noextattr`; checks `zipinfo -1` lists
+  exactly the expected entries (no nested folder, no `__MACOSX` or `._` files); unpacks each zip
+  and runs `bin/fuxx-completes doctor` (the x86_64 one under Rosetta, `arch -x86_64`) in a
+  throwaway `HOME`, expecting `fuxx-completes <version>`. It writes only
+  `target/dist/v<version>/` (the two zips and `SHA256SUMS`) and prints nothing on success.
   The zsh file follows §5.6's one-file-per-library naming (the user's decision, 2026-11-13).
 - **What fuxx does:** puts `bin/` on `PATH` and sources the zsh adapter in its zsh terminals after
   the user's `.zshrc`, with `FUXX_PLUGIN_DIR` and `FUXX_PLUGIN_DATA` set while it is sourced. The
@@ -1542,6 +1555,14 @@ binary (`versions_agree`).
   terminal would. The tests read `FUXX_TEST_BASH`, `FUXX_TEST_FISH` and `FUXX_TEST_BLESH`,
   defaulting to the newest copy in `target/`; `scripts/test-bash-matrix.sh` and
   `scripts/test-fish-matrix.sh` run them per version (the fish one skips a version that won't build).
+- **The x86_64 build (M3, the user's decision R4):** nobody here has an Intel Mac, so the whole
+  suite also runs as x86_64 under Rosetta: `cargo test --workspace --target x86_64-apple-darwin`
+  (the test binaries and the core are x86_64; the test shells stay the arm64 builds in
+  `target/`), the same pass count as the native run (557 on 2026-11-23), and the size test with
+  `--release --target x86_64-apple-darwin`. Found by that run and fixed in the tests: a context
+  compaction check whose 2 s wait was too short for an unoptimised build under Rosetta (now
+  10 s), and a fish test that assumed two background reports land in order. A look on a real
+  Intel Mac after the release is the user's, if they have one.
 - **Manual checks** (can't be automated well; say so): ghost text and menu look right in Ghostty,
   iTerm, Terminal.app and fuxx, with powerlevel10k's instant prompt, in a narrow window, and stay
   off in Warp.

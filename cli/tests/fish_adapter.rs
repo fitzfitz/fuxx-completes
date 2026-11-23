@@ -82,20 +82,17 @@ fn cwd_is_where_it_started() {
     f.run("mkdir sub");
     f.run("cd sub");
     f.run("echo here");
+    // Each report runs in the background, so two may land in either order (seen in M3's x86_64
+    // run, under load): wait for both.
+    let cd = report_line(&f, &home, 0, "cd sub");
+    let echo = report_line(&f, &format!("{home}/sub"), 0, "echo here");
     assert!(
-        poll(Duration::from_secs(3), || wire(&f).contains("echo here")),
+        poll(Duration::from_secs(3), || {
+            let w = wire(&f);
+            w.lines().any(|l| l == cd) && w.lines().any(|l| l == echo)
+        }),
         "{:?}",
         wire(&f)
-    );
-    let w = wire(&f);
-    assert!(
-        w.lines().any(|l| l == report_line(&f, &home, 0, "cd sub")),
-        "{w:?}"
-    );
-    assert!(
-        w.lines()
-            .any(|l| l == report_line(&f, &format!("{home}/sub"), 0, "echo here")),
-        "{w:?}"
     );
 }
 

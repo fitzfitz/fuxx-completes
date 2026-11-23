@@ -681,8 +681,11 @@ mod tests {
         }
     }
 
+    // 10 s: compacting the 16 MiB file of `oversized_file_is_compacted_by_the_first_compaction`
+    // takes 1.6 s alone in an unoptimised x86_64 build under Rosetta, and over 2 s beside the
+    // rest of the suite (M3's x86_64 run). A passing check returns as soon as it holds.
     fn poll(mut f: impl FnMut() -> bool) -> bool {
-        let end = Instant::now() + Duration::from_secs(2);
+        let end = Instant::now() + Duration::from_secs(10);
         while Instant::now() < end {
             if f() {
                 return true;

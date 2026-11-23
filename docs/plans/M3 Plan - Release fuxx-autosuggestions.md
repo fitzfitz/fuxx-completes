@@ -193,11 +193,11 @@ value of `key = value` / `key = "value"` on its own line, comments skipped). The
 fuxx-plugin-macos-x86_64.zip, SHA256SUMS}`, exit 0 and silent on success, a one-line reason and
 exit 1 on any failed check.
 
-- [ ] **Step 1: The notices.** `THIRD_PARTY_NOTICES.md` "Rust crates in the binary": each crate,
+- [x] **Step 1: The notices.** `THIRD_PARTY_NOTICES.md` "Rust crates in the binary": each crate,
   its version from `Cargo.lock`, its upstream, "used under Apache-2.0 (see `LICENSE-APACHE`)",
   and the copyright line from its own licence file in `~/.cargo/registry/src/` when it has one.
   The Fig section stays reserved.
-- [ ] **Step 2: Write `scripts/package.sh`** per the AI's call (expected zip entries, in this
+- [x] **Step 2: Write `scripts/package.sh`** per the AI's call (expected zip entries, in this
   order of checks: clean tree, versions, build both targets with `--locked`, `lipo -archs` equals
   `arm64` / `x86_64`, size < 786,432, `codesign -v` on arm64, stage, `ditto` zip, `zipinfo -1`
   equals exactly `LICENSE-APACHE LICENSE-MIT THIRD_PARTY_NOTICES.md bin/ bin/fuxx-completes
@@ -205,17 +205,17 @@ exit 1 on any failed check.
   `ditto -x -k` into `mktemp -d`, `bin/fuxx-completes` is executable and its `doctor` (x86_64
   under `arch -x86_64`) prints `fuxx-completes <version>` with a temp `HOME`, temp folders removed
   by a `trap`).
-- [ ] **Step 3: Prove each check bites.** With `--allow-dirty` on a scratch edit: set
+- [x] **Step 3: Prove each check bites.** With `--allow-dirty` on a scratch edit: set
   `fuxx-plugin.conf`'s version to `9.9.9` → `version mismatch: fuxx-plugin.conf 9.9.9, Cargo.toml
   <v>`, exit 1; restore. Without `--allow-dirty` on a dirty tree → `uncommitted changes`, exit 1.
   Then a clean run: exit 0, both zips and `SHA256SUMS` in `target/dist/v<version>/`.
-- [ ] **Step 4: `x86_64_suite_passes_under_rosetta`.** `cargo test --workspace --target
+- [x] **Step 4: `x86_64_suite_passes_under_rosetta`.** `cargo test --workspace --target
   x86_64-apple-darwin` (the test binaries and the core run under Rosetta; the shells stay the
   arm64 builds in `target/`). Expected: the same pass count as the native run. And
   `cargo test --release -p fuxx-completes --target x86_64-apple-darwin --test size -- --ignored
   --nocapture`: passes, the size recorded. A failure here is debugged (systematic-debugging), not
   skipped; over the limit → stop and ask the user (as M1d did).
-- [ ] **Step 5:** gate (no adapter touched). **Docs:** design §8 (both zips real; what they hold,
+- [x] **Step 5:** gate (no adapter touched). **Docs:** design §8 (both zips real; what they hold,
   with the licence files; how they are made), §3 (x86_64 size measured), §14 (the Rosetta run);
   roadmap. Commit `feat: scripts/package.sh makes both release zips (arm64, x86_64)`. Then
   remove `target/dist/` and `target/x86_64-apple-darwin/`.

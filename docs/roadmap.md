@@ -31,6 +31,24 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M3 Task 2: both release zips, by script.** `scripts/package.sh` builds the
+  binary for arm64 and x86_64 from the lockfile and makes `fuxx-plugin-macos-arm64.zip` and
+  `fuxx-plugin-macos-x86_64.zip` plus `SHA256SUMS` in `target/dist/v<version>/`, with the checks
+  of `design.md` §8 (clean tree, one version, `lipo` chip, size, arm64 signature, the exact zip
+  entries, each zip unpacked and its `doctor` run, x86_64 under Rosetta). Each zip now also holds
+  `LICENSE-MIT`, `LICENSE-APACHE` and `THIRD_PARTY_NOTICES.md`, which gained "Rust crates in the
+  binary" (blake3, arrayvec, cfg-if, constant_time_eq, and **cpufeatures**, which only the
+  x86_64 binary links, found by `cargo tree --target x86_64-apple-darwin`). Seen biting: a
+  `fuxx-plugin.conf` at 9.9.9 → `version mismatch: fuxx-plugin.conf 9.9.9, Cargo.toml 0.0.13`,
+  exit 1; a dirty tree → `uncommitted changes`, exit 1; the committed tree → silent, exit 0, both
+  zips and `SHA256SUMS`. Sizes: arm64 **718,752** bytes, x86_64
+  **783,184** (3,248 under the 786,432 limit; the size test passes on both targets). The whole
+  suite as x86_64 under Rosetta: first run 1 failure, a context-compaction test whose 2 s wait was
+  too short for an unoptimised build under Rosetta (1.6 s alone, over 2 s beside the suite; now
+  10 s); the next, a fish test that assumed two background reports land in order (now waits for
+  both). Then **557 passed, 6 ignored**, as natively. fish matrix: 4.9.3, 7 passed (3.x doesn't
+  build here, as before). `design.md` §3, §8, §14.
+
 - **2026-11-23** — **M3 Task 1: crates that can be published.** `projects/` moved to
   `core/projects/` (`build.rs` reads it inside the crate; the published core couldn't build
   before). `[workspace.package]` gained homepage, keywords and the `command-line-utilities`
