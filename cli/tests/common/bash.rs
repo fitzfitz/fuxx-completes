@@ -182,6 +182,11 @@ impl BashHarness {
         self.pty.wait_screen(needle)
     }
 
+    /// Polls until `needle` appears in the output at or after byte offset `from` (see `len`).
+    pub fn wait_for(&mut self, from: usize, needle: &str, within: Duration) -> bool {
+        self.pty.wait_for(from, needle, within)
+    }
+
     pub fn send(&mut self, keys: &str) {
         self.pty.send(keys)
     }

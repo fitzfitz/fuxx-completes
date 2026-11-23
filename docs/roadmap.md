@@ -31,6 +31,18 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **Chore: flaky bash tests (the user: "debug it").** Two causes, both in the
+  tests, none in the product. (1) The harness's `run` takes the first newline or cursor-down after
+  a typed line as the command's start; output from an earlier key (⌃C's fresh prompt, ble.sh's
+  first-prompt redraw) can land after it starts watching, so it returns one command early, and a
+  check that read the screen once raced the report. Fixed: a `doctor` helper waits for the
+  report's last line (`secret`), and the bash 3.2 ble.sh test waits for its own answers;
+  `BashHarness::wait_for` added. (2) Under a loaded parallel run our first answer can miss
+  ble.sh's 50 ms window, and ble.sh then shows its own suggestion (the designed fallback,
+  design §3); `blesh_shows_our_ranking` re-asks with ⌫ t up to three times. Full bash test file
+  6 of 6 runs green, bash matrix (4.0, 5.3) all passed, workspace 559 passed twice (one earlier
+  workspace run showed 1 failure that didn't reproduce and wasn't captured).
+
 - **2026-11-23** — **M3 done.** The user: "close it". fuxx-autosuggestions 0.1.0 is out on all
   four channels (GitHub release with both zips, crates.io, `fuxx-dev/homebrew-tap`, the README);
   the release's leftover build folders (`target/dist`, `target/package`, the x86_64 and arm64

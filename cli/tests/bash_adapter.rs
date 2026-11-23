@@ -92,6 +92,21 @@ fn settle(b: &mut BashHarness) {
     std::thread::sleep(Duration::from_millis(50));
 }
 
+/// Runs `fuxx-completes doctor` and returns the screen once its last line (`secret`) is out.
+/// (`run` can return a command early when output from an earlier key, such as ⌃C's fresh prompt
+/// or ble.sh's first redraw, lands after it started watching; reading the screen once after it
+/// then races the report.)
+fn doctor(b: &mut BashHarness) -> String {
+    let from = b.bytes().len();
+    b.run("fuxx-completes doctor");
+    assert!(
+        b.wait_for(from, "secret       ", Duration::from_secs(10)),
+        "no doctor report: {}",
+        printable(&b.screen_now())
+    );
+    printable(&b.screen_now())
+}
+
 /// Removes terminal escape sequences and `\r`.
 fn printable(screen: &str) -> String {
     let mut out = String::new();
@@ -450,8 +465,7 @@ fn stays_off_silently() {
     let s = b.wait_state(|s| s.point == 4);
     assert_eq!(s.buffer, "git s");
     b.send("\x03"); // ⌃C: a fresh line
-    b.run("fuxx-completes doctor");
-    let screen = printable(&b.screen_now());
+    let screen = doctor(&mut b);
     assert!(
         screen.contains(&format!("keys         emacs {seq} kept (backward-char)")),
         "{screen}"
@@ -496,8 +510,7 @@ fn core_death_goes_quiet() {
     assert_eq!(s.buffer, "git s");
     assert_eq!(s.why, "exited");
     b.send("\x03");
-    b.run("fuxx-completes doctor");
-    let screen = printable(&b.screen_now());
+    let screen = doctor(&mut b);
     assert!(screen.contains("state        off (exited)"), "{screen}");
 }
 
@@ -547,8 +560,7 @@ fn second_copy_stays_off() {
         ..git_history()
     });
     b.wait_state(|s| s.state == "on");
-    b.run("fuxx-completes doctor");
-    let screen = printable(&b.screen_now());
+    let screen = doctor(&mut b);
     let home = b.home().display().to_string();
     assert!(
         screen.contains(&format!(
@@ -565,8 +577,7 @@ fn second_copy_stays_off() {
 fn doctor_and_why_through_the_function() {
     let mut b = BashHarness::start(git_history());
     settle(&mut b);
-    b.run("fuxx-completes doctor");
-    let screen = printable(&b.screen_now());
+    let screen = doctor(&mut b);
     let (maj, min) = version();
     assert!(
         screen.contains(&format!("shell        bash {maj}.{min}")),
@@ -645,8 +656,20 @@ fn blesh_shows_our_ranking() {
         ..Default::default()
     });
     settle(&mut b);
+    // ble.sh waits at most 50 ms for our answer, then shows its own (`git status`, the newest)
+    // until the next key: the designed fallback (design §3, never block). Under a loaded test
+    // run the first answer can miss that window, so re-ask with ⌫ t, up to three times.
+    let from = b.bytes().len();
     b.send("git st");
-    assert!(b.wait_screen("ash"), "no grey text: {:?}", b.screen_now());
+    let mut ours = false;
+    for _ in 0..3 {
+        if b.wait_for(from, "ash", Duration::from_secs(2)) {
+            ours = true;
+            break;
+        }
+        b.send("\x7ft");
+    }
+    assert!(ours, "no grey text of ours: {:?}", b.screen_now());
     b.send(END);
     let s = b.wait_state(|s| s.buffer == "git stash");
     assert_eq!(s.point, 9);
@@ -750,12 +773,13 @@ fn blesh_on_bash_3_2_stays_off() {
     // (ble.sh's `ble-bind -x` dump key doesn't work on bash 3.2; doctor tells the state.)
     b.run("fuxx-completes doctor");
     b.run("echo \"pid=[${_FUXX_AS_PID-}]\"");
-    let screen = printable(&b.screen_now());
-    assert!(
-        screen.contains("state        off (bash-too-old)"),
-        "{screen}"
-    );
-    assert!(screen.contains("pid=[]"), "no core started: {screen}");
+    // ble.sh finishes drawing its first prompt after the shell is up, and that redraw holds a
+    // cursor-down: when it lands after `run` starts watching, `run` takes it for the command's
+    // line end and returns one command early. So wait for each answer rather than reading the
+    // screen once (the bare `pid=[]` is only in the command's output: the typed line is
+    // highlighted, with escapes inside it).
+    let ok = b.wait_screen("state        off (bash-too-old)") && b.wait_screen("pid=[]");
+    assert!(ok, "{}", printable(&b.screen_now()));
 }
 
 // ---- The host channel (Task 6, design §5.5) ----
@@ -908,8 +932,7 @@ fn tmux_falls_back_to_normal_mode() {
         "an OSC 7701 inside tmux"
     );
     b.send("\x15");
-    b.run("fuxx-completes doctor");
-    assert!(printable(&b.screen_now()).contains("host mode    off (tmux)"));
+    assert!(doctor(&mut b).contains("host mode    off (tmux)"));
 }
 
 #[test]
@@ -1020,8 +1043,7 @@ fn host_mode_under_blesh_keeps_reporting() {
         ),
         "{msgs:?}"
     );
-    b.run("fuxx-completes doctor");
-    let screen = printable(&b.screen_now());
+    let screen = doctor(&mut b);
     assert!(screen.contains("state        on"), "{screen}");
 }
 
@@ -1037,8 +1059,7 @@ fn set_u_prints_nothing_in_host_mode() {
     b.send(accept_key());
     wait_buffer(&mut b, "git s");
     b.send("\x15");
-    b.run("fuxx-completes doctor");
-    let screen = printable(&b.screen_now());
+    let screen = doctor(&mut b);
     assert!(!screen.contains("unbound variable"), "{screen}");
     assert!(screen.contains("host mode    on"), "{screen}");
 }
