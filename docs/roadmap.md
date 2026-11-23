@@ -5,7 +5,7 @@ The milestones from [`design.md`](design.md) §15. One at a time, in order. Stat
 
 Building starts after fuxx's v0.5.0 release.
 
-**Current milestone: M3** (M2 done 2026-11-23 on v0.0.13; M3 planned and approved 2026-11-23, [plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md), built and reviewed on branch `m3-release`, waiting for the release gates). fuxx's Settings for plugins shipped in fuxx v0.12.6; `fuxx-plugin.conf` declares the list's four settings since v0.0.12.
+**Current milestone: M4** (M3 done 2026-11-23: fuxx-autosuggestions 0.1.0 on GitHub, crates.io and the `fuxx-dev/homebrew-tap`; M4 not planned yet).
 
 | | Milestone | Status |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Building starts after fuxx's v0.5.0 release.
 | M1c | Suggestion list (added 2026-11-22; [design](superpowers/specs/2026-11-22-suggestion-list-design.md)) | ✅ done 2026-11-22 ([plan](plans/M1c%20Plan%20-%20Suggestion%20List.md); the user's check on v0.0.10) |
 | M1d | Safety and polish (added 2026-11-22; [design](superpowers/specs/2026-11-22-safety-and-polish-design.md)): secret filter, dangerous-command guard, repo/worktree ranking, fix after failure, `why` and `doctor --report` | ✅ done 2026-11-22 ([plan](plans/M1d%20Plan%20-%20Safety%20and%20Polish.md); the user's call on v0.0.11) |
 | M2 | bash and fish adapters, and the host channel (autosuggestions) | ✅ done 2026-11-23 ([plan](plans/M2%20Plan%20-%20bash%2C%20fish%20and%20the%20Host%20Channel.md); the user's call on v0.0.13) |
-| M3 | Release fuxx-autosuggestions | 🟨 built and reviewed, waiting for the release gates ([plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md)) |
+| M3 | Release fuxx-autosuggestions | ✅ done 2026-11-23 ([plan](plans/M3%20Plan%20-%20Release%20fuxx-autosuggestions.md); v0.1.0 released, the user's word) |
 | M4 | Spec format + Fig import | ⬜ |
 | M5 | Line parsing, generators and shell state | ⬜ |
 | M6 | zsh menu | ⬜ |
@@ -30,6 +30,11 @@ fuxx's own roadmap.
 ## Progress log
 
 Newest first. Add an entry whenever a task is ready.
+
+- **2026-11-23** — **M3 done.** The user: "close it". fuxx-autosuggestions 0.1.0 is out on all
+  four channels (GitHub release with both zips, crates.io, `fuxx-dev/homebrew-tap`, the README);
+  the release's leftover build folders (`target/dist`, `target/package`, the x86_64 and arm64
+  cross-build folders) removed. Next: M4 (spec format + Fig import), not planned yet.
 
 - **2026-11-23** — **Repos moved to the `fuxx-dev` organization (the user: "move them all except
   fuxx-cli").** `fuxx-completes`, `fuxx-landing`, `fuxx-sunset-themes` and `fuxx-hello-helper` now

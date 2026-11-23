@@ -4,8 +4,8 @@ Status: **M0, M1, M1b, M1c and M1d are done** (core, `fuxx-autosuggestions`, `fu
 adapter; the context file, ranking, coexistence, `forget` and `doctor`; project knowledge; the
 suggestion list; safety and polish; the user's checks on 2026-11-21 and 2026-11-22); **M2 is
 done** (bash, fish and the host channel; the user's call on test build v0.0.13, 2026-11-23); **M3
-is built and reviewed, waiting for the release gates** (the release of fuxx-autosuggestions,
-version `0.1.0`; the user's six decisions of 2026-11-23); M4 onward are design only. This document is the
+is done** (fuxx-autosuggestions `0.1.0` released on GitHub, crates.io and Homebrew, 2026-11-23);
+M4 onward are design only. This document is the
 source of truth for the repo; `docs/roadmap.md` tracks the milestones it defines.
 
 Written 2026-11-09 from a brainstorm with the user, and revised the same day after a builder check
@@ -1594,7 +1594,7 @@ binary (`versions_agree`).
 | M1c | Suggestion list | the core's top-N and the list it pushes after the pause (empty line too); the `suggest` field and `list` message; the zsh plugin draws the list under the line with the keys of the design spec, in its own keymap only while it shows; the settings variables, and fuxx's declared settings when fuxx has them; `doctor` shows the list settings; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M1d | Safety and polish | secret-looking lines never offered; dangerous commands guarded until their dangerous part is typed; a repo/worktree tier after this folder's history; a fix after a failed command as ghost text on the empty line (`prev` carries the status); `why` and `doctor --report`; tests on zsh 5.3.1, 5.8.1 and 5.9; latency within §3 |
 | M2 | bash and fish adapters, and the host channel (autosuggestions); done 2026-11-23 (the user's call on v0.0.13) | bash 4.0+: explicit keys with `sync` requests bounded at 50 ms, history via `PROMPT_COMMAND`; ble.sh path decided (bash 3.0+); fish: stays off cleanly, reports commands through `fuxx-completes report`; host channel: zsh and bash forward buffer, cursor and facts over OSC 7701 when `FUXX_COMPLETES_HOST=1`, the "accept from host" key is bound, the number is re-checked, and host channel tests pass with a fake host |
-| M3 | Release fuxx-autosuggestions; approved 2026-11-23 (version `0.1.0`); built and reviewed, waiting for the release gates | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
+| M3 | Release fuxx-autosuggestions; approved 2026-11-23 (version `0.1.0`); **done 2026-11-23** (v0.1.0 on all four channels) | Homebrew tap, zsh plugin manager install, crates.io; README install section made real; `fuxx-plugin.conf` and the `fuxx-plugin-macos-*.zip` release assets (§8), installed and checked in fuxx |
 | M4 | Spec format + Fig import | format settled; converter; git and a few common tools imported (declarative parts; convertible generators only); notices in place |
 | M5 | Line parsing, generators and shell state | current command and word found; built-in Rust generators (git first) and declarative generators with timeout and cache; adapters send `state` (§5.9) and the core uses it |
 | M6 | zsh menu | as-you-type menu in zsh drawn below the line; Tab untouched; fzf-safe |

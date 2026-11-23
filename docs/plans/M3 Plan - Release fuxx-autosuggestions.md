@@ -344,7 +344,7 @@ the order stays as written unless they say so.
   reused); deletion only within 72 h, or with one owner, < 1000 downloads a month and no
   dependents (delete the dependents first). Then `cargo install fuxx-completes --root <temp>` →
   `doctor` prints `fuxx-completes 0.1.0`; remove the temp root.
-- [ ] **Close:** design status and §15 row, roadmap row "✅ done" only on the user's word after
+- [x] **Close:** design status and §15 row, roadmap row "✅ done" only on the user's word after
   Gate B's check; Progress log per gate. Remove every `target/dist/`, temp folder and
   `target/x86_64-apple-darwin/`.
 
