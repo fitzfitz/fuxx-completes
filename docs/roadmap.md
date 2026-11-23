@@ -31,6 +31,13 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M3 Gate D: crates.io (the user: "logged in", then "verified").** Moved before
+  Gate C (the user's order, against name-squatting). `cargo publish --workspace --exclude
+  fuxx-autocomplete` published `fuxx-completes-core`, `fuxx-autosuggestions` and `fuxx-completes`
+  0.1.0 under the user's account (the first try stopped at crates.io's verified-email check;
+  nothing was published then). `cargo install fuxx-completes` from crates.io, into a throwaway
+  root under `target/`, built and ran (`fuxx-completes 0.1.0`). Next: Gate C (the tap).
+
 - **2026-11-23** — **M3 Gates A and B (the user: "yes go ahead").** Gate A: `m3-release` merged
   into `main` (fast-forward) and pushed (1c0ea76). Gate B: `scripts/package.sh` on `main`, tag
   `v0.1.0`, GitHub release "v0.1.0 — fuxx-autosuggestions" (latest) with

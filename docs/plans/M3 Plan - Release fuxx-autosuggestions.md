@@ -333,7 +333,7 @@ the order stays as written unless they say so.
   `brew install fitzfitz/fuxx/fuxx-completes`, `brew test`, `brew audit --strict --online
   fitzfitz/fuxx/fuxx-completes` (clean), the caveats' zsh line in a temp-HOME shell → `doctor`
   `state on`; `brew uninstall`, `brew untap`.
-- [ ] **Gate D — crates.io (R2), last.** The user runs `cargo login` (their token, their account).
+- [x] **Gate D — crates.io (R2), last.** The user runs `cargo login` (their token, their account).
   `cargo publish --workspace --exclude fuxx-autocomplete --dry-run`, then without `--dry-run`.
   *Published:* `fuxx-completes-core 0.1.0`, `fuxx-autosuggestions 0.1.0`, `fuxx-completes 0.1.0`,
   permanently. *Undo:* `cargo yank` (the version stays downloadable for lockfiles and can never be
