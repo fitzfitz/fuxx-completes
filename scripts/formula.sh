@@ -29,7 +29,7 @@ cargo="$(awk '
 ' Cargo.toml)"
 [ "$version" = "$cargo" ] || fail "version mismatch: asked for $version, Cargo.toml ${cargo:-none}"
 
-repo="https://github.com/fitzfitz/fuxx-completes"
+repo="https://github.com/fuxx-dev/fuxx-completes"
 dist="$root/target/dist/v$version"
 
 sha() { shasum -a 256 "$1" | awk '{ print $1 }'; }

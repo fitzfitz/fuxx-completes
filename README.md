@@ -118,13 +118,13 @@ A plugin manager loads the zsh adapter from this repo; the **binary still comes 
 
 - **Plain `source`**, from a clone:
   ```sh
-  git clone https://github.com/fitzfitz/fuxx-completes ~/fuxx-completes
+  git clone https://github.com/fuxx-dev/fuxx-completes ~/fuxx-completes
   # in ~/.zshrc:
   source ~/fuxx-completes/adapters/zsh/fuxx-autosuggestions.plugin.zsh
   ```
 - **oh-my-zsh**: link the adapter's folder in as a custom plugin, then add it to `plugins`:
   ```sh
-  git clone https://github.com/fitzfitz/fuxx-completes ~/fuxx-completes
+  git clone https://github.com/fuxx-dev/fuxx-completes ~/fuxx-completes
   ln -s ~/fuxx-completes/adapters/zsh "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/fuxx-autosuggestions"
   # in ~/.zshrc, before `source $ZSH/oh-my-zsh.sh`:
   plugins=(git fuxx-autosuggestions)
@@ -132,15 +132,15 @@ A plugin manager loads the zsh adapter from this repo; the **binary still comes 
 - **zinit**, in `~/.zshrc`:
   ```sh
   zinit ice pick"adapters/zsh/fuxx-autosuggestions.plugin.zsh"
-  zinit light fitzfitz/fuxx-completes
+  zinit light fuxx-dev/fuxx-completes
   ```
 - **antidote**, in `~/.zsh_plugins.txt`:
   ```
-  fitzfitz/fuxx-completes path:adapters/zsh
+  fuxx-dev/fuxx-completes path:adapters/zsh
   ```
 - **zap**: clone, then point `plug` at the file:
   ```sh
-  git clone https://github.com/fitzfitz/fuxx-completes ~/fuxx-completes
+  git clone https://github.com/fuxx-dev/fuxx-completes ~/fuxx-completes
   # in ~/.zshrc, after zap's own line:
   plug "$HOME/fuxx-completes/adapters/zsh/fuxx-autosuggestions.plugin.zsh"
   ```
@@ -168,7 +168,7 @@ other shells. Link the file into `~/.config/fish/conf.d/` (Homebrew's path above
 ### In fuxx
 
 [fuxx](https://github.com/fitzfitz/fuxx-cli) installs it as a plugin: **Settings → Plugins**, paste
-`github.com/fitzfitz/fuxx-completes`. fuxx downloads the release zip for your Mac's chip, puts the
+`github.com/fuxx-dev/fuxx-completes`. fuxx downloads the release zip for your Mac's chip, puts the
 binary on `PATH` in its terminals and loads the zsh adapter; the list's settings are on the
 plugin's card. Nothing else to do.
 

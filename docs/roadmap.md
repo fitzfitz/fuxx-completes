@@ -31,6 +31,15 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **Repos moved to the `fuxx-dev` organization (the user: "move them all except
+  fuxx-cli").** `fuxx-completes`, `fuxx-landing`, `fuxx-sunset-themes` and `fuxx-hello-helper` now
+  live under `github.com/fuxx-dev/` (fuxx-cli stays under `fitzfitz`); GitHub redirects the old
+  links, and fuxx's plugin fetches follow redirects (`curl -L`), so existing installs keep
+  updating. Links in the README, crate READMEs, Cargo metadata, design and `scripts/formula.sh`
+  updated; crates.io shows the new repository link from the next published version. History
+  entries keep the names of their day. Never create a repo named `fitzfitz/fuxx-completes` again:
+  it would end the redirect.
+
 - **2026-11-23** — **M3 Gate C: the Homebrew tap, in the `fuxx-dev` organization (the user:
   "fuxx-dev", then "created").** The user chose a GitHub organization for every fuxx formula and
   cask, so the tap is **`fuxx-dev/homebrew-tap`** (`brew install fuxx-dev/tap/fuxx-completes`),

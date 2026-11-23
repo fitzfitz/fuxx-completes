@@ -830,8 +830,8 @@ never calls one.
 pointed at `adapters/zsh/` (a root file would be picked wrongly by zap and zinit once
 `fuxx-autocomplete.plugin.zsh` exists, M8). oh-my-zsh: the folder linked as
 `$ZSH_CUSTOM/plugins/fuxx-autosuggestions` and named in `plugins`; zinit: `ice
-pick"adapters/zsh/fuxx-autosuggestions.plugin.zsh"` then `light fitzfitz/fuxx-completes`;
-antidote: `fitzfitz/fuxx-completes path:adapters/zsh`; zap: `plug` with the file's path in a
+pick"adapters/zsh/fuxx-autosuggestions.plugin.zsh"` then `light fuxx-dev/fuxx-completes`;
+antidote: `fuxx-dev/fuxx-completes path:adapters/zsh`; zap: `plug` with the file's path in a
 clone; or plain `source`. Managers fetch only the shell file; the binary comes from Homebrew,
 `cargo install fuxx-completes`, fuxx or `FUXX_COMPLETES_BIN`. The adapter finds itself with
 `${${(%):-%x}:A}`, so a symlinked folder (oh-my-zsh), a source from inside a function (zinit,
