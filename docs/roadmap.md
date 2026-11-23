@@ -31,6 +31,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M3 Gates A and B (the user: "yes go ahead").** Gate A: `m3-release` merged
+  into `main` (fast-forward) and pushed (1c0ea76). Gate B: `scripts/package.sh` on `main`, tag
+  `v0.1.0`, GitHub release "v0.1.0 — fuxx-autosuggestions" (latest) with
+  `fuxx-plugin-macos-arm64.zip` (718,752-byte binary) and `fuxx-plugin-macos-x86_64.zip`
+  (783,184); both re-downloaded and matched `SHA256SUMS` and GitHub's digests; no home path in
+  either binary. Waiting for the user's check in fuxx; then Gate D (crates.io), then Gate C (the
+  tap), the user's order.
+
 - **2026-11-23** — **M3 Task 5: version 0.1.0, reviewed, fixed.** `[workspace.package]`, both
   pins and `fuxx-plugin.conf` say **0.1.0** (`versions_agree` failed until all three did; cargo
   itself refuses a pin that disagrees). One fresh whole-branch review (Opus): no Critical; two

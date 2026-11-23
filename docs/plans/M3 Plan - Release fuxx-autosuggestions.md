@@ -312,10 +312,10 @@ could register the three crate names that the public README names (`cargo instal
 fuxx-completes` would then install their code): **the user may move Gate D right after Gate A**;
 the order stays as written unless they say so.
 
-- [ ] **Gate A — merge and push `main`.** Merge `m3-release` into `main`,
+- [x] **Gate A — merge and push `main`.** Merge `m3-release` into `main`,
   push `main` to `github.com/fitzfitz/fuxx-completes` (already public). *Published:* the branch's
   commits. *Undo:* a revert commit; history stays public.
-- [ ] **Gate B — tag `v0.1.0` and the GitHub release.** On `main`: `scripts/package.sh`; `git tag
+- [x] **Gate B — tag `v0.1.0` and the GitHub release.** On `main`: `scripts/package.sh`; `git tag
   v0.1.0`; push the tag; `gh release create v0.1.0 target/dist/v0.1.0/fuxx-plugin-macos-*.zip
   --title "v0.1.0 — fuxx-autosuggestions" --notes-file <notes>` (notes drafted from the README:
   what it does in zsh, bash, fish; install lines; macOS 11+ on Apple Silicon and Intel; what isn't
