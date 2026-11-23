@@ -8,7 +8,7 @@
 
 Copy or link `fuxx-autosuggestions.fish` into `~/.config/fish/conf.d/`, or `source` it from
 `config.fish`, with the `fuxx-completes` binary on `PATH` (or named in `FUXX_COMPLETES_BIN`).
-With Homebrew (`brew install fitzfitz/fuxx/fuxx-completes`):
+With Homebrew (`brew install fuxx-dev/tap/fuxx-completes`):
 
 ```fish
 ln -s (brew --prefix)/share/fuxx-completes/fish/fuxx-autosuggestions.fish ~/.config/fish/conf.d/

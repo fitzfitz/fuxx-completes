@@ -1,6 +1,6 @@
 #!/bin/sh
 # Release tool: print the Homebrew formula (Formula/fuxx-completes.rb of the tap
-# fitzfitz/homebrew-fuxx) for one release, with checksums of the real bytes (M3).
+# fuxx-dev/homebrew-tap) for one release, with checksums of the real bytes (M3).
 # Usage: scripts/formula.sh <version> [--local]
 #   default  hashes the GitHub release's two zips and GitHub's tarball of tag v<version>
 #   --local  for the pre-release check: file:// URLs to target/dist/v<version>/ (the zips of

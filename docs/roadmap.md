@@ -31,6 +31,17 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M3 Gate C: the Homebrew tap, in the `fuxx-dev` organization (the user:
+  "fuxx-dev", then "created").** The user chose a GitHub organization for every fuxx formula and
+  cask, so the tap is **`fuxx-dev/homebrew-tap`** (`brew install fuxx-dev/tap/fuxx-completes`),
+  not `fitzfitz/homebrew-fuxx`; README, adapter READMEs, `scripts/formula.sh`, design and plan
+  updated. The user created the org; the public repo holds `Formula/fuxx-completes.rb` (from
+  `scripts/formula.sh 0.1.0`, real checksums) and a README. On this Mac: `brew install`, `brew
+  test` and `brew audit --strict --online` passed, the binary printed `fuxx-completes 0.1.0`, the
+  caveats' zsh line loaded the plugin from Homebrew's folder in a throwaway HOME; then uninstalled,
+  untapped, and the four download-cache files removed (taps: `ngrok/ngrok` only, as before). All
+  four gates done; M3 waits for the user's check of v0.1.0 in fuxx.
+
 - **2026-11-23** — **M3 Gate D: crates.io (the user: "logged in", then "verified").** Moved before
   Gate C (the user's order, against name-squatting). `cargo publish --workspace --exclude
   fuxx-autocomplete` published `fuxx-completes-core`, `fuxx-autosuggestions` and `fuxx-completes`

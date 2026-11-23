@@ -326,7 +326,11 @@ the order stays as written unless they say so.
   in fuxx** (Settings → Plugins → update; ghost text, the list, Settings; design §15 "installed
   and checked in fuxx"); on an Intel Mac too if the user has one (R4). A problem found here is
   fixed as `0.1.1` through Tasks 5–6, never by replacing assets.
-- [ ] **Gate C — the tap (R3).** `gh repo create fitzfitz/homebrew-fuxx --public` with
+- [x] **Gate C — the tap (R3).** **Changed 2026-11-23 (the user's decision, "fuxx-dev"):** the tap
+  lives in a new GitHub organization the user creates, **`fuxx-dev/homebrew-tap`** (`brew install
+  fuxx-dev/tap/fuxx-completes`), instead of `fitzfitz/homebrew-fuxx`; one tap for every fuxx
+  formula and cask. Read `fitzfitz/homebrew-fuxx` / `fitzfitz/fuxx/` below as the new names.
+  Original text: `gh repo create fitzfitz/homebrew-fuxx --public` with
   `Formula/fuxx-completes.rb` (`scripts/formula.sh 0.1.0`, real URLs) and a short README (what it
   is, `brew install fitzfitz/fuxx/fuxx-completes`). *Published:* a new public repo. *Undo:* delete
   the repo; anyone who tapped keeps a stale clone until `brew untap`. Then, on this Mac:

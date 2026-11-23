@@ -292,8 +292,8 @@ arrive.
   APIs, the wire format and shell variables may change in a minor bump). **Three crates** go to
   crates.io, published from the user's own crates.io account: `fuxx-completes-core`,
   `fuxx-autosuggestions` and the `fuxx-completes` binary; `fuxx-autocomplete` waits for M8
-  (`publish = false`). The Homebrew tap is **`fitzfitz/homebrew-fuxx`** (`brew install
-  fitzfitz/fuxx/fuxx-completes`; Homebrew requires the `homebrew-` name, an exception to the repo
+  (`publish = false`). The Homebrew tap is **`fuxx-dev/homebrew-tap`** (in the `fuxx-dev` GitHub organization, the user's decision 2026-11-23, replacing `fitzfitz/homebrew-fuxx`) (`brew install
+  fuxx-dev/tap/fuxx-completes`; Homebrew requires the `homebrew-` name, an exception to the repo
   policy's `fuxx-…` names). The **x86_64 binary is cross-built on the user's Mac** (arm64), its
   test suite run under Rosetta; a look on a real Intel Mac is the user's, if they have one. **All
   three adapters** (zsh, bash, fish) are in the formula and the README's install story. A
@@ -1614,7 +1614,7 @@ over the host channel is later, in both repos.
 - The exact read path for the "accept from host" key in ZLE and readline (§5.5).
 - How old shell versions are obtained for the test matrix (§14).
 - Packaging details for each install channel. **As built (M3, AI's calls):** the **Homebrew**
-  formula (tap `fitzfitz/homebrew-fuxx`, `Formula/fuxx-completes.rb`, the only committed copy) is
+  formula (tap `fuxx-dev/homebrew-tap`, `Formula/fuxx-completes.rb`, the only committed copy) is
   rendered by `scripts/formula.sh <version>` from the release's real bytes (`--local` for the
   pre-release check: `file://` URLs to `target/dist/` and a `git archive` of HEAD). It installs
   the **prebuilt** binary from the release zip for the Mac's chip (`resource "binary"` with
@@ -1628,7 +1628,7 @@ over the host channel is later, in both repos.
   (that would turn reporting on for every fish user unasked). Its test runs `doctor`, a wrong
   command (exit 2, the usage line) and sources the zsh adapter with `zsh -f`, which must print
   nothing. Homebrew 6+ trusts a non-official tap's formula when it is installed by its full name
-  (`brew install fitzfitz/fuxx/fuxx-completes`), which is the line the README gives. The **fuxx
+  (`brew install fuxx-dev/tap/fuxx-completes`), which is the line the README gives. The **fuxx
   plugin zips** are §8's. **crates.io**: §12.
 
 ## 16. Risks (recorded honestly)

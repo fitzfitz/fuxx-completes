@@ -90,7 +90,7 @@ adapter for that shell. Nothing is turned on for you, and nothing edits your rc 
 ### Homebrew (macOS)
 
 ```sh
-brew install fitzfitz/fuxx/fuxx-completes
+brew install fuxx-dev/tap/fuxx-completes
 ```
 
 This installs the binary and the zsh, bash and fish adapters (under
@@ -107,7 +107,7 @@ ln -s /opt/homebrew/share/fuxx-completes/fish/fuxx-autosuggestions.fish ~/.confi
 ```
 
 Open a new shell; `fuxx-completes doctor` shows what is running. The paths stay the same across
-`brew upgrade`. Install by the full name `fitzfitz/fuxx/fuxx-completes` as above: Homebrew loads
+`brew upgrade`. Install by the full name `fuxx-dev/tap/fuxx-completes` as above: Homebrew loads
 formulae from taps that aren't its own only once trusted, and installing by full name trusts this
 one.
 

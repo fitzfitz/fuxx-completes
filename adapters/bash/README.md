@@ -12,7 +12,7 @@ Put this at the **end** of `~/.bashrc`, with the `fuxx-completes` binary on `PAT
 source /path/to/fuxx-completes/adapters/bash/fuxx-autosuggestions.bash
 ```
 
-With Homebrew (`brew install fitzfitz/fuxx/fuxx-completes`), the file is
+With Homebrew (`brew install fuxx-dev/tap/fuxx-completes`), the file is
 `$(brew --prefix)/share/fuxx-completes/bash/fuxx-autosuggestions.bash` and the binary is on
 `PATH`; the install prints the exact line. Other ways: the
 [README's Install section](../../README.md#install).
