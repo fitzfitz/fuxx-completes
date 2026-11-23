@@ -31,6 +31,26 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-23** — **M3 Task 3: the Homebrew formula, checked in a local tap.**
+  `scripts/formula.sh <version> [--local]` prints `Formula/fuxx-completes.rb`: the prebuilt
+  binary from the release zip for the Mac's chip, the zsh, bash and fish adapters from the tag's
+  tarball into `share/fuxx-completes/`, caveats with one line per shell, a test (`doctor`, a
+  wrong command, the zsh adapter sourced silently). It refuses another version (`version
+  mismatch: asked for 9.9.9, Cargo.toml 0.0.13`, exit 1). In a throwaway tap
+  (`local/fuxx-check`, v0.0.13 zips): `brew install` put `fuxx-completes` in Homebrew's `bin`
+  and `zsh/`, `bash/`, `fish/` under `share/fuxx-completes/`; `brew test` passed; the first
+  `brew audit --strict` and `brew style` asked for `on_arm`/`on_intel` **inside** the
+  `resource` block (changed; then audit `--strict`, also with `--new`, and style were clean, with
+  no complaint about the `file://` URLs; the reinstall and test passed again). The caveats' zsh
+  line in a temp-HOME `zsh -d -i`: `doctor` shows `state on`, and the core runs from
+  Homebrew's `bin`. Removed after: the formula (`brew uninstall`), its trust entry, the tap,
+  the download cache entries. Side effects on this Mac's Homebrew, cleaned up or reported:
+  `brew tap-new` turned developer mode on (turned off again); the first install, run with
+  `HOMEBREW_NO_INSTALL_FROM_API=1`, cloned `homebrew/core` (1.5 GB, untapped again) and ran
+  Homebrew's periodic `brew cleanup` (old Homebrew logs and caches removed; can't be undone);
+  `brew audit`/`style` installed Homebrew's developer gems into its own `vendor/bundle`.
+  `design.md` §15 (Left to the builder).
+
 - **2026-11-23** — **M3 Task 2: both release zips, by script.** `scripts/package.sh` builds the
   binary for arm64 and x86_64 from the lockfile and makes `fuxx-plugin-macos-arm64.zip` and
   `fuxx-plugin-macos-x86_64.zip` plus `SHA256SUMS` in `target/dist/v<version>/`, with the checks

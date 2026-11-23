@@ -229,9 +229,9 @@ audit`), `homepage`, `url`/`sha256` of the tag tarball, `license any_of: ["MIT",
 `depends_on :macos`, `on_arm`/`on_intel` `resource "binary"`, `install`, `caveats`, `test` per the
 AI's calls. It refuses a version that differs from `Cargo.toml`'s.
 
-- [ ] **Step 1:** write `scripts/formula.sh`. `--local` builds `target/dist/v<v>/fuxx-completes-<v>.tar.gz`
+- [x] **Step 1:** write `scripts/formula.sh`. `--local` builds `target/dist/v<v>/fuxx-completes-<v>.tar.gz`
   with `git archive --prefix=fuxx-completes-<v>/ HEAD` and uses `file://` URLs to it and the zips.
-- [ ] **Step 2: The local tap check** (Homebrew's own tree only; removed at the end):
+- [x] **Step 2: The local tap check** (Homebrew's own tree only; removed at the end):
   `HOMEBREW_NO_AUTO_UPDATE=1 brew tap-new --no-git local/fuxx-check`; write the `--local` formula
   into it; `brew install --formula local/fuxx-check/fuxx-completes`; `brew test
   local/fuxx-check/fuxx-completes`; `brew audit --strict local/fuxx-check/fuxx-completes`;
@@ -240,11 +240,11 @@ AI's calls. It refuses a version that differs from `Cargo.toml`'s.
   test passes; audit and style show nothing but the `file://` URL complaints (recorded). If audit
   rejects the prebuilt route outright, switch to the build-from-source fallback, say so in the
   Progress log, and tell the user (it needs Homebrew's `rust`).
-- [ ] **Step 3:** run the caveats' zsh line in a temp-HOME `zsh -d -i` (as `adapters/zsh/README.md`'s
+- [x] **Step 3:** run the caveats' zsh line in a temp-HOME `zsh -d -i` (as `adapters/zsh/README.md`'s
   try-it shell, with a copy of a generated history): `fuxx-completes doctor` shows `state on` and
   the binary from Homebrew's `bin`. Then `brew uninstall fuxx-completes`, `brew untap
   local/fuxx-check`; `brew list` and `brew tap` show neither.
-- [ ] **Step 4:** gate. **Docs:** design §15 "Left to the builder" → a line on how each channel is
+- [x] **Step 4:** gate. **Docs:** design §15 "Left to the builder" → a line on how each channel is
   packaged (formula route, where adapters land, caveats, no `vendor_conf.d`); roadmap. Commit
   `feat: scripts/formula.sh renders the Homebrew formula from a release`.
 

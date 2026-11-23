@@ -1596,7 +1596,21 @@ over the host channel is later, in both repos.
 - How the zsh menu is drawn (§6), and the ble.sh question.
 - The exact read path for the "accept from host" key in ZLE and readline (§5.5).
 - How old shell versions are obtained for the test matrix (§14).
-- Packaging details for each install channel.
+- Packaging details for each install channel. **As built (M3, AI's calls):** the **Homebrew**
+  formula (tap `fitzfitz/homebrew-fuxx`, `Formula/fuxx-completes.rb`, the only committed copy) is
+  rendered by `scripts/formula.sh <version>` from the release's real bytes (`--local` for the
+  pre-release check: `file://` URLs to `target/dist/` and a `git archive` of HEAD). It installs
+  the **prebuilt** binary from the release zip for the Mac's chip (`resource "binary"` with
+  `on_arm`/`on_intel` inside it, as `brew style` asks), so no Rust toolchain is needed, and the
+  three adapters from the tag's source tarball into `pkgshare` (`share/fuxx-completes/zsh`,
+  `bash`, `fish`); `depends_on :macos`, `license any_of: ["MIT", "Apache-2.0"]`, no bottles. Its
+  caveats print one line per shell with `HOMEBREW_PREFIX/share/fuxx-completes/…` paths that
+  survive upgrades; it never edits an rc file and never installs into fish's `vendor_conf.d`
+  (that would turn reporting on for every fish user unasked). Its test runs `doctor`, a wrong
+  command (exit 2, the usage line) and sources the zsh adapter with `zsh -f`, which must print
+  nothing. Homebrew 6+ trusts a non-official tap's formula when it is installed by its full name
+  (`brew install fitzfitz/fuxx/fuxx-completes`), which is the line the README gives. The **fuxx
+  plugin zips** are §8's. **crates.io**: §12.
 
 ## 16. Risks (recorded honestly)
 
