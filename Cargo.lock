@@ -130,11 +130,11 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fuxx-autocomplete"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "fuxx-autosuggestions"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fuxx-completes-core",
  "tempfile",
@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "fuxx-completes"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "expectrl",
  "fuxx-autosuggestions",
@@ -152,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "fuxx-completes-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde",

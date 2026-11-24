@@ -3,7 +3,7 @@
 Ghost-text suggestions and an as-you-type completion menu for zsh, bash and fish, from one Rust
 engine that doesn't rely on any shell's completion system.
 
-> **Status: fuxx-autosuggestions 0.1.0, the first release, for macOS 11+ (Apple Silicon and
+> **Status: fuxx-autosuggestions 0.1.1, for macOS 11+ (Apple Silicon and
 > Intel).** Ghost text in zsh, suggestions on a key (or ble.sh's grey text) in bash, and your fish
 > commands counted in your other shells. Still pre-1.0: settings and the crates' APIs may change
 > in a minor version. **fuxx-autocomplete (the menu) is not built yet.** Linux comes later. The
@@ -195,7 +195,7 @@ itself.
 
 ## Shell support
 
-| | Ghost text (fuxx-autosuggestions, 0.1.0) | Menu (fuxx-autocomplete, planned) |
+| | Ghost text (fuxx-autosuggestions, 0.1.1) | Menu (fuxx-autocomplete, planned) |
 | --- | --- | --- |
 | **zsh** 5.3+ | As you type, plus a list of up to 5 when you pause | As you type, below the line; Tab stays zsh's |
 | **bash** 4.0+ | Plain readline: key-driven only, → or End at the end of the line inserts the best suggestion (readline can't show ghost text). With ble.sh (0.4+), ble.sh's own grey text shows ours | Key-driven |

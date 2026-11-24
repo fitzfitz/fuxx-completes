@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/fuxx-dev/fuxx-completes"
@@ -19,8 +19,8 @@ categories = ["command-line-utilities"]
 # The crates are built and released together: exact pins, so 0.1.x of one never pairs with 0.1.y
 # of another. The path is used here; the version when published (crates.io).
 [workspace.dependencies]
-fuxx-completes-core = { path = "core", version = "=0.1.0" }
-fuxx-autosuggestions = { path = "fuxx-autosuggestions", version = "=0.1.0" }
+fuxx-completes-core = { path = "core", version = "=0.1.1" }
+fuxx-autosuggestions = { path = "fuxx-autosuggestions", version = "=0.1.1" }
 
 # Smaller release binary, same behaviour and speed (design §3: size and speed come first). No
 # `panic = "abort"`: a worker thread that panics (the history reader) must not end the core.
