@@ -1155,10 +1155,10 @@ Honest about what each shell allows.
   did; Esc closes the list and hides the ghost text, then does what Esc did in that keymap (in vi
   insert mode, command mode); any other key closes the list (keeping the highlighted item as the
   ghost text, so → and End take it) and does what it did.
-  **The look (M1c, the user's pick, spec §9).** A dim `Suggestions` title, rows `  N  <item>` with
-  the number in blue and the command at normal brightness, the selected row `▸ N  <item>` on a
-  grey background (`bg=8`), and a dim hint `⌥1–5 pick · ↑↓ move · esc close`; a short window
-  loses the hint first, then the title, before any item.
+  **The look (the user's pick, 2026-11-24; replaces M1c's look A).** A blank line under the input,
+  then rows `  ▎ N  <item>`, the whole list dim (`fg=8`): bar, number and command. The selected
+  row's bar is in the accent colour (`fg=blue`) and its command at normal brightness, its number
+  dim. No title, no hint line. A short window loses the blank line before any item.
   **Fixes after the M1c review.** The list arrives while zsh already waits for a key, so the first
   key after it opens was read in the old keymap: every wrapper first checks whether the key is
   one of the list's and runs that list widget (↓, ⌥n and `¡` work on the first press). A fresh line

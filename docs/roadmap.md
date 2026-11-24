@@ -31,6 +31,14 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-24** — **Chore: the suggestion list as a greyed gutter list (the user's pick, from
+  fuxx's chore batch).** zsh only: bash and fish draw no list (bash has ble.sh's own menu), so
+  there was nothing to restyle there. A blank line under the input, rows `  ▎ N  <item>` all dim,
+  the selected row's bar in blue and its command at normal brightness; the "Suggestions" title and
+  the `⌥1–5 pick · ↑↓ move · esc close` hint are gone (design §5, "The look"). Tests updated to the
+  new look; `cargo test -p fuxx-completes --test zsh_adapter` → 181 passed. On branch
+  `chore/gutter-list`, not committed (commit on your word). Waiting for your look in a real
+  terminal.
 - **2026-11-23** — **Chore: flaky bash tests (the user: "debug it").** Two causes, both in the
   tests, none in the product. (1) The harness's `run` takes the first newline or cursor-down after
   a typed line as the command's start; output from an earlier key (⌃C's fresh prompt, ble.sh's

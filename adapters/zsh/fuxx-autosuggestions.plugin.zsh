@@ -1197,15 +1197,14 @@ _fuxx_as_list_key() {
   return 0
 }
 
-# Draws the ghost text and the list under it (design spec §9, look A): a dim "Suggestions" title,
-# rows "  N  <item>" (the selected one "▸ N  <item>") with the number in blue and the command at
-# normal brightness, the selected row on a grey background, and a dim key hint. Newlines show as
-# ↵, tabs and control characters as a space; every line is cut to the width by screen columns
-# with …. A short window loses the hint first, then the title, before any item.
+# Draws the ghost text and the list under it (design spec §9; the gutter look, the user's pick,
+# 2026-11-24): a blank line under the input, then rows "  ▎ N  <item>", the whole list dim; the
+# selected row's bar in the accent colour (blue) and its command at normal brightness, its number
+# dim. No title, no hint. Newlines show as ↵, tabs and control characters as a space; every line is
+# cut to the width by screen columns with …. A short window loses the blank line before any item.
 _fuxx_as_list_draw() {
   emulate -L zsh
-  local ghost=$_FUXX_AS_LIST_GHOST out row num
-  local title='  Suggestions' hint='  ⌥1–5 pick · ↑↓ move · esc close'
+  local ghost=$_FUXX_AS_LIST_GHOST out row
   local -i i n cols=$(( COLUMNS - 1 )) avail=$(( LINES - 3 )) pos
   local -a spans
   (( avail < 1 )) && avail=1
@@ -1219,30 +1218,23 @@ _fuxx_as_list_draw() {
   pos=$(( $#BUFFER + $#ghost ))
   (( $#ghost )) && spans+=( "$#BUFFER $pos ${FUXX_AUTOSUGGESTIONS_HIGHLIGHT_STYLE:-fg=8}" )
   if (( avail >= n + 1 )); then
-    _fuxx_as_list_fit $title $cols
-    spans+=( "$(( pos + 1 )) $(( pos + 1 + $#REPLY )) fg=8" )
-    out+=$'\n'$REPLY
-    pos=$(( pos + 1 + $#REPLY ))
+    out+=$'\n'
+    pos=$(( pos + 1 ))
   fi
   for (( i = 1; i <= n; i++ )); do
-    if (( i == _FUXX_AS_LIST_SEL )); then row="▸ $i  " ; else row="  $i  "; fi
-    num=$(( pos + 3 ))
+    row="  ▎ $i  "
     row+=${_FUXX_AS_LIST_ITEMS[i]//$'\n'/ ↵ }
     _fuxx_as_list_fit $row $cols
     row=$REPLY
     if (( i == _FUXX_AS_LIST_SEL )); then
-      spans+=( "$(( pos + 1 )) $(( pos + 1 + $#row )) bg=8" "$num $(( num + 1 )) fg=blue,bg=8" )
+      # The row starts at pos+1: the bar is its 3rd character, the number its 5th.
+      spans+=( "$(( pos + 3 )) $(( pos + 4 )) fg=blue" "$(( pos + 5 )) $(( pos + 5 + ${#i} )) fg=8" )
     else
-      spans+=( "$num $(( num + 1 )) fg=blue" )
+      spans+=( "$(( pos + 1 )) $(( pos + 1 + $#row )) fg=8" )
     fi
     out+=$'\n'$row
     pos=$(( pos + 1 + $#row ))
   done
-  if (( avail >= n + 2 )); then
-    _fuxx_as_list_fit $hint $cols
-    spans+=( "$(( pos + 1 )) $(( pos + 1 + $#REPLY )) fg=8" )
-    out+=$'\n'$REPLY
-  fi
   _fuxx_as_clear
   POSTDISPLAY=$out
   for row in "${(@)spans}"; do _fuxx_as_hl_add "$row"; done
