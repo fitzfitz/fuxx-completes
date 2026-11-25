@@ -31,7 +31,7 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
-- **2026-11-25** — **0.1.1 released (the user: "commit, push and release it").** The gutter-list
+- **2026-11-25** — **0.1.1 released on all four channels (the user: "commit, push and release it").** The gutter-list
   look committed on `chore/gutter-list` (c8e4c56), version 0.1.1 (0db7c60: `[workspace.package]`,
   both pins, `fuxx-plugin.conf`, the README), fast-forwarded into `main` and pushed. Workspace
   tests 559 passed; fmt clean; clippy: only the three old manifest notes (`homepage` with
@@ -41,10 +41,12 @@ Newest first. Add an entry whenever a task is ready.
   `SHA256SUMS` and GitHub's digests. Tap `fuxx-dev/homebrew-tap`: `Formula/fuxx-completes.rb` from
   `scripts/formula.sh 0.1.1` (87c68b0); on this Mac `brew install`, `brew test` and `brew audit
   --strict` passed and the binary printed `fuxx-completes 0.1.1`, then uninstalled, untapped and
-  the cache files removed. **crates.io not published:** `cargo publish` was refused (403, "this
-  token does not have the required permissions"); nothing went up. It needs a token with the
-  publish-update scope (`cargo login`), then `cargo publish --workspace --exclude
-  fuxx-autocomplete`. The release's build folders removed.
+  the cache files removed. **crates.io** (the user's new token, with publish-update): `cargo
+  publish --workspace --exclude fuxx-autocomplete` published `fuxx-completes-core`,
+  `fuxx-autosuggestions` and `fuxx-completes` 0.1.1 (two tries before were refused, 403: the old
+  token lacked the scope, then a login that hadn't saved); `cargo install fuxx-completes --version
+  0.1.1` into a throwaway root under `target/` ran (`fuxx-completes 0.1.1`), then removed. 0.1.1 is
+  out on all four channels. The release's build folders removed.
 
 - **2026-11-24** — **Chore: the suggestion list as a greyed gutter list (the user's pick, from
   fuxx's chore batch).** zsh only: bash and fish draw no list (bash has ble.sh's own menu), so
