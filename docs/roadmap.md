@@ -31,14 +31,29 @@ fuxx's own roadmap.
 
 Newest first. Add an entry whenever a task is ready.
 
+- **2026-11-25** — **0.1.1 released (the user: "commit, push and release it").** The gutter-list
+  look committed on `chore/gutter-list` (c8e4c56), version 0.1.1 (0db7c60: `[workspace.package]`,
+  both pins, `fuxx-plugin.conf`, the README), fast-forwarded into `main` and pushed. Workspace
+  tests 559 passed; fmt clean; clippy: only the three old manifest notes (`homepage` with
+  `repository`). `scripts/package.sh` (run with rustup's 1.97.1 first on `PATH`: Homebrew's Rust
+  1.100, now first on `PATH`, has no x86_64 standard library) made both zips; tag `v0.1.1`; GitHub
+  release "v0.1.1 — a quieter suggestion list" (latest), both zips re-downloaded and matching
+  `SHA256SUMS` and GitHub's digests. Tap `fuxx-dev/homebrew-tap`: `Formula/fuxx-completes.rb` from
+  `scripts/formula.sh 0.1.1` (87c68b0); on this Mac `brew install`, `brew test` and `brew audit
+  --strict` passed and the binary printed `fuxx-completes 0.1.1`, then uninstalled, untapped and
+  the cache files removed. **crates.io not published:** `cargo publish` was refused (403, "this
+  token does not have the required permissions"); nothing went up. It needs a token with the
+  publish-update scope (`cargo login`), then `cargo publish --workspace --exclude
+  fuxx-autocomplete`. The release's build folders removed.
+
 - **2026-11-24** — **Chore: the suggestion list as a greyed gutter list (the user's pick, from
   fuxx's chore batch).** zsh only: bash and fish draw no list (bash has ble.sh's own menu), so
   there was nothing to restyle there. A blank line under the input, rows `  ▎ N  <item>` all dim,
   the selected row's bar in blue and its command at normal brightness; the "Suggestions" title and
   the `⌥1–5 pick · ↑↓ move · esc close` hint are gone (design §5, "The look"). Tests updated to the
   new look; `cargo test -p fuxx-completes --test zsh_adapter` → 181 passed. On branch
-  `chore/gutter-list`, not committed (commit on your word). Waiting for your look in a real
-  terminal.
+  `chore/gutter-list`; committed, merged into `main` and released as 0.1.1 the next day (entry
+  above). Waiting for your look in a real terminal.
 - **2026-11-23** — **Chore: flaky bash tests (the user: "debug it").** Two causes, both in the
   tests, none in the product. (1) The harness's `run` takes the first newline or cursor-down after
   a typed line as the command's start; output from an earlier key (⌃C's fresh prompt, ble.sh's
